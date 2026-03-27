@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback } from "react";
 import { Upload, FileSpreadsheet, Sparkles, ArrowRight, FileUp } from "lucide-react";
 import type { CSVData, FieldMapping } from "@/types";
-import { parseCSV, autoGuessMapping } from "@/lib/csv-parser";
+import { parseCSV, parseXLSX, autoGuessMapping } from "@/lib/csv-parser";
 
 interface ImportViewProps {
   onImportReady: (data: CSVData, mapping: FieldMapping) => void;
@@ -17,16 +17,29 @@ export function ImportView({ onImportReady, onLoadDemo }: ImportViewProps) {
 
   const processFile = useCallback((file: File) => {
     setFileName(file.name);
+    const isExcel = file.name.endsWith(".xlsx") || file.name.endsWith(".xls");
+
     const reader = new FileReader();
     reader.onload = (e) => {
-      const text = e.target?.result as string;
-      const parsed = parseCSV(text);
+      let parsed: CSVData;
+      if (isExcel) {
+        const buffer = e.target?.result as ArrayBuffer;
+        parsed = parseXLSX(buffer);
+      } else {
+        const text = e.target?.result as string;
+        parsed = parseCSV(text);
+      }
       if (parsed.headers.length > 0) {
         const guessed = autoGuessMapping(parsed.headers);
         onImportReady(parsed, guessed);
       }
     };
-    reader.readAsText(file);
+
+    if (isExcel) {
+      reader.readAsArrayBuffer(file);
+    } else {
+      reader.readAsText(file);
+    }
   }, [onImportReady]);
 
   return (
@@ -42,7 +55,7 @@ export function ImportView({ onImportReady, onLoadDemo }: ImportViewProps) {
             Starta en ny ringlista
           </h1>
           <p className="text-telink-muted text-sm max-w-md mx-auto">
-            Ladda upp din CSV-fil med leads så mappar vi automatiskt kolumnerna åt dig. Stöd för Excel-export, Apollo, Clay m.fl.
+            Ladda upp din fil med leads så mappar vi automatiskt kolumnerna åt dig. Stöd för CSV, Excel (xlsx), Apollo, Clay m.fl.
           </p>
         </div>
 
@@ -63,7 +76,7 @@ export function ImportView({ onImportReady, onLoadDemo }: ImportViewProps) {
           <input
             ref={fileRef}
             type="file"
-            accept=".csv,.tsv,.txt"
+            accept=".csv,.tsv,.txt,.xlsx,.xls"
             className="hidden"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) processFile(f); }}
           />
@@ -74,10 +87,10 @@ export function ImportView({ onImportReady, onLoadDemo }: ImportViewProps) {
             <FileUp size={28} className={dragOver ? "text-[#2bb574]" : "text-telink-muted"} />
           </div>
           <p className="text-sm font-medium text-telink-text mb-1">
-            {dragOver ? "Släpp filen här" : "Dra & släpp din CSV-fil"}
+            {dragOver ? "Släpp filen här" : "Dra & släpp din fil"}
           </p>
           <p className="text-xs text-telink-muted">
-            eller klicka för att bläddra • CSV, TSV
+            eller klicka för att bläddra • CSV, TSV, Excel
           </p>
           {fileName && (
             <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-telink-surface border border-telink-border">

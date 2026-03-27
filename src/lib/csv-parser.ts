@@ -1,4 +1,26 @@
+import * as XLSX from "xlsx";
 import type { CSVData, FieldMapping } from "@/types";
+
+export function parseXLSX(buffer: ArrayBuffer): CSVData {
+  const workbook = XLSX.read(buffer, { type: "array" });
+  const firstSheetName = workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[firstSheetName];
+
+  const jsonData: unknown[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+  if (jsonData.length < 2) return { headers: [], rows: [] };
+
+  const headers = jsonData[0].map((h) => String(h || "").trim());
+  const rows = jsonData.slice(1).map((rowArray) => {
+    const obj: Record<string, string> = {};
+    headers.forEach((h, i) => {
+      obj[h] = String(rowArray[i] ?? "").trim();
+    });
+    return obj;
+  });
+
+  return { headers, rows };
+}
 
 export function parseCSV(text: string): CSVData {
   const lines = text.split(/\r?\n/).filter((l) => l.trim());
