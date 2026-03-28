@@ -15,15 +15,15 @@ export interface StatusDef {
 }
 
 export const STATUS_CONFIG: Record<ContactStatus, StatusDef> = {
-  ej_ringd:     { label: "Ej ringd",     color: "#6b7a8d", bg: "#f0f1f4",  icon: Phone },
-  svarar_ej:    { label: "Svarar ej",    color: "#b8860b", bg: "#fef9ee",  icon: PhoneMissed,   key: "1" },
-  nej_tack:     { label: "Nej tack",     color: "#dc3545", bg: "#fef2f2",  icon: ThumbsDown,    key: "2" },
-  bokat_mote:   { label: "Bokat möte",   color: "#16874a", bg: "#eaf8f1",  icon: CalendarCheck, key: "3" },
-  upptaget:     { label: "Upptaget",      color: "#c05621", bg: "#fff7ed",  icon: AlertTriangle, key: "4" },
-  fel_nummer:   { label: "Fel nummer",    color: "#dc3545", bg: "#fef2f2",  icon: Ban,           key: "5" },
-  atersam:      { label: "Återsamtal",    color: "#2563eb", bg: "#eff6ff",  icon: RotateCcw,     key: "6" },
-  intresserad:  { label: "Intresserad",   color: "#7c3aed", bg: "#f5f3ff",  icon: Star,          key: "7" },
-  klar:         { label: "Klar",          color: "#16874a", bg: "#eaf8f1",  icon: CalendarCheck },
+  ej_ringd:     { label: "Ej ringd",     color: "#8b8492", bg: "rgba(139,132,146,0.1)",  icon: Phone },
+  svarar_ej:    { label: "Svarar ej",    color: "#f59e0b", bg: "rgba(245,158,11,0.1)",   icon: PhoneMissed,   key: "1" },
+  nej_tack:     { label: "Nej tack",     color: "#ef4444", bg: "rgba(239,68,68,0.1)",    icon: ThumbsDown,    key: "2" },
+  bokat_mote:   { label: "Bokat möte",   color: "#22c55e", bg: "rgba(34,197,94,0.1)",    icon: CalendarCheck, key: "3" },
+  upptaget:     { label: "Upptaget",     color: "#fb923c", bg: "rgba(251,146,60,0.1)",   icon: AlertTriangle, key: "4" },
+  fel_nummer:   { label: "Fel nummer",   color: "#f87171", bg: "rgba(248,113,113,0.1)",  icon: Ban,           key: "5" },
+  atersam:      { label: "Återsamtal",   color: "#3b82f6", bg: "rgba(59,130,246,0.1)",   icon: RotateCcw,     key: "6" },
+  intresserad:  { label: "Intresserad",  color: "#a78bfa", bg: "rgba(167,139,250,0.1)",  icon: Star,          key: "7" },
+  klar:         { label: "Klar",         color: "#22c55e", bg: "rgba(34,197,94,0.1)",    icon: CalendarCheck },
 };
 
 export interface SystemFieldDef {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Upload, LayoutDashboard, List, Zap, FolderOpen, MoreHorizontal, Pencil, Trash2, Plus } from "lucide-react";
+import { LayoutDashboard, List, Zap, FolderOpen, MoreHorizontal, Pencil, Trash2, Plus, Sparkles } from "lucide-react";
 import type { ViewMode, CallList } from "@/types";
 
 interface SidebarProps {
@@ -17,7 +17,7 @@ interface SidebarProps {
   onRenameList: (listId: string, newName: string) => void;
 }
 
-const NAV_ITEMS: { key: ViewMode; label: string; icon: typeof Upload; needsData?: boolean }[] = [
+const NAV_ITEMS: { key: ViewMode; label: string; icon: typeof LayoutDashboard; needsData?: boolean }[] = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, needsData: true },
   { key: "list", label: "Kontakter", icon: List, needsData: true },
   { key: "cockpit", label: "Dialer", icon: Zap, needsData: true },
@@ -27,8 +27,6 @@ export function Sidebar({
   view,
   setView,
   hasData,
-  listName,
-  contactCount,
   callLists,
   activeListId,
   onListSelect,
@@ -41,7 +39,6 @@ export function Sidebar({
   const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Close menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -52,7 +49,6 @@ export function Sidebar({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Focus input when editing
   useEffect(() => {
     if (editingId && inputRef.current) {
       inputRef.current.focus();
@@ -82,24 +78,34 @@ export function Sidebar({
   };
 
   return (
-    <aside className="w-[220px] flex-shrink-0 h-screen flex flex-col border-r border-telink-border bg-telink-surface/60 backdrop-blur-sm">
-      {/* Logo */}
-      <div className="px-5 pt-6 pb-5">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-[#2bb574] flex items-center justify-center">
-            <Zap size={16} className="text-white" />
+    <aside className="w-[240px] flex-shrink-0 h-screen flex flex-col bg-telink-bg-subtle/50">
+      {/* Logo with gradient accent */}
+      <div className="px-5 pt-7 pb-6">
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-telink-accent via-pink-500 to-telink-violet flex items-center justify-center shadow-glow-sm">
+              <Zap size={18} className="text-telink-bg" strokeWidth={2.5} />
+            </div>
+            <div className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-telink-success border-2 border-telink-bg-subtle animate-pulse" />
           </div>
           <div>
-            <span className="font-bold text-[15px] tracking-tight text-telink-text">telink</span>
-            <span className="text-[10px] block -mt-0.5 text-telink-muted font-medium tracking-widest uppercase">Sales Dialer</span>
+            <span className="font-semibold text-base tracking-tight text-telink-text">telink</span>
+            <span className="text-2xs block text-telink-muted font-medium tracking-wider uppercase">Dialer Pro</span>
           </div>
         </div>
       </div>
 
+      {/* Divider */}
+      <div className="mx-4 h-px bg-gradient-to-r from-transparent via-telink-border to-transparent" />
+
       {/* Call Lists Section */}
-      <div className="px-3 mb-4">
-        <div className="text-[10px] font-semibold tracking-widest uppercase text-telink-dim px-2 mb-2">Ringlistor</div>
-        <div className="space-y-0.5">
+      <div className="px-3 py-4 flex-1 overflow-y-auto">
+        <div className="flex items-center justify-between px-2 mb-3">
+          <span className="text-2xs font-semibold tracking-wider uppercase text-telink-dim">Ringlistor</span>
+          <span className="text-2xs font-mono text-telink-dim">{callLists.length}</span>
+        </div>
+
+        <div className="space-y-1">
           {callLists.map((list) => {
             const isActive = list.id === activeListId;
             const isEditing = list.id === editingId;
@@ -108,14 +114,22 @@ export function Sidebar({
               <div
                 key={list.id}
                 className={`
-                  group relative flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all duration-150
+                  group relative flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 ease-out-expo
                   ${isActive
-                    ? "bg-[rgba(43,181,116,0.10)] text-[#2bb574]"
-                    : "text-telink-muted hover:bg-telink-surface-hover hover:text-telink-text"
+                    ? "bg-telink-accent-muted shadow-inner-glow"
+                    : "hover:bg-telink-surface-hover"
                   }
                 `}
               >
-                <FolderOpen size={14} className="flex-shrink-0" />
+                <div className={`
+                  w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-all duration-200
+                  ${isActive
+                    ? "bg-telink-accent/20 text-telink-accent"
+                    : "bg-telink-surface text-telink-muted group-hover:text-telink-text-secondary"
+                  }
+                `}>
+                  <FolderOpen size={14} />
+                </div>
 
                 {isEditing ? (
                   <input
@@ -131,55 +145,52 @@ export function Sidebar({
                         setEditName("");
                       }
                     }}
-                    className="flex-1 min-w-0 px-1 py-0.5 -my-0.5 bg-telink-surface-light border border-telink-border rounded text-sm text-telink-text focus:outline-none focus:border-[#2bb574]"
+                    className="flex-1 min-w-0 px-2 py-1 -my-1 bg-telink-surface border border-telink-accent rounded-lg text-sm text-telink-text focus:outline-none"
                   />
                 ) : (
                   <button
                     onClick={() => onListSelect(list.id)}
-                    className="flex-1 min-w-0 text-left truncate font-medium cursor-pointer"
+                    className={`flex-1 min-w-0 text-left truncate font-medium cursor-pointer transition-colors duration-150 ${
+                      isActive ? "text-telink-accent" : "text-telink-text-secondary group-hover:text-telink-text"
+                    }`}
                   >
                     {list.name}
                   </button>
                 )}
 
-                <span className="text-xs text-telink-dim">
+                <span className={`text-xs font-mono tabular-nums transition-colors duration-150 ${
+                  isActive ? "text-telink-accent/70" : "text-telink-dim"
+                }`}>
                   {list.contacts.length}
                 </span>
 
-                {/* Menu trigger */}
                 {!isEditing && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       setMenuOpen(menuOpen === list.id ? null : list.id);
                     }}
-                    className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-telink-surface-light rounded transition-all cursor-pointer"
+                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-telink-surface rounded-md transition-all cursor-pointer text-telink-dim hover:text-telink-text"
                   >
                     <MoreHorizontal size={14} />
                   </button>
                 )}
 
-                {/* Active indicator */}
-                {isActive && !isEditing && (
-                  <div className="w-1.5 h-1.5 rounded-full bg-[#2bb574]" />
-                )}
-
-                {/* Dropdown menu */}
                 {menuOpen === list.id && (
                   <div
                     ref={menuRef}
-                    className="absolute right-0 top-full mt-1 w-36 py-1 bg-telink-surface border border-telink-border rounded-lg shadow-lg z-50"
+                    className="absolute right-0 top-full mt-1 w-40 py-1.5 bg-telink-surface-elevated border border-telink-border rounded-xl shadow-elevation-3 z-50 animate-fade-down"
                   >
                     <button
                       onClick={() => handleStartEdit(list)}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-telink-text hover:bg-telink-surface-hover transition-colors cursor-pointer"
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-telink-text hover:bg-telink-surface-hover transition-colors cursor-pointer"
                     >
-                      <Pencil size={13} />
+                      <Pencil size={13} className="text-telink-muted" />
                       Byt namn
                     </button>
                     <button
                       onClick={() => handleDelete(list.id)}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-telink-surface-hover transition-colors cursor-pointer"
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
                     >
                       <Trash2 size={13} />
                       Ta bort
@@ -194,60 +205,88 @@ export function Sidebar({
           <button
             onClick={() => setView("import")}
             className={`
-              w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-150
+              w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200
               ${view === "import"
-                ? "bg-[rgba(43,181,116,0.10)] text-[#2bb574]"
-                : "text-telink-dim hover:bg-telink-surface-hover hover:text-telink-muted"
+                ? "bg-telink-violet-muted text-telink-violet"
+                : "text-telink-dim hover:bg-telink-surface-hover hover:text-telink-text-secondary"
               }
-              cursor-pointer
+              cursor-pointer group
             `}
           >
-            <Plus size={14} />
+            <div className={`
+              w-7 h-7 rounded-lg flex items-center justify-center border border-dashed transition-all duration-200
+              ${view === "import"
+                ? "border-telink-violet/50 bg-telink-violet/10"
+                : "border-telink-border group-hover:border-telink-border-light"
+              }
+            `}>
+              <Plus size={14} />
+            </div>
             <span>Importera ny</span>
           </button>
         </div>
       </div>
 
-      {/* Nav - only show if we have an active list */}
+      {/* Navigation - only show if we have an active list */}
       {hasData && (
-        <nav className="flex-1 px-3 space-y-0.5">
-          <div className="text-[10px] font-semibold tracking-widest uppercase text-telink-dim px-2 mb-2">Navigering</div>
-          {NAV_ITEMS.map((item) => {
-            const disabled = item.needsData && !hasData;
-            const active = view === item.key;
-            return (
-              <button
-                key={item.key}
-                onClick={() => !disabled && setView(item.key)}
-                disabled={disabled}
-                className={`
-                  w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150
-                  ${active
-                    ? "bg-[rgba(43,181,116,0.10)] text-[#2bb574]"
-                    : disabled
-                      ? "text-telink-dim cursor-not-allowed opacity-40"
-                      : "text-telink-muted hover:bg-telink-surface-hover hover:text-telink-text cursor-pointer"
-                  }
-                `}
-              >
-                <item.icon size={16} />
-                {item.label}
-                {active && (
-                  <div className="ml-auto w-1.5 h-1.5 rounded-full bg-[#2bb574]" />
-                )}
-              </button>
-            );
-          })}
-        </nav>
+        <>
+          <div className="mx-4 h-px bg-gradient-to-r from-transparent via-telink-border to-transparent" />
+
+          <nav className="px-3 py-4">
+            <div className="px-2 mb-3">
+              <span className="text-2xs font-semibold tracking-wider uppercase text-telink-dim">Navigering</span>
+            </div>
+
+            <div className="space-y-1">
+              {NAV_ITEMS.map((item) => {
+                const disabled = item.needsData && !hasData;
+                const active = view === item.key;
+                return (
+                  <button
+                    key={item.key}
+                    onClick={() => !disabled && setView(item.key)}
+                    disabled={disabled}
+                    className={`
+                      w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ease-out-expo
+                      ${active
+                        ? "bg-telink-accent-muted text-telink-accent shadow-inner-glow"
+                        : disabled
+                          ? "text-telink-dim cursor-not-allowed opacity-40"
+                          : "text-telink-text-secondary hover:bg-telink-surface-hover hover:text-telink-text cursor-pointer"
+                      }
+                    `}
+                  >
+                    <div className={`
+                      w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-200
+                      ${active
+                        ? "bg-telink-accent/20"
+                        : "bg-telink-surface"
+                      }
+                    `}>
+                      <item.icon size={14} />
+                    </div>
+                    {item.label}
+                    {active && (
+                      <div className="ml-auto w-1.5 h-1.5 rounded-full bg-telink-accent shadow-glow-sm" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </nav>
+        </>
       )}
 
-      {/* Spacer if no data */}
-      {!hasData && <div className="flex-1" />}
-
       {/* Footer */}
-      <div className="p-4 border-t border-telink-border">
-        <div className="text-[10px] text-telink-dim text-center">
-          Telink AB © {new Date().getFullYear()}
+      <div className="px-4 py-4 mt-auto">
+        <div className="p-3 rounded-xl bg-gradient-to-br from-telink-surface to-telink-surface-elevated border border-telink-border">
+          <div className="flex items-center gap-2 mb-2">
+            <Sparkles size={14} className="text-telink-accent" />
+            <span className="text-xs font-medium text-telink-text">Pro Tips</span>
+          </div>
+          <p className="text-2xs text-telink-muted leading-relaxed">
+            Tryck <kbd>Space</kbd> för snabbsamtal eller <kbd>?</kbd> för alla genvägar.
+          </p>
         </div>
       </div>
     </aside>

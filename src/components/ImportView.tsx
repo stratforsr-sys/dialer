@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { Upload, FileSpreadsheet, Sparkles, ArrowRight, FileUp } from "lucide-react";
+import { Upload, FileSpreadsheet, Sparkles, ArrowRight, FileUp, Zap } from "lucide-react";
 import type { CSVData, FieldMapping } from "@/types";
 import { parseCSV, parseXLSX, autoGuessMapping } from "@/lib/csv-parser";
 
@@ -43,36 +43,39 @@ export function ImportView({ onImportReady, onLoadDemo }: ImportViewProps) {
   }, [onImportReady]);
 
   return (
-    <div className="h-full flex items-center justify-center p-8">
-      <div className="w-full max-w-xl animate-fade-in">
-        {/* Header */}
-        <div className="text-center mb-10">
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[rgba(43,181,116,0.08)] border border-[rgba(43,181,116,0.15)] mb-5">
-            <Sparkles size={13} className="text-[#2bb574]" />
-            <span className="text-xs font-medium text-[#2bb574]">Sales Dialer v2</span>
+    <div className="h-full flex items-center justify-center p-8 bg-telink-bg">
+      <div className="w-full max-w-xl animate-fade-up">
+        {/* Header - Premium styling */}
+        <div className="text-center mb-12">
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-telink-accent/10 via-pink-500/10 to-telink-violet/10 border border-telink-accent/20 mb-6">
+            <Zap size={14} className="text-telink-accent" />
+            <span className="text-xs font-semibold gradient-text">telink Dialer Pro</span>
           </div>
-          <h1 className="text-3xl font-bold text-telink-text mb-2 tracking-tight">
+          <h1 className="text-3xl font-bold text-telink-text mb-3 tracking-tight">
             Starta en ny ringlista
           </h1>
-          <p className="text-telink-muted text-sm max-w-md mx-auto">
+          <p className="text-telink-muted text-sm max-w-md mx-auto leading-relaxed">
             Ladda upp din fil med leads så mappar vi automatiskt kolumnerna åt dig. Stöd för CSV, Excel (xlsx), Apollo, Clay m.fl.
           </p>
         </div>
 
-        {/* Drop zone */}
+        {/* Drop zone - Premium styling */}
         <div
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
           onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) processFile(f); }}
           onClick={() => fileRef.current?.click()}
           className={`
-            drop-zone relative cursor-pointer rounded-2xl border-2 border-dashed p-12 text-center transition-all duration-200
+            relative cursor-pointer rounded-3xl border-2 border-dashed p-14 text-center transition-all duration-300
             ${dragOver
-              ? "active border-[#2bb574] bg-[rgba(43,181,116,0.04)]"
-              : "border-telink-border hover:border-telink-border-light hover:bg-telink-surface/40"
+              ? "border-telink-accent bg-telink-accent/5 shadow-glow-sm"
+              : "border-telink-border hover:border-telink-accent/40 hover:bg-telink-surface/40"
             }
           `}
         >
+          {/* Background glow on hover */}
+          <div className={`absolute inset-0 rounded-3xl bg-gradient-radial from-telink-accent/5 to-transparent transition-opacity ${dragOver ? "opacity-100" : "opacity-0"}`} />
+
           <input
             ref={fileRef}
             type="file"
@@ -81,40 +84,48 @@ export function ImportView({ onImportReady, onLoadDemo }: ImportViewProps) {
             onChange={(e) => { const f = e.target.files?.[0]; if (f) processFile(f); }}
           />
           <div className={`
-            w-16 h-16 mx-auto mb-5 rounded-2xl flex items-center justify-center transition-all
-            ${dragOver ? "bg-[rgba(43,181,116,0.15)]" : "bg-telink-surface-light"}
+            relative w-20 h-20 mx-auto mb-6 rounded-2xl flex items-center justify-center transition-all duration-300
+            ${dragOver
+              ? "bg-gradient-to-br from-telink-accent/20 to-pink-500/20 scale-110"
+              : "bg-telink-surface-elevated"
+            }
           `}>
-            <FileUp size={28} className={dragOver ? "text-[#2bb574]" : "text-telink-muted"} />
+            <FileUp size={32} className={`transition-colors ${dragOver ? "text-telink-accent" : "text-telink-muted"}`} />
           </div>
-          <p className="text-sm font-medium text-telink-text mb-1">
+          <p className="relative text-base font-semibold text-telink-text mb-2">
             {dragOver ? "Släpp filen här" : "Dra & släpp din fil"}
           </p>
-          <p className="text-xs text-telink-muted">
+          <p className="relative text-sm text-telink-muted">
             eller klicka för att bläddra • CSV, TSV, Excel
           </p>
           {fileName && (
-            <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-telink-surface border border-telink-border">
-              <FileSpreadsheet size={14} className="text-[#2bb574]" />
-              <span className="text-xs text-telink-text font-medium">{fileName}</span>
+            <div className="relative mt-6 inline-flex items-center gap-2.5 px-4 py-2 rounded-xl bg-telink-accent-muted border border-telink-accent/20">
+              <FileSpreadsheet size={16} className="text-telink-accent" />
+              <span className="text-sm text-telink-accent font-medium">{fileName}</span>
             </div>
           )}
         </div>
 
-        {/* Divider */}
-        <div className="flex items-center gap-4 my-8">
-          <div className="flex-1 h-px bg-telink-border" />
-          <span className="text-xs text-telink-dim font-medium">ELLER</span>
-          <div className="flex-1 h-px bg-telink-border" />
+        {/* Divider - Premium */}
+        <div className="flex items-center gap-4 my-10">
+          <div className="flex-1 h-px bg-gradient-to-r from-transparent via-telink-border to-transparent" />
+          <span className="text-xs text-telink-dim font-semibold tracking-wider">ELLER</span>
+          <div className="flex-1 h-px bg-gradient-to-r from-transparent via-telink-border to-transparent" />
         </div>
 
-        {/* Demo button */}
+        {/* Demo button - Premium */}
         <button
           onClick={onLoadDemo}
-          className="w-full group flex items-center justify-center gap-3 px-5 py-4 rounded-2xl border border-telink-border bg-telink-surface/50 hover:bg-telink-surface-hover hover:border-telink-border-light transition-all cursor-pointer"
+          className="w-full group flex items-center justify-center gap-4 px-6 py-5 rounded-2xl border border-telink-border bg-telink-surface hover:bg-telink-surface-hover hover:border-telink-border-light transition-all cursor-pointer"
         >
-          <Upload size={16} className="text-telink-muted group-hover:text-[#2bb574] transition-colors" />
-          <span className="text-sm font-medium text-telink-text">Ladda demo-data (8 SaaS-leads)</span>
-          <ArrowRight size={14} className="text-telink-dim group-hover:text-telink-muted group-hover:translate-x-0.5 transition-all" />
+          <div className="w-10 h-10 rounded-xl bg-telink-surface-elevated flex items-center justify-center group-hover:bg-telink-accent/10 transition-colors">
+            <Sparkles size={18} className="text-telink-muted group-hover:text-telink-accent transition-colors" />
+          </div>
+          <div className="flex-1 text-left">
+            <div className="text-sm font-semibold text-telink-text">Ladda demo-data</div>
+            <div className="text-xs text-telink-muted">8 SaaS-leads för att testa systemet</div>
+          </div>
+          <ArrowRight size={16} className="text-telink-dim group-hover:text-telink-accent group-hover:translate-x-1 transition-all" />
         </button>
       </div>
     </div>
