@@ -50,9 +50,10 @@ export const SHORTCUTS = [
   { key: "1", label: "Svarar ej" }, { key: "2", label: "Nej tack" },
   { key: "3", label: "Bokat möte" }, { key: "4", label: "Upptaget" },
   { key: "5", label: "Fel nummer" }, { key: "6", label: "Återsamtal" },
-  { key: "7", label: "Intresserad" }, { key: "D", label: "Ring direkt" },
-  { key: "V", label: "Ring växel" }, { key: "N", label: "Nästa lead" },
-  { key: "P", label: "Föregående" }, { key: "?", label: "Visa shortcuts" },
+  { key: "7", label: "Intresserad" }, { key: "␣", label: "Ring direkt" },
+  { key: "D", label: "Ring direkt" }, { key: "V", label: "Ring växel" },
+  { key: "N", label: "Nästa lead" }, { key: "P", label: "Föregående" },
+  { key: "?", label: "Visa shortcuts" },
 ];
 
 export const DEMO_CONTACTS = [

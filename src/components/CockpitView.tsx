@@ -9,6 +9,51 @@ import {
 import type { Contact, ContactStatus } from "@/types";
 import { STATUS_CONFIG, SHORTCUTS } from "@/lib/constants";
 
+// Best-Time Indicator logic based on role
+function getBestTimeIndicator(role: string | undefined): { status: "good" | "ok" | "bad"; label: string; tip: string } {
+  const now = new Date();
+  const hour = now.getHours();
+  const roleLower = (role || "").toLowerCase();
+
+  // VD/CEO: Early morning or late afternoon
+  if (roleLower.includes("vd") || roleLower.includes("ceo") || roleLower.includes("grundare") || roleLower.includes("founder")) {
+    if ((hour >= 8 && hour < 9) || (hour >= 16 && hour < 17)) {
+      return { status: "good", label: "Bra tid", tip: "VD:ar nås bäst tidigt eller sent" };
+    } else if (hour >= 12 && hour < 14) {
+      return { status: "bad", label: "Upptagen", tip: "Lunchtid - ofta möten" };
+    }
+    return { status: "ok", label: "Försök", tip: "Kan vara i möte" };
+  }
+
+  // Sales: Avoid mornings
+  if (roleLower.includes("sales") || roleLower.includes("säljare") || roleLower.includes("account")) {
+    if (hour >= 14 && hour < 16) {
+      return { status: "good", label: "Bra tid", tip: "Säljare ofta vid datorn nu" };
+    } else if (hour >= 9 && hour < 12) {
+      return { status: "bad", label: "Ute säljande", tip: "Ofta på kundmöten" };
+    }
+    return { status: "ok", label: "Försök", tip: "Kan vara upptagen" };
+  }
+
+  // CTO/Tech: Mornings or late afternoon
+  if (roleLower.includes("cto") || roleLower.includes("tech") || roleLower.includes("utvecklare") || roleLower.includes("developer")) {
+    if ((hour >= 8 && hour < 10) || (hour >= 16 && hour < 17)) {
+      return { status: "good", label: "Bra tid", tip: "Innan/efter fokustid" };
+    } else if (hour >= 10 && hour < 15) {
+      return { status: "bad", label: "Fokustid", tip: "Tekniker stör ej ogärna" };
+    }
+    return { status: "ok", label: "Försök", tip: "Kan vara i kodfokus" };
+  }
+
+  // Default: Mid-morning or early afternoon
+  if ((hour >= 10 && hour < 12) || (hour >= 14 && hour < 16)) {
+    return { status: "good", label: "Bra tid", tip: "Generellt bra tidpunkt" };
+  } else if (hour >= 12 && hour < 13) {
+    return { status: "bad", label: "Lunchtid", tip: "Ofta upptagen med lunch" };
+  }
+  return { status: "ok", label: "Okänd", tip: "Pröva lyckan!" };
+}
+
 interface CockpitViewProps {
   contacts: Contact[];
   currentIndex: number;
@@ -110,6 +155,10 @@ export function CockpitView({
           break;
         case "n": case "N": goNext(); break;
         case "p": case "P": goPrev(); break;
+        case " ": // Space to call directly
+          e.preventDefault();
+          if (contact?.direct_phone) window.open(`tel:${contact.direct_phone}`, "_self");
+          break;
         case "?": setShowShortcuts(prev => !prev); break;
         case "Escape": onExit(); break;
       }
@@ -172,8 +221,31 @@ export function CockpitView({
             </button>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-telink-dim">{sessionCalls} samtal idag</span>
+        <div className="flex items-center gap-3">
+          {/* Streak Momentum Counter */}
+          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all ${
+            sessionCalls >= 5
+              ? "bg-gradient-to-r from-orange-500/20 to-red-500/20 border border-orange-500/30"
+              : sessionCalls >= 3
+                ? "bg-[rgba(43,181,116,0.1)] border border-[#2bb574]/20"
+                : "bg-telink-surface border border-telink-border"
+          }`}>
+            <span className={`text-sm ${sessionCalls >= 5 ? "animate-pulse" : ""}`}>
+              {sessionCalls >= 10 ? "🔥" : sessionCalls >= 5 ? "⚡" : sessionCalls >= 3 ? "✨" : "📞"}
+            </span>
+            <span className={`text-xs font-bold ${
+              sessionCalls >= 5 ? "text-orange-400" : sessionCalls >= 3 ? "text-[#2bb574]" : "text-telink-muted"
+            }`}>
+              {sessionCalls}
+            </span>
+            <span className="text-[10px] text-telink-dim">samtal</span>
+            {sessionCalls >= 10 && (
+              <span className="text-[10px] font-bold text-orange-400 ml-1">ON FIRE!</span>
+            )}
+            {sessionCalls >= 5 && sessionCalls < 10 && (
+              <span className="text-[10px] font-medium text-[#2bb574] ml-1">Streak!</span>
+            )}
+          </div>
           <button
             onClick={() => setShowShortcuts(!showShortcuts)}
             className={`p-2 rounded-lg transition-colors cursor-pointer ${showShortcuts ? "bg-[rgba(43,181,116,0.1)] text-[#2bb574]" : "hover:bg-telink-surface-hover text-telink-dim hover:text-telink-text"}`}
@@ -203,9 +275,30 @@ export function CockpitView({
         <div className="w-[420px] flex-shrink-0 flex flex-col border-r border-telink-border overflow-y-auto">
           {/* Contact header */}
           <div className="p-5 border-b border-telink-border">
-            <h2 className="text-xl font-bold text-telink-text tracking-tight leading-tight">
-              {contact.name || "Okänt namn"}
-            </h2>
+            <div className="flex items-start justify-between">
+              <h2 className="text-xl font-bold text-telink-text tracking-tight leading-tight">
+                {contact.name || "Okänt namn"}
+              </h2>
+              {/* Best-Time Indicator */}
+              {(() => {
+                const timeInfo = getBestTimeIndicator(contact.role);
+                return (
+                  <div
+                    className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-medium ${
+                      timeInfo.status === "good"
+                        ? "bg-green-500/10 text-green-400 border border-green-500/20"
+                        : timeInfo.status === "bad"
+                          ? "bg-red-500/10 text-red-400 border border-red-500/20"
+                          : "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20"
+                    }`}
+                    title={timeInfo.tip}
+                  >
+                    <span>{timeInfo.status === "good" ? "🟢" : timeInfo.status === "bad" ? "🔴" : "🟡"}</span>
+                    <span>{timeInfo.label}</span>
+                  </div>
+                );
+              })()}
+            </div>
             <div className="flex items-center gap-2 mt-1">
               {contact.role && <span className="text-sm text-telink-muted">{contact.role}</span>}
               {contact.role && contact.company && <span className="text-telink-dim">•</span>}
@@ -308,8 +401,31 @@ export function CockpitView({
               value={notes}
               onChange={e => setNotes(e.target.value)}
               placeholder="Skriv anteckningar här..."
-              className="w-full h-32 p-3 rounded-xl bg-telink-surface border border-telink-border text-sm text-telink-text placeholder-telink-dim resize-none focus:outline-none focus:border-[#2bb574]/40 transition-colors"
+              className="w-full h-24 p-3 rounded-xl bg-telink-surface border border-telink-border text-sm text-telink-text placeholder-telink-dim resize-none focus:outline-none focus:border-[#2bb574]/40 transition-colors"
             />
+            {/* Ghost Note Templates */}
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {[
+                { label: "Återkom", text: "Återkom kl " },
+                { label: "Skicka info", text: "Skicka info om " },
+                { label: "Möte bokat", text: `Möte bokat ${new Date().toLocaleDateString("sv-SE")} kl ` },
+                { label: "Ej intresserad", text: "Ej intresserad - " },
+                { label: "Beslutsfattare", text: "Beslutsfattare: " },
+                { label: "Budget", text: "Budget: " },
+              ].map(tmpl => (
+                <button
+                  key={tmpl.label}
+                  onClick={() => {
+                    const newNotes = notes + (notes && !notes.endsWith("\n") && !notes.endsWith(" ") ? "\n" : "") + tmpl.text;
+                    setNotes(newNotes);
+                    notesRef.current?.focus();
+                  }}
+                  className="px-2 py-1 rounded-lg text-[10px] font-medium bg-telink-surface-light border border-telink-border text-telink-muted hover:text-[#2bb574] hover:border-[#2bb574]/30 transition-all cursor-pointer"
+                >
+                  + {tmpl.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
