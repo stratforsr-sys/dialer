@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import type { Contact, CSVData, FieldMapping, ViewMode, ContactStatus } from "@/types";
+import type { Contact, CSVData, FieldMapping, ViewMode } from "@/types";
 import { DEMO_CONTACTS } from "@/lib/constants";
+import { useCallLists } from "@/hooks/useCallLists";
 import { Sidebar } from "@/components/Sidebar";
 import { ImportView } from "@/components/ImportView";
 import { MappingView } from "@/components/MappingView";
@@ -11,26 +12,52 @@ import { ListView } from "@/components/ListView";
 import { CockpitView } from "@/components/CockpitView";
 
 export default function Home() {
+  const {
+    callLists,
+    activeList,
+    activeListId,
+    isLoaded,
+    setActiveListId,
+    createList,
+    updateList,
+    deleteList,
+    updateContact,
+    setContactStatus,
+    moveContacts,
+  } = useCallLists();
+
   const [view, setView] = useState<ViewMode>("import");
-  const [contacts, setContacts] = useState<Contact[]>([]);
   const [csvData, setCsvData] = useState<CSVData | null>(null);
   const [mapping, setMapping] = useState<FieldMapping>({});
+  const [importFileName, setImportFileName] = useState("");
   const [cockpitIndex, setCockpitIndex] = useState(0);
   const [sessionCalls, setSessionCalls] = useState(0);
   const [sessionMeetings, setSessionMeetings] = useState(0);
-  const [listName, setListName] = useState("Ny ringlista");
 
-  const handleImportReady = useCallback((data: CSVData, guessedMapping: FieldMapping) => {
+  // Derived state
+  const contacts = activeList?.contacts || [];
+  const listName = activeList?.name || "";
+  const hasData = activeList !== null && contacts.length > 0;
+
+  // Switch to dashboard if we have an active list on load
+  const handleListSelect = useCallback((listId: string) => {
+    setActiveListId(listId);
+    setView("dashboard");
+    setCockpitIndex(0);
+  }, [setActiveListId]);
+
+  const handleImportReady = useCallback((data: CSVData, guessedMapping: FieldMapping, fileName: string) => {
     setCsvData(data);
     setMapping(guessedMapping);
+    setImportFileName(fileName);
     setView("mapping");
   }, []);
 
-  const handleMappingConfirm = useCallback(() => {
+  const handleMappingConfirm = useCallback((listNameInput: string) => {
     if (!csvData) return;
-    const imported: Contact[] = csvData.rows.map((row, i) => {
+    const imported: Contact[] = csvData.rows.map((row) => {
       const c: Contact = {
-        id: i + 1,
+        id: crypto.randomUUID(),
         name: "", company: "", role: "", direct_phone: "", switchboard: "",
         email: "", website: "", linkedin: "", org_number: "",
         status: "ej_ringd", notes: "", tags: [], lastContact: null,
@@ -43,26 +70,32 @@ export default function Home() {
       return c;
     }).filter(c => c.name || c.company || c.direct_phone);
 
-    setContacts(imported);
+    createList(listNameInput || "Ny ringlista", imported);
+    setCsvData(null);
+    setMapping({});
+    setImportFileName("");
     setView("dashboard");
-  }, [csvData, mapping]);
+  }, [csvData, mapping, createList]);
 
   const handleLoadDemo = useCallback(() => {
-    setContacts(DEMO_CONTACTS);
-    setListName("SaaS 2 — Demo");
+    createList("Demo - SaaS-leads", DEMO_CONTACTS);
     setView("dashboard");
-  }, []);
+  }, [createList]);
 
-  const updateContact = useCallback((id: number, updates: Partial<Contact>) => {
-    setContacts(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
-  }, []);
+  const handleUpdateContact = useCallback((id: string, updates: Partial<Contact>) => {
+    updateContact(id, updates);
+  }, [updateContact]);
 
-  const setStatus = useCallback((id: number, status: ContactStatus) => {
-    const now = new Date().toISOString();
-    setContacts(prev => prev.map(c => c.id === id ? { ...c, status, lastContact: now } : c));
+  const handleSetStatus = useCallback((id: string, status: Contact["status"]) => {
+    setContactStatus(id, status);
     setSessionCalls(p => p + 1);
     if (status === "bokat_mote") setSessionMeetings(p => p + 1);
-  }, []);
+  }, [setContactStatus]);
+
+  const handleMoveContact = useCallback((contactId: string, toListId: string) => {
+    if (!activeListId) return;
+    moveContacts([contactId], activeListId, toListId);
+  }, [activeListId, moveContacts]);
 
   const startDialer = useCallback((startIndex?: number) => {
     const idx = startIndex ?? contacts.findIndex(c => c.status === "ej_ringd");
@@ -70,7 +103,26 @@ export default function Home() {
     setView("cockpit");
   }, [contacts]);
 
-  const hasData = contacts.length > 0;
+  const handleDeleteList = useCallback((listId: string) => {
+    deleteList(listId);
+    // If we have no lists left, go to import
+    if (callLists.length <= 1) {
+      setView("import");
+    }
+  }, [deleteList, callLists.length]);
+
+  const handleRenameList = useCallback((listId: string, newName: string) => {
+    updateList(listId, { name: newName });
+  }, [updateList]);
+
+  // Show loading state
+  if (!isLoaded) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-telink-bg">
+        <div className="text-telink-muted">Laddar...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -80,6 +132,11 @@ export default function Home() {
         hasData={hasData}
         listName={listName}
         contactCount={contacts.length}
+        callLists={callLists}
+        activeListId={activeListId}
+        onListSelect={handleListSelect}
+        onDeleteList={handleDeleteList}
+        onRenameList={handleRenameList}
       />
       <main className="flex-1 overflow-hidden">
         {view === "import" && (
@@ -93,11 +150,12 @@ export default function Home() {
             csvData={csvData}
             mapping={mapping}
             setMapping={setMapping}
+            defaultListName={importFileName.replace(/\.(csv|xlsx|xls|tsv|txt)$/i, "") || "Ny ringlista"}
             onConfirm={handleMappingConfirm}
             onBack={() => setView("import")}
           />
         )}
-        {view === "dashboard" && (
+        {view === "dashboard" && activeList && (
           <DashboardView
             contacts={contacts}
             sessionCalls={sessionCalls}
@@ -107,22 +165,32 @@ export default function Home() {
             onGoToList={() => setView("list")}
           />
         )}
-        {view === "list" && (
+        {view === "list" && activeList && (
           <ListView
             contacts={contacts}
+            callLists={callLists}
+            activeListId={activeListId}
             onStartDialer={startDialer}
             onOpenCockpit={(idx) => { setCockpitIndex(idx); setView("cockpit"); }}
+            onMoveContact={handleMoveContact}
           />
         )}
-        {view === "cockpit" && (
+        {view === "cockpit" && activeList && (
           <CockpitView
             contacts={contacts}
             currentIndex={cockpitIndex}
             setCurrentIndex={setCockpitIndex}
-            setStatus={setStatus}
-            updateContact={updateContact}
+            setStatus={handleSetStatus}
+            updateContact={handleUpdateContact}
             onExit={() => setView("dashboard")}
             sessionCalls={sessionCalls}
+          />
+        )}
+        {/* Show import view if no active list */}
+        {!activeList && view !== "import" && view !== "mapping" && (
+          <ImportView
+            onImportReady={handleImportReady}
+            onLoadDemo={handleLoadDemo}
           />
         )}
       </main>

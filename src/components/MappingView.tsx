@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, ArrowRight, Check, FileSpreadsheet, AlertCircle, ChevronDown } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, FileSpreadsheet, AlertCircle, ChevronDown, FolderPlus } from "lucide-react";
 import type { CSVData, FieldMapping, SystemFieldKey } from "@/types";
 import { SYSTEM_FIELDS } from "@/lib/constants";
 
@@ -9,12 +9,14 @@ interface MappingViewProps {
   csvData: CSVData;
   mapping: FieldMapping;
   setMapping: React.Dispatch<React.SetStateAction<FieldMapping>>;
-  onConfirm: () => void;
+  defaultListName: string;
+  onConfirm: (listName: string) => void;
   onBack: () => void;
 }
 
-export function MappingView({ csvData, mapping, setMapping, onConfirm, onBack }: MappingViewProps) {
+export function MappingView({ csvData, mapping, setMapping, defaultListName, onConfirm, onBack }: MappingViewProps) {
   const [step, setStep] = useState<1 | 2>(1); // 1 = mapping, 2 = preview
+  const [listName, setListName] = useState(defaultListName);
 
   const requiredFields = SYSTEM_FIELDS.filter(f => f.required).map(f => f.key as string);
   const mappedFields = Object.values(mapping).filter(v => v !== "skip") as string[];
@@ -170,6 +172,21 @@ export function MappingView({ csvData, mapping, setMapping, onConfirm, onBack }:
               </div>
             </div>
 
+            {/* List name input */}
+            <div className="mt-6 p-4 rounded-xl bg-telink-surface border border-telink-border">
+              <label className="flex items-center gap-2 text-sm font-medium text-telink-text mb-2">
+                <FolderPlus size={14} className="text-[#2bb574]" />
+                Namn på ringlistan
+              </label>
+              <input
+                type="text"
+                value={listName}
+                onChange={(e) => setListName(e.target.value)}
+                placeholder="T.ex. SaaS-leads Q1"
+                className="w-full px-4 py-2.5 rounded-lg bg-telink-surface-light border border-telink-border text-sm text-telink-text placeholder:text-telink-dim focus:outline-none focus:border-[#2bb574] transition-colors"
+              />
+            </div>
+
             {/* Actions */}
             <div className="flex items-center justify-between mt-8 pt-6 border-t border-telink-border">
               <button
@@ -179,7 +196,7 @@ export function MappingView({ csvData, mapping, setMapping, onConfirm, onBack }:
                 <ArrowLeft size={14} /> Tillbaka
               </button>
               <button
-                onClick={onConfirm}
+                onClick={() => onConfirm(listName)}
                 className="flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold bg-[#2bb574] text-white hover:shadow-[0_0_25px_rgba(43,181,116,0.3)] transition-all cursor-pointer"
               >
                 <Check size={15} /> Importera {csvData.rows.length} kontakter

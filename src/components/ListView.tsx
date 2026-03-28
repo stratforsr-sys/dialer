@@ -1,26 +1,42 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { Search, Filter, Play, Phone, ChevronDown, ArrowUpDown, ExternalLink } from "lucide-react";
-import type { Contact, ContactStatus } from "@/types";
+import { useState, useMemo, useRef, useEffect } from "react";
+import { Search, Play, Phone, ArrowUpDown, ExternalLink, MoreHorizontal, FolderInput } from "lucide-react";
+import type { Contact, ContactStatus, CallList } from "@/types";
 import { STATUS_CONFIG } from "@/lib/constants";
 
 interface ListViewProps {
   contacts: Contact[];
+  callLists: CallList[];
+  activeListId: string | null;
   onStartDialer: (startIndex?: number) => void;
   onOpenCockpit: (index: number) => void;
+  onMoveContact: (contactId: string, toListId: string) => void;
 }
 
 type SortField = "name" | "company" | "status" | "lastContact";
 
-export function ListView({ contacts, onStartDialer, onOpenCockpit }: ListViewProps) {
+export function ListView({ contacts, callLists, activeListId, onStartDialer, onOpenCockpit, onMoveContact }: ListViewProps) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"alla" | ContactStatus>("alla");
   const [sortField, setSortField] = useState<SortField>("name");
   const [sortAsc, setSortAsc] = useState(true);
-  const [showFilterMenu, setShowFilterMenu] = useState(false);
+  const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const queue = contacts.filter(c => c.status === "ej_ringd").length;
+  const otherLists = callLists.filter(l => l.id !== activeListId);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const filtered = useMemo(() => {
     let list = [...contacts];
@@ -46,6 +62,11 @@ export function ListView({ contacts, onStartDialer, onOpenCockpit }: ListViewPro
   const handleSort = (field: SortField) => {
     if (sortField === field) setSortAsc(!sortAsc);
     else { setSortField(field); setSortAsc(true); }
+  };
+
+  const handleMoveContact = (contactId: string, toListId: string) => {
+    onMoveContact(contactId, toListId);
+    setMenuOpen(null);
   };
 
   const statusFilters: ("alla" | ContactStatus)[] = [
@@ -203,12 +224,51 @@ export function ListView({ contacts, onStartDialer, onOpenCockpit }: ListViewPro
                     </td>
                     {/* Action */}
                     <td className="px-4 py-3">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); onOpenCockpit(globalIndex); }}
-                        className="p-1.5 rounded-lg hover:bg-telink-surface-light transition-colors text-telink-dim hover:text-[#2bb574]"
-                      >
-                        <ExternalLink size={14} />
-                      </button>
+                      <div className="relative flex items-center gap-1">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onOpenCockpit(globalIndex); }}
+                          className="p-1.5 rounded-lg hover:bg-telink-surface-light transition-colors text-telink-dim hover:text-[#2bb574] cursor-pointer"
+                        >
+                          <ExternalLink size={14} />
+                        </button>
+
+                        {/* Move menu - only show if there are other lists */}
+                        {otherLists.length > 0 && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setMenuOpen(menuOpen === contact.id ? null : contact.id);
+                            }}
+                            className="p-1.5 rounded-lg hover:bg-telink-surface-light transition-colors text-telink-dim hover:text-telink-muted cursor-pointer"
+                          >
+                            <MoreHorizontal size={14} />
+                          </button>
+                        )}
+
+                        {/* Dropdown menu */}
+                        {menuOpen === contact.id && (
+                          <div
+                            ref={menuRef}
+                            className="absolute right-0 top-full mt-1 w-48 py-1 bg-telink-surface border border-telink-border rounded-lg shadow-lg z-50"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="px-3 py-1.5 text-[10px] font-semibold text-telink-dim uppercase tracking-wider">
+                              Flytta till
+                            </div>
+                            {otherLists.map(list => (
+                              <button
+                                key={list.id}
+                                onClick={() => handleMoveContact(contact.id, list.id)}
+                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-telink-text hover:bg-telink-surface-hover transition-colors cursor-pointer"
+                              >
+                                <FolderInput size={13} className="text-telink-muted" />
+                                <span className="truncate">{list.name}</span>
+                                <span className="ml-auto text-xs text-telink-dim">{list.contacts.length}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );

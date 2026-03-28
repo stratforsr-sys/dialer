@@ -13,8 +13,8 @@ interface CockpitViewProps {
   contacts: Contact[];
   currentIndex: number;
   setCurrentIndex: (i: number) => void;
-  setStatus: (id: number, status: ContactStatus) => void;
-  updateContact: (id: number, updates: Partial<Contact>) => void;
+  setStatus: (id: string, status: ContactStatus) => void;
+  updateContact: (id: string, updates: Partial<Contact>) => void;
   onExit: () => void;
   sessionCalls: number;
 }

@@ -10,7 +10,7 @@ export type ContactStatus =
   | "klar";
 
 export interface Contact {
-  id: number;
+  id: string;
   name: string;
   company: string;
   role: string;
@@ -24,6 +24,18 @@ export interface Contact {
   notes: string;
   tags: string[];
   lastContact: string | null;
+}
+
+export interface CallList {
+  id: string;
+  name: string;
+  contacts: Contact[];
+  createdAt: string;
+  updatedAt: string;
+  stats: {
+    totalCalls: number;
+    totalMeetings: number;
+  };
 }
 
 export type SystemFieldKey =

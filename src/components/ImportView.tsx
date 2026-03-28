@@ -6,7 +6,7 @@ import type { CSVData, FieldMapping } from "@/types";
 import { parseCSV, parseXLSX, autoGuessMapping } from "@/lib/csv-parser";
 
 interface ImportViewProps {
-  onImportReady: (data: CSVData, mapping: FieldMapping) => void;
+  onImportReady: (data: CSVData, mapping: FieldMapping, fileName: string) => void;
   onLoadDemo: () => void;
 }
 
@@ -31,7 +31,7 @@ export function ImportView({ onImportReady, onLoadDemo }: ImportViewProps) {
       }
       if (parsed.headers.length > 0) {
         const guessed = autoGuessMapping(parsed.headers);
-        onImportReady(parsed, guessed);
+        onImportReady(parsed, guessed, file.name);
       }
     };
 
