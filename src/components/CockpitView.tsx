@@ -525,38 +525,126 @@ export function CockpitView({
                 </div>
               )
             ) : (
-              /* LinkedIn tab */
-              <div className="h-full flex flex-col items-center justify-center p-8 text-center">
-                <div className="w-16 h-16 rounded-2xl bg-[rgba(10,102,194,0.12)] flex items-center justify-center mb-4">
-                  <Linkedin size={28} className="text-[#0a66c2]" />
+              /* LinkedIn tab - Enhanced view */
+              <div className="h-full flex flex-col overflow-hidden">
+                {/* LinkedIn Profile Card */}
+                <div className="p-6 border-b border-telink-border bg-gradient-to-br from-[rgba(10,102,194,0.08)] to-transparent">
+                  <div className="flex items-start gap-4">
+                    {/* Avatar placeholder */}
+                    <div className="w-20 h-20 rounded-xl bg-[rgba(10,102,194,0.15)] flex items-center justify-center flex-shrink-0">
+                      <Linkedin size={32} className="text-[#0a66c2]" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-lg font-bold text-telink-text">{contact.name}</h3>
+                      {contact.role && (
+                        <p className="text-sm text-telink-muted mt-0.5">{contact.role}</p>
+                      )}
+                      {contact.company && (
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <Building2 size={12} className="text-telink-dim" />
+                          <span className="text-sm text-[#0a66c2]">{contact.company}</span>
+                        </div>
+                      )}
+                      {linkedinUrl && (
+                        <p className="text-xs text-telink-dim mt-2 truncate">{linkedinUrl}</p>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                {linkedinUrl ? (
-                  <>
-                    <p className="text-sm font-medium text-telink-text mb-1">LinkedIn-profil hittad</p>
-                    <p className="text-xs text-telink-muted mb-4 break-all max-w-md">{linkedinUrl}</p>
+
+                {/* Quick Actions */}
+                <div className="p-4 space-y-2">
+                  <div className="text-[10px] font-semibold text-telink-dim uppercase tracking-wider mb-3">Snabbåtgärder</div>
+
+                  {linkedinUrl ? (
                     <a
                       href={linkedinUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#0a66c2] text-white text-sm font-semibold hover:bg-[#0855a3] transition-all"
+                      className="flex items-center gap-3 w-full p-3.5 rounded-xl bg-[#0a66c2] text-white hover:bg-[#0855a3] transition-all"
                     >
-                      <Linkedin size={14} /> Öppna LinkedIn-profil
+                      <Linkedin size={18} />
+                      <div className="flex-1 text-left">
+                        <div className="text-sm font-semibold">Öppna LinkedIn-profil</div>
+                        <div className="text-xs opacity-80">Visa fullständig profil</div>
+                      </div>
+                      <ExternalLink size={14} className="opacity-60" />
                     </a>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-sm font-medium text-telink-text mb-1">Ingen LinkedIn-länk</p>
-                    <p className="text-xs text-telink-muted mb-4">Sök efter denna person på LinkedIn:</p>
+                  ) : (
                     <a
                       href={linkedinSearchUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#0a66c2] text-white text-sm font-semibold hover:bg-[#0855a3] transition-all"
+                      className="flex items-center gap-3 w-full p-3.5 rounded-xl bg-[#0a66c2] text-white hover:bg-[#0855a3] transition-all"
                     >
-                      <Search size={14} /> Sök &quot;{contact.name} {contact.company}&quot;
+                      <Search size={18} />
+                      <div className="flex-1 text-left">
+                        <div className="text-sm font-semibold">Sök på LinkedIn</div>
+                        <div className="text-xs opacity-80">&quot;{contact.name}&quot;</div>
+                      </div>
+                      <ExternalLink size={14} className="opacity-60" />
                     </a>
-                  </>
-                )}
+                  )}
+
+                  {/* Company search */}
+                  {contact.company && (
+                    <a
+                      href={`https://www.linkedin.com/company/${encodeURIComponent(contact.company.toLowerCase().replace(/\s+/g, "-").replace(/[åä]/g, "a").replace(/ö/g, "o"))}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-3 w-full p-3 rounded-xl border border-[#0a66c2]/30 bg-[rgba(10,102,194,0.05)] hover:bg-[rgba(10,102,194,0.1)] transition-all"
+                    >
+                      <Building2 size={16} className="text-[#0a66c2]" />
+                      <div className="flex-1 text-left">
+                        <div className="text-sm font-medium text-telink-text">Företagssida</div>
+                        <div className="text-xs text-telink-muted">{contact.company}</div>
+                      </div>
+                      <ExternalLink size={12} className="text-telink-dim" />
+                    </a>
+                  )}
+
+                  {/* Sales Navigator search */}
+                  <a
+                    href={`https://www.linkedin.com/sales/search/people?query=(keywords:${encodeURIComponent(contact.name)}${contact.company ? `,(currentCompany:${encodeURIComponent(contact.company)})` : ""})`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-3 w-full p-3 rounded-xl border border-telink-border bg-telink-surface-light hover:bg-telink-surface-hover transition-all"
+                  >
+                    <Search size={16} className="text-telink-muted" />
+                    <div className="flex-1 text-left">
+                      <div className="text-sm font-medium text-telink-text">Sales Navigator</div>
+                      <div className="text-xs text-telink-muted">Avancerad sökning</div>
+                    </div>
+                    <ExternalLink size={12} className="text-telink-dim" />
+                  </a>
+
+                  {/* Google search for LinkedIn */}
+                  <a
+                    href={`https://www.google.com/search?q=${encodeURIComponent(`${contact.name} ${contact.company || ""} site:linkedin.com`)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-3 w-full p-3 rounded-xl border border-telink-border bg-telink-surface-light hover:bg-telink-surface-hover transition-all"
+                  >
+                    <Globe size={16} className="text-telink-muted" />
+                    <div className="flex-1 text-left">
+                      <div className="text-sm font-medium text-telink-text">Google → LinkedIn</div>
+                      <div className="text-xs text-telink-muted">Sök via Google</div>
+                    </div>
+                    <ExternalLink size={12} className="text-telink-dim" />
+                  </a>
+                </div>
+
+                {/* Tips section */}
+                <div className="mt-auto p-4 border-t border-telink-border bg-telink-surface/50">
+                  <div className="flex items-start gap-2">
+                    <MessageSquare size={14} className="text-telink-dim mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-xs text-telink-muted">
+                        <span className="font-medium text-telink-text">Tips:</span> Använd Sales Navigator för att se gemensamma kontakter och senaste aktivitet.
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>
