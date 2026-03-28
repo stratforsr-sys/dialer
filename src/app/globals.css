@@ -43,44 +43,44 @@
 }
 
 :root {
-  /* Warm dark palette */
-  --bg: #0c0a0f;
-  --bg-subtle: #110e14;
-  --surface: #1a1620;
-  --surface-elevated: #221d29;
-  --surface-hover: #2a2433;
-  --border: #2d2737;
-  --border-light: #3d3548;
+  /* Premium light mode palette */
+  --bg: #fafafa;
+  --bg-subtle: #f5f5f5;
+  --surface: #ffffff;
+  --surface-elevated: #ffffff;
+  --surface-hover: #f0f0f0;
+  --border: #e5e5e5;
+  --border-light: #d4d4d4;
 
   /* Accent colors */
   --accent: #f59e0b;
-  --accent-hover: #fbbf24;
-  --accent-muted: rgba(245, 158, 11, 0.15);
-  --accent-glow: rgba(245, 158, 11, 0.25);
+  --accent-hover: #d97706;
+  --accent-muted: rgba(245, 158, 11, 0.12);
+  --accent-glow: rgba(245, 158, 11, 0.2);
   --violet: #8b5cf6;
-  --success: #22c55e;
+  --success: #16a34a;
 
-  /* Text */
-  --text: #faf8f5;
-  --text-secondary: #c4bfcd;
-  --muted: #8b8492;
-  --dim: #5c5565;
+  /* Text - dark on light */
+  --text: #171717;
+  --text-secondary: #404040;
+  --muted: #737373;
+  --dim: #a3a3a3;
 }
 
-/* Premium scrollbar */
+/* Premium scrollbar - light mode */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
+  scrollbar-color: #d4d4d4 transparent;
 }
 *::-webkit-scrollbar { width: 6px; height: 6px; }
 *::-webkit-scrollbar-track { background: transparent; }
 *::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: #d4d4d4;
   border-radius: 4px;
   transition: background 0.2s;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: var(--border-light);
+  background: #a3a3a3;
 }
 
 /* Base styles */
@@ -98,47 +98,50 @@ body {
   letter-spacing: -0.011em;
 }
 
-/* Subtle noise texture overlay */
+/* Subtle noise texture overlay - light mode */
 body::before {
   content: '';
   position: fixed;
   inset: 0;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-  opacity: 0.015;
+  opacity: 0.02;
   pointer-events: none;
   z-index: 1000;
+  mix-blend-mode: multiply;
 }
 
 /* Selection color */
 ::selection {
-  background: rgba(245, 158, 11, 0.25);
-  color: var(--text);
+  background: rgba(245, 158, 11, 0.2);
+  color: #171717;
 }
 
-/* Premium kbd styling */
+/* Premium kbd styling - light mode */
 kbd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-width: 20px;
   height: 20px;
-  padding: 0 5px;
+  padding: 0 6px;
   font-family: 'Geist Mono', 'JetBrains Mono', monospace;
   font-size: 10px;
-  font-weight: 500;
-  color: var(--muted);
-  background: var(--surface);
-  border: 1px solid var(--border);
+  font-weight: 600;
+  color: #525252;
+  background: linear-gradient(180deg, #ffffff 0%, #f5f5f5 100%);
+  border: 1px solid #d4d4d4;
   border-radius: 5px;
   box-shadow:
-    0 1px 0 var(--border-light),
-    inset 0 1px 0 rgba(255,255,255,0.03);
+    0 1px 2px rgba(0,0,0,0.05),
+    0 1px 0 #e5e5e5,
+    inset 0 1px 0 rgba(255,255,255,0.8);
   transition: all 0.15s ease;
 }
 
 kbd:hover {
-  color: var(--text-secondary);
-  border-color: var(--border-light);
+  color: #171717;
+  border-color: #a3a3a3;
+  background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
 }
 
 /* Phone links */
@@ -159,40 +162,41 @@ a[href^="tel:"]:hover {
   outline-offset: 2px;
 }
 
-/* Premium button base */
+/* Premium button base - light mode */
 .btn-primary {
-  background: linear-gradient(135deg, var(--accent) 0%, #ec4899 100%);
-  color: #0c0a0f;
+  background: linear-gradient(135deg, var(--accent) 0%, #ea580c 100%);
+  color: #ffffff;
   font-weight: 600;
   border: none;
   box-shadow:
-    0 0 20px -5px rgba(245, 158, 11, 0.3),
-    inset 0 1px 0 rgba(255,255,255,0.15);
+    0 2px 8px -2px rgba(245, 158, 11, 0.4),
+    0 4px 16px -4px rgba(245, 158, 11, 0.3),
+    inset 0 1px 0 rgba(255,255,255,0.2);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .btn-primary:hover {
   transform: translateY(-1px);
   box-shadow:
-    0 0 30px -5px rgba(245, 158, 11, 0.4),
-    inset 0 1px 0 rgba(255,255,255,0.2);
+    0 4px 12px -2px rgba(245, 158, 11, 0.5),
+    0 8px 24px -4px rgba(245, 158, 11, 0.35),
+    inset 0 1px 0 rgba(255,255,255,0.25);
 }
 
-/* Glass effect */
+/* Glass effect - light mode */
 .glass {
-  background: rgba(26, 22, 32, 0.8);
+  background: rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255,255,255,0.05);
+  border: 1px solid rgba(0,0,0,0.06);
 }
 
-/* Card with inner glow */
+/* Card with shadow - light mode */
 .card-elevated {
   background: var(--surface);
   border: 1px solid var(--border);
   box-shadow:
-    0 0 0 1px rgba(255,255,255,0.02),
-    0 4px 8px -2px rgba(0,0,0,0.3),
-    inset 0 1px 0 rgba(255,255,255,0.03);
+    0 1px 3px rgba(0,0,0,0.06),
+    0 1px 2px rgba(0,0,0,0.04);
 }
 
 /* Gradient text */
@@ -211,10 +215,10 @@ a[href^="tel:"]:hover {
   box-shadow: 0 0 8px currentColor;
 }
 
-/* Animated gradient border */
+/* Animated gradient border - light mode */
 .gradient-border {
   position: relative;
-  background: var(--surface);
+  background: #ffffff;
   border-radius: 12px;
 }
 .gradient-border::before {
@@ -228,39 +232,39 @@ a[href^="tel:"]:hover {
   mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
-  opacity: 0.5;
+  opacity: 0.6;
   transition: opacity 0.3s ease;
 }
 .gradient-border:hover::before {
   opacity: 1;
 }
 
-/* Shimmer loading effect */
+/* Shimmer loading effect - light mode */
 .shimmer {
   background: linear-gradient(
     90deg,
-    var(--surface) 0%,
-    var(--surface-elevated) 50%,
-    var(--surface) 100%
+    #f5f5f5 0%,
+    #ffffff 50%,
+    #f5f5f5 100%
   );
   background-size: 200% 100%;
   animation: shimmer 2s linear infinite;
 }
 
-/* Input styling */
+/* Input styling - light mode */
 input, textarea {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--text);
+  background: #ffffff;
+  border: 1px solid #e5e5e5;
+  color: #171717;
   transition: all 0.2s ease;
 }
 input:focus, textarea:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-muted);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
   outline: none;
 }
 input::placeholder, textarea::placeholder {
-  color: var(--dim);
+  color: #a3a3a3;
 }
 
 /* Table styles */

@@ -6,38 +6,39 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // New premium warm dark palette
+        // Premium light mode palette
         telink: {
-          // Backgrounds - warm dark tones
-          bg: "#0c0a0f",
-          "bg-subtle": "#110e14",
-          surface: "#1a1620",
-          "surface-elevated": "#221d29",
-          "surface-hover": "#2a2433",
+          // Backgrounds - clean whites and light grays
+          bg: "#fafafa",
+          "bg-subtle": "#f5f5f5",
+          surface: "#ffffff",
+          "surface-elevated": "#ffffff",
+          "surface-hover": "#f0f0f0",
+          "surface-light": "#f8f8f8",
 
-          // Borders - subtle warm grays
-          border: "#2d2737",
-          "border-light": "#3d3548",
+          // Borders - subtle grays
+          border: "#e5e5e5",
+          "border-light": "#d4d4d4",
 
-          // Primary accent - warm amber/coral
+          // Primary accent - warm amber/orange
           accent: "#f59e0b",
-          "accent-hover": "#fbbf24",
-          "accent-muted": "rgba(245, 158, 11, 0.15)",
-          "accent-glow": "rgba(245, 158, 11, 0.25)",
+          "accent-hover": "#d97706",
+          "accent-muted": "rgba(245, 158, 11, 0.12)",
+          "accent-glow": "rgba(245, 158, 11, 0.2)",
 
-          // Secondary accent - electric violet
+          // Secondary accent - vibrant violet
           violet: "#8b5cf6",
-          "violet-muted": "rgba(139, 92, 246, 0.15)",
+          "violet-muted": "rgba(139, 92, 246, 0.12)",
 
-          // Success - warm green
-          success: "#22c55e",
-          "success-muted": "rgba(34, 197, 94, 0.15)",
+          // Success - fresh green
+          success: "#16a34a",
+          "success-muted": "rgba(22, 163, 74, 0.12)",
 
-          // Text hierarchy
-          text: "#faf8f5",
-          "text-secondary": "#c4bfcd",
-          muted: "#8b8492",
-          dim: "#5c5565",
+          // Text hierarchy - dark on light
+          text: "#171717",
+          "text-secondary": "#404040",
+          muted: "#737373",
+          dim: "#a3a3a3",
         },
       },
       fontFamily: {
@@ -53,14 +54,16 @@ const config: Config = {
         "4xl": "1.5rem",
       },
       boxShadow: {
-        "glow-sm": "0 0 15px -3px rgba(245, 158, 11, 0.2)",
-        "glow-md": "0 0 25px -5px rgba(245, 158, 11, 0.25)",
-        "glow-lg": "0 0 40px -10px rgba(245, 158, 11, 0.3)",
-        "glow-violet": "0 0 25px -5px rgba(139, 92, 246, 0.25)",
-        "inner-glow": "inset 0 1px 0 0 rgba(255,255,255,0.05)",
-        "elevation-1": "0 1px 2px rgba(0,0,0,0.3), 0 1px 3px rgba(0,0,0,0.15)",
-        "elevation-2": "0 4px 6px -1px rgba(0,0,0,0.3), 0 2px 4px -2px rgba(0,0,0,0.2)",
-        "elevation-3": "0 10px 15px -3px rgba(0,0,0,0.35), 0 4px 6px -4px rgba(0,0,0,0.25)",
+        "glow-sm": "0 0 20px -5px rgba(245, 158, 11, 0.3)",
+        "glow-md": "0 0 30px -5px rgba(245, 158, 11, 0.35)",
+        "glow-lg": "0 0 50px -10px rgba(245, 158, 11, 0.4)",
+        "glow-violet": "0 0 30px -5px rgba(139, 92, 246, 0.3)",
+        "inner-glow": "inset 0 1px 0 0 rgba(255,255,255,0.8)",
+        "elevation-1": "0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06)",
+        "elevation-2": "0 4px 6px -1px rgba(0,0,0,0.08), 0 2px 4px -2px rgba(0,0,0,0.05)",
+        "elevation-3": "0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.05)",
+        "card": "0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)",
+        "card-hover": "0 10px 40px -15px rgba(0,0,0,0.15)",
       },
       backgroundImage: {
         "gradient-radial": "radial-gradient(var(--tw-gradient-stops))",
