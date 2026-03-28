@@ -186,7 +186,15 @@ export function CockpitView({
     ? `https://${contact.website}` : contact.website;
   const linkedinUrl = contact.linkedin && !contact.linkedin.startsWith("http")
     ? `https://${contact.linkedin}` : contact.linkedin;
-  const linkedinSearchUrl = `https://www.linkedin.com/search/results/all/?keywords=${encodeURIComponent(`${contact.name} ${contact.company}`)}`;
+
+  // Clean company name for LinkedIn searches - take first word only (brand name)
+  const cleanCompany = (contact.company || "")
+    .replace(/\s+(AB|Ab|ab|HB|Hb|hb|KB|Kb|kb|EF|Ef|ef|Ek\.?\s*för\.?|Aktiebolag|Handelsbolag|Kommanditbolag)\.?\s*$/i, "")
+    .trim()
+    .split(/\s+/)[0] || ""; // Take first word only
+
+  // LinkedIn search format: "Name AND Company" for better results
+  const linkedinSearchUrl = `https://www.linkedin.com/search/results/all/?keywords=${encodeURIComponent(`${contact.name}${cleanCompany ? ` AND ${cleanCompany}` : ""}`)}`;
 
   const statusActions: ContactStatus[] = ["svarar_ej", "nej_tack", "bokat_mote", "upptaget", "fel_nummer", "atersam", "intresserad"];
 
@@ -580,7 +588,7 @@ export function CockpitView({
                       <Search size={18} />
                       <div className="flex-1 text-left">
                         <div className="text-sm font-semibold">Sök på LinkedIn</div>
-                        <div className="text-xs opacity-80">&quot;{contact.name}&quot;</div>
+                        <div className="text-xs opacity-80">&quot;{contact.name}{cleanCompany ? ` AND ${cleanCompany}` : ""}&quot;</div>
                       </div>
                       <ExternalLink size={14} className="opacity-60" />
                     </a>
@@ -589,7 +597,7 @@ export function CockpitView({
                   {/* Company search */}
                   {contact.company && (
                     <a
-                      href={`https://www.linkedin.com/company/${encodeURIComponent(contact.company.toLowerCase().replace(/\s+/g, "-").replace(/[åä]/g, "a").replace(/ö/g, "o"))}`}
+                      href={`https://www.linkedin.com/company/${encodeURIComponent(cleanCompany.toLowerCase().replace(/\s+/g, "-").replace(/[åä]/g, "a").replace(/ö/g, "o"))}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center gap-3 w-full p-3 rounded-xl border border-[#0a66c2]/30 bg-[rgba(10,102,194,0.05)] hover:bg-[rgba(10,102,194,0.1)] transition-all"
@@ -605,7 +613,7 @@ export function CockpitView({
 
                   {/* Sales Navigator search */}
                   <a
-                    href={`https://www.linkedin.com/sales/search/people?query=(keywords:${encodeURIComponent(contact.name)}${contact.company ? `,(currentCompany:${encodeURIComponent(contact.company)})` : ""})`}
+                    href={`https://www.linkedin.com/sales/search/people?query=(keywords:${encodeURIComponent(`${contact.name}${cleanCompany ? ` AND ${cleanCompany}` : ""}`)})`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-3 w-full p-3 rounded-xl border border-telink-border bg-telink-surface-light hover:bg-telink-surface-hover transition-all"
@@ -620,7 +628,7 @@ export function CockpitView({
 
                   {/* Google search for LinkedIn */}
                   <a
-                    href={`https://www.google.com/search?q=${encodeURIComponent(`${contact.name} ${contact.company || ""} site:linkedin.com`)}`}
+                    href={`https://www.google.com/search?q=${encodeURIComponent(`"${contact.name}" "${cleanCompany}" site:linkedin.com`)}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-3 w-full p-3 rounded-xl border border-telink-border bg-telink-surface-light hover:bg-telink-surface-hover transition-all"
