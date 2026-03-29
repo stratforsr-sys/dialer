@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { LayoutDashboard, List, Zap, FolderOpen, MoreHorizontal, Pencil, Trash2, Plus, Command } from "lucide-react";
+import { LayoutDashboard, List, Zap, FolderOpen, MoreHorizontal, Pencil, Trash2, Plus, Command, BarChart3, Settings } from "lucide-react";
 import type { ViewMode, CallList } from "@/types";
 
 interface SidebarProps {
@@ -21,6 +21,8 @@ const NAV_ITEMS: { key: ViewMode; label: string; icon: typeof LayoutDashboard; n
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, needsData: true },
   { key: "list", label: "Kontakter", icon: List, needsData: true },
   { key: "cockpit", label: "Dialer", icon: Zap, needsData: true },
+  { key: "stats", label: "Statistik", icon: BarChart3, needsData: true },
+  { key: "settings", label: "Inställningar", icon: Settings, needsData: false },
 ];
 
 export function Sidebar({

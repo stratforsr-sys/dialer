@@ -10,6 +10,8 @@ import { MappingView } from "@/components/MappingView";
 import { DashboardView } from "@/components/DashboardView";
 import { ListView } from "@/components/ListView";
 import { CockpitView } from "@/components/CockpitView";
+import { StatsView } from "@/components/StatsView";
+import { SettingsView } from "@/components/SettingsView";
 
 export default function Home() {
   const {
@@ -186,8 +188,34 @@ export default function Home() {
             sessionCalls={sessionCalls}
           />
         )}
-        {/* Show import view if no active list */}
-        {!activeList && view !== "import" && view !== "mapping" && (
+        {view === "stats" && activeList && (
+          <StatsView
+            contacts={contacts}
+            callLists={callLists}
+            sessionCalls={sessionCalls}
+            sessionMeetings={sessionMeetings}
+          />
+        )}
+        {view === "settings" && (
+          <SettingsView
+            onExportData={() => {
+              const data = JSON.stringify(callLists, null, 2);
+              const blob = new Blob([data], { type: "application/json" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = "telink-export.json";
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+            onClearData={() => {
+              callLists.forEach(list => deleteList(list.id));
+              setView("import");
+            }}
+          />
+        )}
+        {/* Show import view if no active list (except for settings) */}
+        {!activeList && view !== "import" && view !== "mapping" && view !== "settings" && (
           <ImportView
             onImportReady={handleImportReady}
             onLoadDemo={handleLoadDemo}
