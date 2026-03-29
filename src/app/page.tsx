@@ -126,20 +126,25 @@ export default function Home() {
     );
   }
 
+  // Hide sidebar in cockpit mode for maximum dialer space
+  const showSidebar = view !== "cockpit";
+
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar
-        view={view}
-        setView={setView}
-        hasData={hasData}
-        listName={listName}
-        contactCount={contacts.length}
-        callLists={callLists}
-        activeListId={activeListId}
-        onListSelect={handleListSelect}
-        onDeleteList={handleDeleteList}
-        onRenameList={handleRenameList}
-      />
+      {showSidebar && (
+        <Sidebar
+          view={view}
+          setView={setView}
+          hasData={hasData}
+          listName={listName}
+          contactCount={contacts.length}
+          callLists={callLists}
+          activeListId={activeListId}
+          onListSelect={handleListSelect}
+          onDeleteList={handleDeleteList}
+          onRenameList={handleRenameList}
+        />
+      )}
       <main className="flex-1 overflow-hidden">
         {view === "import" && (
           <ImportView
@@ -185,6 +190,7 @@ export default function Home() {
             setStatus={handleSetStatus}
             updateContact={handleUpdateContact}
             onExit={() => setView("dashboard")}
+            onNavigate={setView}
             sessionCalls={sessionCalls}
           />
         )}

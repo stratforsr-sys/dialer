@@ -9,7 +9,7 @@ import {
   LayoutGrid, Settings, BarChart3,
   ChevronUp, ChevronDown
 } from "lucide-react";
-import type { Contact, ContactStatus } from "@/types";
+import type { Contact, ContactStatus, ViewMode } from "@/types";
 import { STATUS_CONFIG, SHORTCUTS } from "@/lib/constants";
 
 // ============================================
@@ -201,30 +201,51 @@ function KeyIndicator({ keyPressed }: { keyPressed: string | null }) {
 // ============================================
 // COMPONENT: Navigation Rail
 // ============================================
-function NavigationRail({ onExit }: { onExit: () => void }) {
+function NavigationRail({
+  onExit,
+  onNavigate
+}: {
+  onExit: () => void;
+  onNavigate: (view: ViewMode) => void;
+}) {
   return (
     <div className="nav-rail">
       <button
         onClick={onExit}
         className="nav-rail-item mb-auto"
-        title="Tillbaka"
+        title="Tillbaka till Dashboard"
       >
         <ArrowLeft size={18} strokeWidth={1.5} />
       </button>
 
       <div className="flex flex-col gap-1">
-        <button className="nav-rail-item active" title="Dialer">
+        <button
+          className="nav-rail-item active"
+          title="Dialer (aktiv)"
+        >
           <Phone size={18} strokeWidth={1.5} />
         </button>
-        <button className="nav-rail-item" title="Dashboard">
+        <button
+          className="nav-rail-item"
+          title="Dashboard"
+          onClick={() => onNavigate("dashboard")}
+        >
           <LayoutGrid size={18} strokeWidth={1.5} />
         </button>
-        <button className="nav-rail-item" title="Statistik">
+        <button
+          className="nav-rail-item"
+          title="Statistik"
+          onClick={() => onNavigate("stats")}
+        >
           <BarChart3 size={18} strokeWidth={1.5} />
         </button>
       </div>
 
-      <button className="nav-rail-item mt-auto" title="Inställningar">
+      <button
+        className="nav-rail-item mt-auto"
+        title="Inställningar"
+        onClick={() => onNavigate("settings")}
+      >
         <Settings size={18} strokeWidth={1.5} />
       </button>
     </div>
@@ -323,11 +344,12 @@ interface CockpitViewProps {
   setStatus: (id: string, status: ContactStatus) => void;
   updateContact: (id: string, updates: Partial<Contact>) => void;
   onExit: () => void;
+  onNavigate: (view: ViewMode) => void;
   sessionCalls: number;
 }
 
 export function CockpitView({
-  contacts, currentIndex, setCurrentIndex, setStatus, updateContact, onExit, sessionCalls
+  contacts, currentIndex, setCurrentIndex, setStatus, updateContact, onExit, onNavigate, sessionCalls
 }: CockpitViewProps) {
   const [researchTab, setResearchTab] = useState<"website" | "linkedin">("website");
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -534,7 +556,7 @@ export function CockpitView({
       </AnimatePresence>
 
       {/* Navigation Rail */}
-      <NavigationRail onExit={onExit} />
+      <NavigationRail onExit={onExit} onNavigate={onNavigate} />
 
       {/* Lead Stream */}
       <LeadStream
