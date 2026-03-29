@@ -2,121 +2,139 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Geist Font - Vercel's premium font */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+/* Inter Font - The Engineering Standard */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
 
-/* Custom font-face for Geist if available */
-@font-face {
-  font-family: 'Geist';
-  src: url('https://assets.vercel.com/raw/upload/v1587415301/fonts/geist/Geist-Regular.woff2') format('woff2');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Geist';
-  src: url('https://assets.vercel.com/raw/upload/v1587415301/fonts/geist/Geist-Medium.woff2') format('woff2');
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Geist';
-  src: url('https://assets.vercel.com/raw/upload/v1587415301/fonts/geist/Geist-SemiBold.woff2') format('woff2');
-  font-weight: 600;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Geist';
-  src: url('https://assets.vercel.com/raw/upload/v1587415301/fonts/geist/Geist-Bold.woff2') format('woff2');
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Geist Mono';
-  src: url('https://assets.vercel.com/raw/upload/v1587415301/fonts/geist-mono/GeistMono-Regular.woff2') format('woff2');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
+/* ============================================
+   CSS CUSTOM PROPERTIES - DESIGN TOKENS
+   ============================================ */
 :root {
-  /* Premium light mode palette */
+  /* Backgrounds */
   --bg: #fafafa;
   --bg-subtle: #f5f5f5;
+  --bg-muted: #ebebeb;
   --surface: #ffffff;
+  --surface-hover: #f8f8f8;
   --surface-elevated: #ffffff;
-  --surface-hover: #f0f0f0;
-  --border: #e5e5e5;
-  --border-light: #d4d4d4;
+  --surface-inset: #f0f0f0;
 
-  /* Accent colors */
-  --accent: #f59e0b;
-  --accent-hover: #d97706;
-  --accent-muted: rgba(245, 158, 11, 0.12);
-  --accent-glow: rgba(245, 158, 11, 0.2);
-  --violet: #8b5cf6;
+  /* Borders - engineering precision */
+  --border: rgba(0, 0, 0, 0.06);
+  --border-subtle: rgba(0, 0, 0, 0.04);
+  --border-strong: rgba(0, 0, 0, 0.10);
+  --border-focus: rgba(0, 0, 0, 0.15);
+
+  /* Text - NO pure black */
+  --text: #09090b;
+  --text-secondary: #3f3f46;
+  --text-muted: #71717a;
+  --text-dim: #a1a1aa;
+  --text-faint: #d4d4d8;
+
+  /* Functional colors - accents ONLY for function */
   --success: #16a34a;
+  --success-bg: rgba(22, 163, 74, 0.08);
+  --danger: #dc2626;
+  --danger-bg: rgba(220, 38, 38, 0.08);
+  --warning: #d97706;
+  --warning-bg: rgba(217, 119, 6, 0.08);
+  --info: #0284c7;
+  --info-bg: rgba(2, 132, 199, 0.08);
+  --linkedin: #0a66c2;
+  --linkedin-bg: rgba(10, 102, 194, 0.08);
 
-  /* Text - dark on light */
-  --text: #171717;
-  --text-secondary: #404040;
-  --muted: #737373;
-  --dim: #a3a3a3;
+  /* Shadows - layered for depth */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.08), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+
+  /* Transitions */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
-/* Premium scrollbar - light mode */
+/* ============================================
+   PREMIUM SCROLLBAR - ULTRA THIN
+   ============================================ */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #d4d4d4 transparent;
-}
-*::-webkit-scrollbar { width: 6px; height: 6px; }
-*::-webkit-scrollbar-track { background: transparent; }
-*::-webkit-scrollbar-thumb {
-  background: #d4d4d4;
-  border-radius: 4px;
-  transition: background 0.2s;
-}
-*::-webkit-scrollbar-thumb:hover {
-  background: #a3a3a3;
+  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
 }
 
-/* Base styles */
+*::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  transition: background 0.2s;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ============================================
+   BASE TYPOGRAPHY - ENGINEERING STANDARD
+   ============================================ */
 html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
 }
 
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: 'Geist', 'Inter', system-ui, sans-serif;
-  font-feature-settings: "rlig" 1, "calt" 1;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
   letter-spacing: -0.011em;
 }
 
-/* Subtle noise texture overlay - light mode */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-  opacity: 0.02;
-  pointer-events: none;
-  z-index: 1000;
-  mix-blend-mode: multiply;
+/* Heading letter-spacing - tight pro */
+h1, h2, h3, h4, h5, h6 {
+  letter-spacing: -0.02em;
+  font-weight: 600;
 }
 
-/* Selection color */
+/* ============================================
+   SELECTION
+   ============================================ */
 ::selection {
-  background: rgba(245, 158, 11, 0.2);
-  color: #171717;
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--text);
 }
 
-/* Premium kbd styling - light mode */
+/* ============================================
+   FOCUS STATES - ACCESSIBILITY
+   ============================================ */
+*:focus {
+  outline: none;
+}
+
+*:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+/* ============================================
+   KBD - KEYBOARD SHORTCUTS
+   Engineering-grade key styling
+   ============================================ */
 kbd {
   display: inline-flex;
   align-items: center;
@@ -124,164 +142,455 @@ kbd {
   min-width: 20px;
   height: 20px;
   padding: 0 6px;
-  font-family: 'Geist Mono', 'JetBrains Mono', monospace;
-  font-size: 10px;
-  font-weight: 600;
-  color: #525252;
-  background: linear-gradient(180deg, #ffffff 0%, #f5f5f5 100%);
-  border: 1px solid #d4d4d4;
+  font-family: 'JetBrains Mono', 'Menlo', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: linear-gradient(180deg, var(--surface) 0%, var(--bg-subtle) 100%);
+  border: 1px solid var(--border-strong);
   border-radius: 5px;
   box-shadow:
-    0 1px 2px rgba(0,0,0,0.05),
-    0 1px 0 #e5e5e5,
-    inset 0 1px 0 rgba(255,255,255,0.8);
-  transition: all 0.15s ease;
+    0 1px 1px rgba(0, 0, 0, 0.04),
+    0 2px 0 var(--bg-muted),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  transition: all 0.1s ease;
+  user-select: none;
 }
 
 kbd:hover {
-  color: #171717;
-  border-color: #a3a3a3;
-  background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
+  color: var(--text);
+  border-color: var(--border-focus);
 }
 
-/* Phone links */
+kbd.pressed,
+kbd:active {
+  transform: translateY(1px);
+  box-shadow:
+    0 0 1px rgba(0, 0, 0, 0.04),
+    0 1px 0 var(--bg-muted),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+/* ============================================
+   BUTTONS - TACTILE ENGINEERING
+   ============================================ */
+@layer components {
+  .btn-base {
+    @apply inline-flex items-center justify-center gap-2;
+    @apply px-3 py-2 rounded-md;
+    @apply text-sm font-medium;
+    @apply transition-all duration-150;
+    @apply cursor-pointer select-none;
+    @apply border;
+    /* Inner glow for tactile feel */
+    border-top-color: rgba(255, 255, 255, 0.15);
+  }
+
+  .btn-primary {
+    @apply btn-base;
+    @apply bg-cockpit-success text-white;
+    @apply border-cockpit-success;
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.1),
+      inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  }
+
+  .btn-primary:hover {
+    @apply brightness-110;
+    box-shadow:
+      0 2px 4px rgba(22, 163, 74, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  }
+
+  .btn-primary:active {
+    @apply brightness-95;
+    transform: translateY(1px);
+  }
+
+  .btn-secondary {
+    @apply btn-base;
+    @apply bg-cockpit-surface text-cockpit-text;
+    @apply border-cockpit-border;
+    box-shadow: var(--shadow-xs);
+  }
+
+  .btn-secondary:hover {
+    @apply bg-cockpit-surface-hover border-cockpit-border-strong;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .btn-secondary:active {
+    @apply bg-cockpit-surface-inset;
+    transform: translateY(1px);
+  }
+
+  .btn-danger {
+    @apply btn-base;
+    @apply bg-cockpit-danger text-white;
+    @apply border-cockpit-danger;
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.1),
+      inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  }
+
+  .btn-danger:hover {
+    @apply brightness-110;
+    box-shadow:
+      0 2px 4px rgba(220, 38, 38, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  }
+
+  .btn-ghost {
+    @apply btn-base;
+    @apply bg-transparent text-cockpit-text-muted;
+    @apply border-transparent;
+  }
+
+  .btn-ghost:hover {
+    @apply bg-cockpit-surface-hover text-cockpit-text;
+  }
+}
+
+/* ============================================
+   CARDS - LAYERED SHADOWS
+   ============================================ */
+@layer components {
+  .card {
+    @apply bg-cockpit-surface rounded-lg;
+    @apply border border-cockpit-border;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .card-elevated {
+    @apply card;
+    box-shadow: var(--shadow-md);
+  }
+
+  .card-interactive {
+    @apply card;
+    @apply transition-all duration-200 cursor-pointer;
+  }
+
+  .card-interactive:hover {
+    @apply border-cockpit-border-strong;
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+  }
+
+  .card-interactive:active {
+    transform: translateY(0);
+    box-shadow: var(--shadow-sm);
+  }
+}
+
+/* ============================================
+   INPUTS - SUBTLE ENGINEERING
+   ============================================ */
+input,
+textarea,
+select {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  transition: all 0.15s ease;
+}
+
+input:hover,
+textarea:hover,
+select:hover {
+  border-color: var(--border-strong);
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.06);
+  outline: none;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-dim);
+}
+
+/* ============================================
+   GLASS MORPHISM - SUBTLE
+   ============================================ */
+.glass {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+}
+
+.glass-subtle {
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* ============================================
+   STATUS INDICATORS
+   ============================================ */
+.status-dot {
+  @apply w-2 h-2 rounded-full;
+}
+
+.status-dot-success {
+  @apply status-dot bg-cockpit-success;
+  box-shadow: 0 0 6px var(--success);
+}
+
+.status-dot-danger {
+  @apply status-dot bg-cockpit-danger;
+  box-shadow: 0 0 6px var(--danger);
+}
+
+.status-dot-warning {
+  @apply status-dot bg-cockpit-warning;
+  box-shadow: 0 0 6px var(--warning);
+}
+
+/* ============================================
+   PHONE LINKS
+   ============================================ */
 a[href^="tel:"] {
-  color: var(--accent);
+  color: var(--success);
   text-decoration: none;
-  font-family: 'Geist Mono', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-weight: 500;
   transition: color 0.15s ease;
 }
+
 a[href^="tel:"]:hover {
-  color: var(--accent-hover);
+  color: var(--text);
 }
 
-/* Focus styles */
-*:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-/* Premium button base - light mode */
-.btn-primary {
-  background: linear-gradient(135deg, var(--accent) 0%, #ea580c 100%);
-  color: #ffffff;
-  font-weight: 600;
-  border: none;
-  box-shadow:
-    0 2px 8px -2px rgba(245, 158, 11, 0.4),
-    0 4px 16px -4px rgba(245, 158, 11, 0.3),
-    inset 0 1px 0 rgba(255,255,255,0.2);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.btn-primary:hover {
-  transform: translateY(-1px);
-  box-shadow:
-    0 4px 12px -2px rgba(245, 158, 11, 0.5),
-    0 8px 24px -4px rgba(245, 158, 11, 0.35),
-    inset 0 1px 0 rgba(255,255,255,0.25);
-}
-
-/* Glass effect - light mode */
-.glass {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(0,0,0,0.06);
-}
-
-/* Card with shadow - light mode */
-.card-elevated {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  box-shadow:
-    0 1px 3px rgba(0,0,0,0.06),
-    0 1px 2px rgba(0,0,0,0.04);
-}
-
-/* Gradient text */
-.gradient-text {
-  background: linear-gradient(135deg, var(--accent) 0%, #ec4899 50%, var(--violet) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-/* Status indicator dot */
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  box-shadow: 0 0 8px currentColor;
-}
-
-/* Animated gradient border - light mode */
-.gradient-border {
-  position: relative;
-  background: #ffffff;
-  border-radius: 12px;
-}
-.gradient-border::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  padding: 1px;
-  border-radius: inherit;
-  background: linear-gradient(135deg, var(--accent), var(--violet));
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  opacity: 0.6;
-  transition: opacity 0.3s ease;
-}
-.gradient-border:hover::before {
-  opacity: 1;
-}
-
-/* Shimmer loading effect - light mode */
-.shimmer {
-  background: linear-gradient(
-    90deg,
-    #f5f5f5 0%,
-    #ffffff 50%,
-    #f5f5f5 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 2s linear infinite;
-}
-
-/* Input styling - light mode */
-input, textarea {
-  background: #ffffff;
-  border: 1px solid #e5e5e5;
-  color: #171717;
-  transition: all 0.2s ease;
-}
-input:focus, textarea:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
-  outline: none;
-}
-input::placeholder, textarea::placeholder {
-  color: #a3a3a3;
-}
-
-/* Table styles */
+/* ============================================
+   TABLE STYLES
+   ============================================ */
 table {
   border-collapse: separate;
   border-spacing: 0;
 }
 
-/* Smooth page transitions */
-.page-transition {
-  animation: fadeUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+th {
+  @apply text-cockpit-text-muted font-medium text-xs uppercase tracking-wider;
+  @apply text-left;
 }
 
-/* Hover lift effect */
-.hover-lift {
-  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
+/* ============================================
+   NAVIGATION RAIL - PRECISION
+   ============================================ */
+.nav-rail {
+  @apply w-14 flex-shrink-0;
+  @apply flex flex-col items-center;
+  @apply py-4 gap-1;
+  @apply bg-cockpit-bg border-r border-cockpit-border;
 }
+
+.nav-rail-item {
+  @apply w-10 h-10 rounded-lg;
+  @apply flex items-center justify-center;
+  @apply text-cockpit-text-muted;
+  @apply transition-all duration-150;
+  @apply cursor-pointer;
+}
+
+.nav-rail-item:hover {
+  @apply bg-cockpit-surface-hover text-cockpit-text;
+}
+
+.nav-rail-item.active {
+  @apply bg-cockpit-surface text-cockpit-text;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ============================================
+   LEAD CARD - HOVER LIFT
+   ============================================ */
+.lead-card {
+  @apply bg-cockpit-surface;
+  @apply border-b border-cockpit-border-subtle;
+  @apply px-4 py-3;
+  @apply transition-all duration-150;
+  @apply cursor-pointer;
+}
+
+.lead-card:hover {
+  @apply bg-cockpit-surface-hover;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.lead-card.active {
+  @apply bg-cockpit-bg;
+  box-shadow:
+    inset 3px 0 0 var(--success),
+    inset 0 0 0 1px var(--border);
+}
+
+/* ============================================
+   IFRAME BEZEL - MONITOR FRAME
+   ============================================ */
+.iframe-bezel {
+  @apply rounded-lg overflow-hidden;
+  @apply border border-cockpit-border;
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.04),
+    0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.iframe-bezel::before {
+  content: '';
+  @apply block h-8 px-3;
+  @apply bg-cockpit-bg-subtle border-b border-cockpit-border-subtle;
+  @apply flex items-center gap-1.5;
+}
+
+/* ============================================
+   COMMAND PALETTE - CMD+K
+   ============================================ */
+.command-palette-overlay {
+  @apply fixed inset-0;
+  @apply bg-black/20;
+  @apply backdrop-blur-xs;
+  @apply z-50;
+}
+
+.command-palette {
+  @apply fixed top-[20%] left-1/2 -translate-x-1/2;
+  @apply w-full max-w-lg;
+  @apply bg-cockpit-surface rounded-xl;
+  @apply border border-cockpit-border-strong;
+  @apply overflow-hidden;
+  box-shadow:
+    0 25px 50px -12px rgba(0, 0, 0, 0.25),
+    0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+.command-palette-input {
+  @apply w-full px-4 py-3;
+  @apply bg-transparent;
+  @apply border-b border-cockpit-border;
+  @apply text-cockpit-text text-base;
+  @apply placeholder:text-cockpit-text-dim;
+  @apply outline-none;
+}
+
+.command-palette-list {
+  @apply max-h-80 overflow-y-auto;
+  @apply py-2;
+}
+
+.command-palette-item {
+  @apply flex items-center gap-3;
+  @apply px-4 py-2.5;
+  @apply text-sm text-cockpit-text-secondary;
+  @apply cursor-pointer;
+  @apply transition-colors duration-100;
+}
+
+.command-palette-item:hover,
+.command-palette-item.selected {
+  @apply bg-cockpit-surface-hover text-cockpit-text;
+}
+
+.command-palette-item kbd {
+  @apply ml-auto;
+}
+
+/* ============================================
+   ANIMATIONS - MICRO-INTERACTIONS
+   ============================================ */
+@keyframes slideInFromRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideOutToLeft {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+}
+
+.animate-slide-in {
+  animation: slideInFromRight 0.25s var(--ease-out-expo) forwards;
+}
+
+.animate-slide-out {
+  animation: slideOutToLeft 0.2s var(--ease-out-expo) forwards;
+}
+
+/* ============================================
+   TACTILE FEEDBACK - KEY PRESS INDICATOR
+   ============================================ */
+.key-indicator {
+  @apply fixed bottom-6 right-6;
+  @apply px-4 py-2 rounded-lg;
+  @apply bg-cockpit-surface border border-cockpit-border-strong;
+  @apply shadow-elevation-3;
+  @apply flex items-center gap-2;
+  @apply text-sm font-medium text-cockpit-text;
+  @apply animate-fade-up;
+  @apply pointer-events-none;
+  @apply z-50;
+}
+
+.key-indicator kbd {
+  @apply scale-110;
+}
+
+/* ============================================
+   SHIMMER LOADING
+   ============================================ */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--bg-subtle) 0%,
+    var(--surface) 50%,
+    var(--bg-subtle) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s linear infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ============================================
+   HOVER UTILITIES
+   ============================================ */
+.hover-lift {
+  @apply transition-all duration-200;
+}
+
 .hover-lift:hover {
   transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+/* ============================================
+   DIVIDER - SUBTLE
+   ============================================ */
+.divider {
+  @apply h-px bg-cockpit-border;
+}
+
+.divider-vertical {
+  @apply w-px h-full bg-cockpit-border;
 }

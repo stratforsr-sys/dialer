@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { LayoutDashboard, List, Zap, FolderOpen, MoreHorizontal, Pencil, Trash2, Plus, Sparkles } from "lucide-react";
+import { LayoutDashboard, List, Zap, FolderOpen, MoreHorizontal, Pencil, Trash2, Plus, Command } from "lucide-react";
 import type { ViewMode, CallList } from "@/types";
 
 interface SidebarProps {
@@ -78,34 +78,31 @@ export function Sidebar({
   };
 
   return (
-    <aside className="w-[240px] flex-shrink-0 h-screen flex flex-col bg-telink-bg-subtle/50">
-      {/* Logo with gradient accent */}
-      <div className="px-5 pt-7 pb-6">
+    <aside className="w-[240px] flex-shrink-0 h-screen flex flex-col bg-cockpit-bg border-r border-cockpit-border">
+      {/* Logo */}
+      <div className="px-5 pt-6 pb-5">
         <div className="flex items-center gap-3">
-          <div className="relative">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-telink-accent via-pink-500 to-telink-violet flex items-center justify-center shadow-glow-sm">
-              <Zap size={18} className="text-telink-bg" strokeWidth={2.5} />
-            </div>
-            <div className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-telink-success border-2 border-telink-bg-subtle animate-pulse" />
+          <div className="w-9 h-9 rounded-lg bg-cockpit-text flex items-center justify-center">
+            <Zap size={16} className="text-cockpit-bg" strokeWidth={2} />
           </div>
           <div>
-            <span className="font-semibold text-base tracking-tight text-telink-text">telink</span>
-            <span className="text-2xs block text-telink-muted font-medium tracking-wider uppercase">Dialer Pro</span>
+            <span className="font-semibold text-sm tracking-tight text-cockpit-text">telink</span>
+            <span className="text-2xs block text-cockpit-text-dim font-medium tracking-wider uppercase">Dialer</span>
           </div>
         </div>
       </div>
 
       {/* Divider */}
-      <div className="mx-4 h-px bg-gradient-to-r from-transparent via-telink-border to-transparent" />
+      <div className="mx-4 h-px bg-cockpit-border" />
 
       {/* Call Lists Section */}
       <div className="px-3 py-4 flex-1 overflow-y-auto">
         <div className="flex items-center justify-between px-2 mb-3">
-          <span className="text-2xs font-semibold tracking-wider uppercase text-telink-dim">Ringlistor</span>
-          <span className="text-2xs font-mono text-telink-dim">{callLists.length}</span>
+          <span className="text-2xs font-semibold tracking-wider uppercase text-cockpit-text-dim">Ringlistor</span>
+          <span className="text-2xs font-mono text-cockpit-text-dim tabular-nums">{callLists.length}</span>
         </div>
 
-        <div className="space-y-1">
+        <div className="space-y-0.5">
           {callLists.map((list) => {
             const isActive = list.id === activeListId;
             const isEditing = list.id === editingId;
@@ -114,21 +111,21 @@ export function Sidebar({
               <div
                 key={list.id}
                 className={`
-                  group relative flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 ease-out-expo
+                  group relative flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-all duration-150
                   ${isActive
-                    ? "bg-telink-accent-muted shadow-inner-glow"
-                    : "hover:bg-telink-surface-hover"
+                    ? "bg-cockpit-surface border border-cockpit-border shadow-card"
+                    : "hover:bg-cockpit-surface-hover"
                   }
                 `}
               >
                 <div className={`
-                  w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-all duration-200
+                  w-6 h-6 rounded flex items-center justify-center flex-shrink-0 transition-colors duration-150
                   ${isActive
-                    ? "bg-telink-accent/20 text-telink-accent"
-                    : "bg-telink-surface text-telink-muted group-hover:text-telink-text-secondary"
+                    ? "bg-cockpit-bg text-cockpit-text"
+                    : "bg-cockpit-bg-subtle text-cockpit-text-muted group-hover:text-cockpit-text-secondary"
                   }
                 `}>
-                  <FolderOpen size={14} />
+                  <FolderOpen size={12} />
                 </div>
 
                 {isEditing ? (
@@ -145,13 +142,13 @@ export function Sidebar({
                         setEditName("");
                       }
                     }}
-                    className="flex-1 min-w-0 px-2 py-1 -my-1 bg-telink-surface border border-telink-accent rounded-lg text-sm text-telink-text focus:outline-none"
+                    className="flex-1 min-w-0 px-2 py-0.5 -my-0.5 bg-cockpit-surface border border-cockpit-border-strong rounded text-sm text-cockpit-text focus:outline-none focus:border-cockpit-border-focus"
                   />
                 ) : (
                   <button
                     onClick={() => onListSelect(list.id)}
                     className={`flex-1 min-w-0 text-left truncate font-medium cursor-pointer transition-colors duration-150 ${
-                      isActive ? "text-telink-accent" : "text-telink-text-secondary group-hover:text-telink-text"
+                      isActive ? "text-cockpit-text" : "text-cockpit-text-secondary group-hover:text-cockpit-text"
                     }`}
                   >
                     {list.name}
@@ -159,7 +156,7 @@ export function Sidebar({
                 )}
 
                 <span className={`text-xs font-mono tabular-nums transition-colors duration-150 ${
-                  isActive ? "text-telink-accent/70" : "text-telink-dim"
+                  isActive ? "text-cockpit-text-muted" : "text-cockpit-text-dim"
                 }`}>
                   {list.contacts.length}
                 </span>
@@ -170,29 +167,29 @@ export function Sidebar({
                       e.stopPropagation();
                       setMenuOpen(menuOpen === list.id ? null : list.id);
                     }}
-                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-telink-surface rounded-md transition-all cursor-pointer text-telink-dim hover:text-telink-text"
+                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-cockpit-bg rounded transition-all cursor-pointer text-cockpit-text-dim hover:text-cockpit-text"
                   >
-                    <MoreHorizontal size={14} />
+                    <MoreHorizontal size={12} />
                   </button>
                 )}
 
                 {menuOpen === list.id && (
                   <div
                     ref={menuRef}
-                    className="absolute right-0 top-full mt-1 w-40 py-1.5 bg-telink-surface-elevated border border-telink-border rounded-xl shadow-elevation-3 z-50 animate-fade-down"
+                    className="absolute right-0 top-full mt-1 w-36 py-1 bg-cockpit-surface border border-cockpit-border-strong rounded-lg shadow-elevation-3 z-50 animate-fade-down"
                   >
                     <button
                       onClick={() => handleStartEdit(list)}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-telink-text hover:bg-telink-surface-hover transition-colors cursor-pointer"
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-cockpit-text hover:bg-cockpit-surface-hover transition-colors cursor-pointer"
                     >
-                      <Pencil size={13} className="text-telink-muted" />
+                      <Pencil size={11} className="text-cockpit-text-muted" />
                       Byt namn
                     </button>
                     <button
                       onClick={() => handleDelete(list.id)}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-cockpit-danger hover:bg-cockpit-danger-bg transition-colors cursor-pointer"
                     >
-                      <Trash2 size={13} />
+                      <Trash2 size={11} />
                       Ta bort
                     </button>
                   </div>
@@ -205,22 +202,22 @@ export function Sidebar({
           <button
             onClick={() => setView("import")}
             className={`
-              w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200
+              w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-all duration-150
               ${view === "import"
-                ? "bg-telink-violet-muted text-telink-violet"
-                : "text-telink-dim hover:bg-telink-surface-hover hover:text-telink-text-secondary"
+                ? "bg-cockpit-surface border border-cockpit-border shadow-card text-cockpit-text"
+                : "text-cockpit-text-muted hover:bg-cockpit-surface-hover hover:text-cockpit-text-secondary"
               }
               cursor-pointer group
             `}
           >
             <div className={`
-              w-7 h-7 rounded-lg flex items-center justify-center border border-dashed transition-all duration-200
+              w-6 h-6 rounded flex items-center justify-center border border-dashed transition-colors duration-150
               ${view === "import"
-                ? "border-telink-violet/50 bg-telink-violet/10"
-                : "border-telink-border group-hover:border-telink-border-light"
+                ? "border-cockpit-border-strong bg-cockpit-bg"
+                : "border-cockpit-border group-hover:border-cockpit-border-strong"
               }
             `}>
-              <Plus size={14} />
+              <Plus size={12} />
             </div>
             <span>Importera ny</span>
           </button>
@@ -230,14 +227,14 @@ export function Sidebar({
       {/* Navigation - only show if we have an active list */}
       {hasData && (
         <>
-          <div className="mx-4 h-px bg-gradient-to-r from-transparent via-telink-border to-transparent" />
+          <div className="mx-4 h-px bg-cockpit-border" />
 
           <nav className="px-3 py-4">
             <div className="px-2 mb-3">
-              <span className="text-2xs font-semibold tracking-wider uppercase text-telink-dim">Navigering</span>
+              <span className="text-2xs font-semibold tracking-wider uppercase text-cockpit-text-dim">Navigering</span>
             </div>
 
-            <div className="space-y-1">
+            <div className="space-y-0.5">
               {NAV_ITEMS.map((item) => {
                 const disabled = item.needsData && !hasData;
                 const active = view === item.key;
@@ -247,27 +244,27 @@ export function Sidebar({
                     onClick={() => !disabled && setView(item.key)}
                     disabled={disabled}
                     className={`
-                      w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ease-out-expo
+                      w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-all duration-150
                       ${active
-                        ? "bg-telink-accent-muted text-telink-accent shadow-inner-glow"
+                        ? "bg-cockpit-surface border border-cockpit-border shadow-card text-cockpit-text"
                         : disabled
-                          ? "text-telink-dim cursor-not-allowed opacity-40"
-                          : "text-telink-text-secondary hover:bg-telink-surface-hover hover:text-telink-text cursor-pointer"
+                          ? "text-cockpit-text-dim cursor-not-allowed opacity-40"
+                          : "text-cockpit-text-secondary hover:bg-cockpit-surface-hover hover:text-cockpit-text cursor-pointer"
                       }
                     `}
                   >
                     <div className={`
-                      w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-200
+                      w-6 h-6 rounded flex items-center justify-center transition-colors duration-150
                       ${active
-                        ? "bg-telink-accent/20"
-                        : "bg-telink-surface"
+                        ? "bg-cockpit-bg text-cockpit-text"
+                        : "bg-cockpit-bg-subtle text-cockpit-text-muted"
                       }
                     `}>
-                      <item.icon size={14} />
+                      <item.icon size={12} />
                     </div>
                     {item.label}
                     {active && (
-                      <div className="ml-auto w-1.5 h-1.5 rounded-full bg-telink-accent shadow-glow-sm" />
+                      <div className="ml-auto w-1.5 h-1.5 rounded-full bg-cockpit-success" />
                     )}
                   </button>
                 );
@@ -278,15 +275,13 @@ export function Sidebar({
       )}
 
       {/* Footer */}
-      <div className="px-4 py-4 mt-auto">
-        <div className="p-3 rounded-xl bg-gradient-to-br from-telink-surface to-telink-surface-elevated border border-telink-border">
-          <div className="flex items-center gap-2 mb-2">
-            <Sparkles size={14} className="text-telink-accent" />
-            <span className="text-xs font-medium text-telink-text">Pro Tips</span>
-          </div>
-          <p className="text-2xs text-telink-muted leading-relaxed">
-            Tryck <kbd>Space</kbd> för snabbsamtal eller <kbd>?</kbd> för alla genvägar.
-          </p>
+      <div className="px-4 py-4 mt-auto border-t border-cockpit-border">
+        <div className="flex items-center gap-2 text-2xs text-cockpit-text-dim">
+          <kbd className="text-2xs">
+            <Command size={10} />
+          </kbd>
+          <kbd className="text-2xs">K</kbd>
+          <span>Kommandopalett</span>
         </div>
       </div>
     </aside>

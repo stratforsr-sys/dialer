@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Telink Dialer — Sales Cockpit",
-  description: "AI-powered sales dialer by Telink",
+  description: "Professional sales dialer by Telink",
 };
 
 export default function RootLayout({
@@ -13,7 +13,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="sv">
-      <body className="min-h-screen bg-telink-bg text-telink-text antialiased">
+      <body className="min-h-screen bg-cockpit-bg text-cockpit-text antialiased">
         <div className="relative z-10">{children}</div>
       </body>
     </html>

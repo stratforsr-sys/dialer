@@ -1,21 +1,25 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Phone, PhoneCall, Globe, Linkedin, ChevronLeft, ChevronRight,
-  ExternalLink, MessageSquare, Keyboard, Building2, Mail, Hash,
-  ArrowLeft, Search, Copy, Check, Zap, Clock, Flame
+  ExternalLink, MessageSquare, Building2, Mail, Hash, User,
+  ArrowLeft, Search, Copy, Check, Clock, Command, CornerDownLeft,
+  LayoutGrid, Settings, BarChart3, X, Zap, Target, FileText,
+  ChevronUp, ChevronDown, Sparkles
 } from "lucide-react";
 import type { Contact, ContactStatus } from "@/types";
 import { STATUS_CONFIG, SHORTCUTS } from "@/lib/constants";
 
-// Best-Time Indicator logic based on role
+// ============================================
+// UTILITY: Best-Time Indicator
+// ============================================
 function getBestTimeIndicator(role: string | undefined): { status: "good" | "ok" | "bad"; label: string; tip: string } {
   const now = new Date();
   const hour = now.getHours();
   const roleLower = (role || "").toLowerCase();
 
-  // VD/CEO: Early morning or late afternoon
   if (roleLower.includes("vd") || roleLower.includes("ceo") || roleLower.includes("grundare") || roleLower.includes("founder")) {
     if ((hour >= 8 && hour < 9) || (hour >= 16 && hour < 17)) {
       return { status: "good", label: "Bra tid", tip: "VD:ar nås bäst tidigt eller sent" };
@@ -25,7 +29,6 @@ function getBestTimeIndicator(role: string | undefined): { status: "good" | "ok"
     return { status: "ok", label: "Försök", tip: "Kan vara i möte" };
   }
 
-  // Sales: Avoid mornings
   if (roleLower.includes("sales") || roleLower.includes("säljare") || roleLower.includes("account")) {
     if (hour >= 14 && hour < 16) {
       return { status: "good", label: "Bra tid", tip: "Säljare ofta vid datorn nu" };
@@ -35,7 +38,6 @@ function getBestTimeIndicator(role: string | undefined): { status: "good" | "ok"
     return { status: "ok", label: "Försök", tip: "Kan vara upptagen" };
   }
 
-  // CTO/Tech: Mornings or late afternoon
   if (roleLower.includes("cto") || roleLower.includes("tech") || roleLower.includes("utvecklare") || roleLower.includes("developer")) {
     if ((hour >= 8 && hour < 10) || (hour >= 16 && hour < 17)) {
       return { status: "good", label: "Bra tid", tip: "Innan/efter fokustid" };
@@ -45,7 +47,6 @@ function getBestTimeIndicator(role: string | undefined): { status: "good" | "ok"
     return { status: "ok", label: "Försök", tip: "Kan vara i kodfokus" };
   }
 
-  // Default: Mid-morning or early afternoon
   if ((hour >= 10 && hour < 12) || (hour >= 14 && hour < 16)) {
     return { status: "good", label: "Bra tid", tip: "Generellt bra tidpunkt" };
   } else if (hour >= 12 && hour < 13) {
@@ -54,6 +55,396 @@ function getBestTimeIndicator(role: string | undefined): { status: "good" | "ok"
   return { status: "ok", label: "Okänd", tip: "Pröva lyckan!" };
 }
 
+// ============================================
+// COMPONENT: Command Palette (CMD+K)
+// ============================================
+interface CommandItem {
+  id: string;
+  label: string;
+  icon: React.ReactNode;
+  shortcut?: string;
+  action: () => void;
+  category?: string;
+}
+
+function CommandPalette({
+  isOpen,
+  onClose,
+  items,
+  onSelect,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  items: CommandItem[];
+  onSelect: (item: CommandItem) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const filtered = useMemo(() => {
+    if (!search) return items;
+    return items.filter(item =>
+      item.label.toLowerCase().includes(search.toLowerCase()) ||
+      item.category?.toLowerCase().includes(search.toLowerCase())
+    );
+  }, [items, search]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setSearch("");
+      setSelectedIndex(0);
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedIndex(i => Math.min(i + 1, filtered.length - 1));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedIndex(i => Math.max(i - 1, 0));
+      } else if (e.key === "Enter" && filtered[selectedIndex]) {
+        e.preventDefault();
+        onSelect(filtered[selectedIndex]);
+        onClose();
+      } else if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isOpen, filtered, selectedIndex, onSelect, onClose]);
+
+  if (!isOpen) return null;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="command-palette-overlay"
+        onClick={onClose}
+      >
+        <motion.div
+          initial={{ opacity: 0, scale: 0.96, y: -10 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.96, y: -10 }}
+          transition={{ type: "spring", stiffness: 500, damping: 30 }}
+          className="command-palette"
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="flex items-center gap-3 px-4 py-3 border-b border-cockpit-border">
+            <Search size={16} className="text-cockpit-text-dim" />
+            <input
+              ref={inputRef}
+              type="text"
+              value={search}
+              onChange={e => { setSearch(e.target.value); setSelectedIndex(0); }}
+              placeholder="Sök kommandon..."
+              className="flex-1 bg-transparent text-cockpit-text placeholder:text-cockpit-text-dim outline-none text-sm"
+            />
+            <kbd className="text-2xs">ESC</kbd>
+          </div>
+          <div className="command-palette-list">
+            {filtered.length === 0 ? (
+              <div className="px-4 py-8 text-center text-cockpit-text-dim text-sm">
+                Inga kommandon hittades
+              </div>
+            ) : (
+              filtered.map((item, i) => (
+                <div
+                  key={item.id}
+                  className={`command-palette-item ${i === selectedIndex ? "selected" : ""}`}
+                  onClick={() => { onSelect(item); onClose(); }}
+                >
+                  <span className="text-cockpit-text-muted">{item.icon}</span>
+                  <span className="flex-1">{item.label}</span>
+                  {item.shortcut && <kbd>{item.shortcut}</kbd>}
+                </div>
+              ))
+            )}
+          </div>
+          <div className="flex items-center gap-4 px-4 py-2 border-t border-cockpit-border bg-cockpit-bg-subtle text-2xs text-cockpit-text-dim">
+            <span className="flex items-center gap-1"><ChevronUp size={10} /><ChevronDown size={10} /> navigera</span>
+            <span className="flex items-center gap-1"><CornerDownLeft size={10} /> välj</span>
+            <span className="flex items-center gap-1"><kbd className="text-2xs px-1">ESC</kbd> stäng</span>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+// ============================================
+// COMPONENT: Key Press Indicator
+// ============================================
+function KeyIndicator({ keyPressed }: { keyPressed: string | null }) {
+  if (!keyPressed) return null;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      className="key-indicator"
+    >
+      <kbd className="pressed">{keyPressed}</kbd>
+      <span>tryckt</span>
+    </motion.div>
+  );
+}
+
+// ============================================
+// COMPONENT: Navigation Rail
+// ============================================
+function NavigationRail({ onExit }: { onExit: () => void }) {
+  return (
+    <div className="nav-rail">
+      <button
+        onClick={onExit}
+        className="nav-rail-item mb-auto"
+        title="Tillbaka"
+      >
+        <ArrowLeft size={18} strokeWidth={1.5} />
+      </button>
+
+      <div className="flex flex-col gap-1">
+        <button className="nav-rail-item active" title="Dialer">
+          <Phone size={18} strokeWidth={1.5} />
+        </button>
+        <button className="nav-rail-item" title="Dashboard">
+          <LayoutGrid size={18} strokeWidth={1.5} />
+        </button>
+        <button className="nav-rail-item" title="Statistik">
+          <BarChart3 size={18} strokeWidth={1.5} />
+        </button>
+      </div>
+
+      <button className="nav-rail-item mt-auto" title="Inställningar">
+        <Settings size={18} strokeWidth={1.5} />
+      </button>
+    </div>
+  );
+}
+
+// ============================================
+// COMPONENT: Lead Stream (Contact List)
+// ============================================
+function LeadStream({
+  contacts,
+  currentIndex,
+  onSelect,
+}: {
+  contacts: Contact[];
+  currentIndex: number;
+  onSelect: (index: number) => void;
+}) {
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Scroll to active item
+    const el = listRef.current?.querySelector(`[data-index="${currentIndex}"]`);
+    el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [currentIndex]);
+
+  const getStatusColor = (status: ContactStatus) => {
+    const cfg = STATUS_CONFIG[status];
+    return cfg?.color || "#71717a";
+  };
+
+  return (
+    <div className="w-64 flex-shrink-0 flex flex-col border-r border-cockpit-border bg-cockpit-surface">
+      {/* Header */}
+      <div className="px-4 py-3 border-b border-cockpit-border">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-semibold text-cockpit-text uppercase tracking-wider">
+            Leads
+          </h3>
+          <span className="text-2xs text-cockpit-text-dim tabular-nums">
+            {contacts.filter(c => c.status !== "ej_ringd").length}/{contacts.length}
+          </span>
+        </div>
+      </div>
+
+      {/* List */}
+      <div ref={listRef} className="flex-1 overflow-y-auto">
+        {contacts.map((contact, index) => {
+          const isActive = index === currentIndex;
+          const statusColor = getStatusColor(contact.status);
+
+          return (
+            <motion.div
+              key={contact.id}
+              data-index={index}
+              onClick={() => onSelect(index)}
+              className={`lead-card ${isActive ? "active" : ""}`}
+              whileHover={{ x: isActive ? 0 : 2 }}
+              transition={{ duration: 0.15 }}
+            >
+              <div className="flex items-start gap-3">
+                {/* Status indicator */}
+                <div
+                  className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0"
+                  style={{ backgroundColor: statusColor }}
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-cockpit-text truncate">
+                    {contact.name || "Okänt namn"}
+                  </p>
+                  <p className="text-xs text-cockpit-text-muted truncate">
+                    {contact.company}
+                  </p>
+                </div>
+                {contact.status === "bokat_mote" && (
+                  <div className="w-4 h-4 rounded bg-cockpit-success-bg flex items-center justify-center">
+                    <Check size={10} className="text-cockpit-success" />
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// COMPONENT: Intelligence Bar
+// ============================================
+function IntelligenceBar({
+  contacts,
+  currentIndex,
+  sessionCalls,
+  onSelectNext,
+}: {
+  contacts: Contact[];
+  currentIndex: number;
+  sessionCalls: number;
+  onSelectNext: (index: number) => void;
+}) {
+  const total = contacts.length;
+  const worked = contacts.filter(c => c.status !== "ej_ringd").length;
+  const pctDone = total > 0 ? Math.round((worked / total) * 100) : 0;
+  const meetings = contacts.filter(c => c.status === "bokat_mote").length;
+
+  // Find next unworked contact
+  const nextUnworked = contacts.findIndex((c, i) => i !== currentIndex && c.status === "ej_ringd");
+  const nextContact = nextUnworked >= 0 ? contacts[nextUnworked] : null;
+
+  // Quick templates for notes
+  const templates = [
+    { label: "Återkom", text: "Återkom kl " },
+    { label: "Möte", text: `Möte ${new Date().toLocaleDateString("sv-SE")} kl ` },
+    { label: "Ej intresse", text: "Ej intresserad pga " },
+    { label: "Budget", text: "Budget: " },
+  ];
+
+  return (
+    <div className="w-72 flex-shrink-0 flex flex-col border-l border-cockpit-border bg-cockpit-bg">
+      {/* Daily Progress */}
+      <div className="p-4 border-b border-cockpit-border">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-xs font-semibold text-cockpit-text-muted uppercase tracking-wider">
+            Dagens framsteg
+          </h4>
+          <span className="text-lg font-semibold text-cockpit-text tabular-nums">
+            {pctDone}%
+          </span>
+        </div>
+
+        {/* Progress bar */}
+        <div className="h-1.5 bg-cockpit-bg-muted rounded-full overflow-hidden mb-3">
+          <motion.div
+            className="h-full bg-cockpit-success rounded-full"
+            initial={{ width: 0 }}
+            animate={{ width: `${pctDone}%` }}
+            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+          />
+        </div>
+
+        {/* Stats grid */}
+        <div className="grid grid-cols-3 gap-2">
+          <div className="text-center p-2 rounded-md bg-cockpit-surface border border-cockpit-border">
+            <p className="text-lg font-semibold text-cockpit-text tabular-nums">{sessionCalls}</p>
+            <p className="text-2xs text-cockpit-text-dim">Samtal</p>
+          </div>
+          <div className="text-center p-2 rounded-md bg-cockpit-surface border border-cockpit-border">
+            <p className="text-lg font-semibold text-cockpit-success tabular-nums">{meetings}</p>
+            <p className="text-2xs text-cockpit-text-dim">Möten</p>
+          </div>
+          <div className="text-center p-2 rounded-md bg-cockpit-surface border border-cockpit-border">
+            <p className="text-lg font-semibold text-cockpit-text tabular-nums">{total - worked}</p>
+            <p className="text-2xs text-cockpit-text-dim">Kvar</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Next Up */}
+      {nextContact && (
+        <div className="p-4 border-b border-cockpit-border">
+          <h4 className="text-xs font-semibold text-cockpit-text-muted uppercase tracking-wider mb-3">
+            Nästa i kön
+          </h4>
+          <motion.button
+            onClick={() => onSelectNext(nextUnworked)}
+            className="w-full card-interactive p-3 text-left"
+            whileHover={{ scale: 1.01 }}
+            whileTap={{ scale: 0.99 }}
+          >
+            <p className="text-sm font-medium text-cockpit-text truncate">
+              {nextContact.name}
+            </p>
+            <p className="text-xs text-cockpit-text-muted truncate">
+              {nextContact.company}
+            </p>
+          </motion.button>
+        </div>
+      )}
+
+      {/* Quick Templates */}
+      <div className="p-4 flex-1">
+        <h4 className="text-xs font-semibold text-cockpit-text-muted uppercase tracking-wider mb-3">
+          Snabbmallar
+        </h4>
+        <div className="space-y-2">
+          {templates.map(t => (
+            <button
+              key={t.label}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-md bg-cockpit-surface border border-cockpit-border hover:bg-cockpit-surface-hover hover:border-cockpit-border-strong transition-all text-left text-xs text-cockpit-text-secondary cursor-pointer"
+            >
+              <FileText size={12} className="text-cockpit-text-dim" />
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Keyboard shortcut hint */}
+      <div className="p-4 border-t border-cockpit-border">
+        <div className="flex items-center gap-2 text-2xs text-cockpit-text-dim">
+          <kbd className="text-2xs">?</kbd>
+          <span>Visa alla genvägar</span>
+        </div>
+        <div className="flex items-center gap-2 text-2xs text-cockpit-text-dim mt-1">
+          <kbd className="text-2xs">
+            <Command size={10} />
+          </kbd>
+          <kbd className="text-2xs">K</kbd>
+          <span>Kommandopalett</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// MAIN COMPONENT: CockpitView
+// ============================================
 interface CockpitViewProps {
   contacts: Contact[];
   currentIndex: number;
@@ -72,13 +463,15 @@ export function CockpitView({
   const [iframeFailed, setIframeFailed] = useState(false);
   const [notes, setNotes] = useState("");
   const [copied, setCopied] = useState(false);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [keyPressed, setKeyPressed] = useState<string | null>(null);
+  const [isTransitioning, setIsTransitioning] = useState(false);
   const notesTimerRef = useRef<NodeJS.Timeout | null>(null);
   const notesRef = useRef<HTMLTextAreaElement>(null);
 
   const contact = contacts[currentIndex];
   const total = contacts.length;
   const worked = contacts.filter(c => c.status !== "ej_ringd").length;
-  const pctDone = total > 0 ? Math.round((worked / total) * 100) : 0;
 
   // Sync notes on contact change
   useEffect(() => {
@@ -86,7 +479,7 @@ export function CockpitView({
     setIframeFailed(false);
   }, [contact?.id]);
 
-  // Auto-save notes
+  // Auto-save notes with debounce
   useEffect(() => {
     if (!contact) return;
     if (notesTimerRef.current) clearTimeout(notesTimerRef.current);
@@ -94,22 +487,27 @@ export function CockpitView({
       updateContact(contact.id, { notes });
     }, 600);
     return () => { if (notesTimerRef.current) clearTimeout(notesTimerRef.current); };
-  }, [notes, contact?.id]);
+  }, [notes, contact?.id, updateContact]);
 
   const goNext = useCallback(() => {
-    // Find next ej_ringd after current index
     let next = -1;
     for (let i = currentIndex + 1; i < contacts.length; i++) {
       if (contacts[i].status === "ej_ringd") { next = i; break; }
     }
     if (next === -1) {
-      // wrap around
       for (let i = 0; i < currentIndex; i++) {
         if (contacts[i].status === "ej_ringd") { next = i; break; }
       }
     }
-    if (next >= 0) setCurrentIndex(next);
-    else if (currentIndex < contacts.length - 1) setCurrentIndex(currentIndex + 1);
+    if (next >= 0) {
+      setIsTransitioning(true);
+      setTimeout(() => {
+        setCurrentIndex(next);
+        setIsTransitioning(false);
+      }, 150);
+    } else if (currentIndex < contacts.length - 1) {
+      setCurrentIndex(currentIndex + 1);
+    }
   }, [currentIndex, contacts, setCurrentIndex]);
 
   const goPrev = useCallback(() => {
@@ -118,11 +516,15 @@ export function CockpitView({
 
   const handleStatusClick = useCallback((status: ContactStatus) => {
     if (!contact) return;
-    // Save notes first
     updateContact(contact.id, { notes });
     setStatus(contact.id, status);
-    // Auto-advance to next lead
-    setTimeout(goNext, 150);
+
+    // Animate out then advance
+    setIsTransitioning(true);
+    setTimeout(() => {
+      goNext();
+      setIsTransitioning(false);
+    }, 200);
   }, [contact, notes, updateContact, setStatus, goNext]);
 
   const copyEmail = useCallback(() => {
@@ -133,59 +535,99 @@ export function CockpitView({
     }
   }, [contact?.email]);
 
+  // Show key press indicator
+  const flashKey = useCallback((key: string) => {
+    setKeyPressed(key);
+    setTimeout(() => setKeyPressed(null), 300);
+  }, []);
+
+  // Command palette items
+  const commandItems: CommandItem[] = useMemo(() => [
+    { id: "call-direct", label: "Ring direkt", icon: <Phone size={14} />, shortcut: "D", action: () => contact?.direct_phone && window.open(`tel:${contact.direct_phone}`, "_self"), category: "Samtal" },
+    { id: "call-switch", label: "Ring växel", icon: <PhoneCall size={14} />, shortcut: "V", action: () => contact?.switchboard && window.open(`tel:${contact.switchboard}`, "_self"), category: "Samtal" },
+    { id: "next", label: "Nästa lead", icon: <ChevronRight size={14} />, shortcut: "N", action: goNext, category: "Navigation" },
+    { id: "prev", label: "Föregående", icon: <ChevronLeft size={14} />, shortcut: "P", action: goPrev, category: "Navigation" },
+    { id: "exit", label: "Avsluta dialer", icon: <ArrowLeft size={14} />, shortcut: "ESC", action: onExit, category: "Navigation" },
+    { id: "status-1", label: "Svarar ej", icon: <span className="w-2 h-2 rounded-full bg-amber-500" />, shortcut: "1", action: () => handleStatusClick("svarar_ej"), category: "Status" },
+    { id: "status-2", label: "Nej tack", icon: <span className="w-2 h-2 rounded-full bg-red-500" />, shortcut: "2", action: () => handleStatusClick("nej_tack"), category: "Status" },
+    { id: "status-3", label: "Bokat möte", icon: <span className="w-2 h-2 rounded-full bg-green-500" />, shortcut: "3", action: () => handleStatusClick("bokat_mote"), category: "Status" },
+    { id: "status-4", label: "Upptaget", icon: <span className="w-2 h-2 rounded-full bg-orange-500" />, shortcut: "4", action: () => handleStatusClick("upptaget"), category: "Status" },
+    { id: "status-5", label: "Fel nummer", icon: <span className="w-2 h-2 rounded-full bg-red-400" />, shortcut: "5", action: () => handleStatusClick("fel_nummer"), category: "Status" },
+    { id: "status-6", label: "Återsamtal", icon: <span className="w-2 h-2 rounded-full bg-blue-500" />, shortcut: "6", action: () => handleStatusClick("atersam"), category: "Status" },
+    { id: "status-7", label: "Intresserad", icon: <span className="w-2 h-2 rounded-full bg-purple-500" />, shortcut: "7", action: () => handleStatusClick("intresserad"), category: "Status" },
+  ], [contact, goNext, goPrev, onExit, handleStatusClick]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // Don't trigger if typing in textarea/input
       if (e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement) return;
 
+      // CMD+K for command palette
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setShowCommandPalette(true);
+        return;
+      }
+
       switch (e.key) {
-        case "1": handleStatusClick("svarar_ej"); break;
-        case "2": handleStatusClick("nej_tack"); break;
-        case "3": handleStatusClick("bokat_mote"); break;
-        case "4": handleStatusClick("upptaget"); break;
-        case "5": handleStatusClick("fel_nummer"); break;
-        case "6": handleStatusClick("atersam"); break;
-        case "7": handleStatusClick("intresserad"); break;
+        case "1": flashKey("1"); handleStatusClick("svarar_ej"); break;
+        case "2": flashKey("2"); handleStatusClick("nej_tack"); break;
+        case "3": flashKey("3"); handleStatusClick("bokat_mote"); break;
+        case "4": flashKey("4"); handleStatusClick("upptaget"); break;
+        case "5": flashKey("5"); handleStatusClick("fel_nummer"); break;
+        case "6": flashKey("6"); handleStatusClick("atersam"); break;
+        case "7": flashKey("7"); handleStatusClick("intresserad"); break;
         case "d": case "D":
+          flashKey("D");
           if (contact?.direct_phone) window.open(`tel:${contact.direct_phone}`, "_self");
           break;
         case "v": case "V":
+          flashKey("V");
           if (contact?.switchboard) window.open(`tel:${contact.switchboard}`, "_self");
           break;
-        case "n": case "N": goNext(); break;
-        case "p": case "P": goPrev(); break;
-        case " ": // Space to call directly
+        case "n": case "N": flashKey("N"); goNext(); break;
+        case "p": case "P": flashKey("P"); goPrev(); break;
+        case " ":
           e.preventDefault();
+          flashKey("␣");
           if (contact?.direct_phone) window.open(`tel:${contact.direct_phone}`, "_self");
           break;
         case "?": setShowShortcuts(prev => !prev); break;
-        case "Escape": onExit(); break;
+        case "Escape":
+          if (showShortcuts) setShowShortcuts(false);
+          else onExit();
+          break;
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [handleStatusClick, goNext, goPrev, onExit, contact]);
+  }, [handleStatusClick, goNext, goPrev, onExit, contact, flashKey, showShortcuts]);
 
+  // All done state
   if (!contact) {
     return (
-      <div className="h-full flex items-center justify-center bg-telink-bg">
-        <div className="text-center animate-fade-up">
-          <div className="relative mx-auto w-20 h-20 mb-6">
-            <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-telink-accent via-pink-500 to-telink-violet opacity-20 blur-xl animate-pulse" />
-            <div className="relative w-full h-full rounded-2xl bg-gradient-to-br from-telink-accent via-pink-500 to-telink-violet flex items-center justify-center shadow-glow-md">
-              <Zap size={32} className="text-telink-bg" />
-            </div>
+      <div className="h-full flex items-center justify-center bg-cockpit-bg">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center max-w-sm"
+        >
+          <div className="w-16 h-16 mx-auto mb-6 rounded-xl bg-cockpit-success-bg flex items-center justify-center">
+            <Check size={28} className="text-cockpit-success" />
           </div>
-          <h2 className="text-2xl font-bold text-telink-text mb-2">Alla leads avklarade!</h2>
-          <p className="text-sm text-telink-muted mb-8">Du har gått igenom hela listan. Bra jobbat!</p>
+          <h2 className="text-xl font-semibold text-cockpit-text mb-2">
+            Alla leads avklarade
+          </h2>
+          <p className="text-sm text-cockpit-text-muted mb-8">
+            Du har gått igenom hela listan. Bra jobbat!
+          </p>
           <button
             onClick={onExit}
-            className="px-6 py-3 rounded-xl bg-gradient-to-r from-telink-accent via-pink-500 to-telink-violet text-telink-bg font-bold text-sm cursor-pointer shadow-glow-md hover:shadow-glow-lg transition-all"
+            className="btn-primary px-6 py-2.5"
           >
             Tillbaka till Dashboard
           </button>
-        </div>
+        </motion.div>
       </div>
     );
   }
@@ -195,580 +637,493 @@ export function CockpitView({
   const linkedinUrl = contact.linkedin && !contact.linkedin.startsWith("http")
     ? `https://${contact.linkedin}` : contact.linkedin;
 
-  // Clean company name for LinkedIn searches - take first word only (brand name)
   const cleanCompany = (contact.company || "")
     .replace(/\s+(AB|Ab|ab|HB|Hb|hb|KB|Kb|kb|EF|Ef|ef|Ek\.?\s*för\.?|Aktiebolag|Handelsbolag|Kommanditbolag)\.?\s*$/i, "")
     .trim()
-    .split(/\s+/)[0] || ""; // Take first word only
+    .split(/\s+/)[0] || "";
 
-  // LinkedIn search format: "Name AND Company" for better results
   const linkedinSearchUrl = `https://www.linkedin.com/search/results/all/?keywords=${encodeURIComponent(`${contact.name}${cleanCompany ? ` AND ${cleanCompany}` : ""}`)}`;
 
   const statusActions: ContactStatus[] = ["svarar_ej", "nej_tack", "bokat_mote", "upptaget", "fel_nummer", "atersam", "intresserad"];
+  const timeInfo = getBestTimeIndicator(contact.role);
 
   return (
-    <div className="h-full flex flex-col overflow-hidden bg-telink-bg">
-      {/* Top progress bar with gradient */}
-      <div className="flex-shrink-0 h-1.5 bg-telink-surface-elevated relative overflow-hidden">
-        <div
-          className="h-full transition-all duration-700 ease-out-expo relative"
-          style={{
-            width: `${pctDone}%`,
-            background: "linear-gradient(90deg, #f59e0b 0%, #ec4899 50%, #8b5cf6 100%)",
-          }}
-        >
-          <div className="absolute inset-0 bg-gradient-to-r from-white/30 to-transparent" />
-        </div>
-        <div className="absolute top-0 right-0 h-full w-32 bg-gradient-to-l from-telink-bg to-transparent" />
-      </div>
+    <div className="h-full flex overflow-hidden bg-cockpit-bg">
+      {/* Command Palette */}
+      <CommandPalette
+        isOpen={showCommandPalette}
+        onClose={() => setShowCommandPalette(false)}
+        items={commandItems}
+        onSelect={(item) => item.action()}
+      />
 
-      {/* Header bar */}
-      <div className="flex-shrink-0 flex items-center justify-between px-6 py-3 border-b border-telink-border bg-telink-surface/80 backdrop-blur-md">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={onExit}
-            className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-telink-surface-hover transition-all text-telink-muted hover:text-telink-text cursor-pointer group"
-          >
-            <ArrowLeft size={16} className="group-hover:-translate-x-0.5 transition-transform" />
-            <span className="text-xs font-medium">Avsluta</span>
-          </button>
-          <div className="h-6 w-px bg-telink-border" />
+      {/* Key Press Indicator */}
+      <AnimatePresence>
+        {keyPressed && <KeyIndicator keyPressed={keyPressed} />}
+      </AnimatePresence>
 
-          {/* Position indicator with mini progress */}
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-telink-surface border border-telink-border">
-              <span className="text-sm font-bold text-telink-text tabular-nums">{currentIndex + 1}</span>
-              <span className="text-xs text-telink-dim">/</span>
-              <span className="text-xs text-telink-muted tabular-nums">{total}</span>
+      {/* Navigation Rail */}
+      <NavigationRail onExit={onExit} />
+
+      {/* Lead Stream */}
+      <LeadStream
+        contacts={contacts}
+        currentIndex={currentIndex}
+        onSelect={setCurrentIndex}
+      />
+
+      {/* Focus Stage - Main Content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Top bar */}
+        <div className="flex-shrink-0 flex items-center justify-between px-6 py-3 border-b border-cockpit-border bg-cockpit-surface">
+          <div className="flex items-center gap-4">
+            {/* Position indicator */}
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-cockpit-bg border border-cockpit-border">
+              <span className="text-sm font-semibold text-cockpit-text tabular-nums">{currentIndex + 1}</span>
+              <span className="text-xs text-cockpit-text-dim">/</span>
+              <span className="text-xs text-cockpit-text-muted tabular-nums">{total}</span>
             </div>
+
+            {/* Navigation buttons */}
             <div className="flex items-center gap-1">
               <button
                 onClick={goPrev}
                 disabled={currentIndex === 0}
-                className="p-2 rounded-lg hover:bg-telink-surface-hover transition-all text-telink-dim hover:text-telink-text disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                className="p-2 rounded-md hover:bg-cockpit-surface-hover transition-colors text-cockpit-text-dim hover:text-cockpit-text disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
               >
                 <ChevronLeft size={16} />
               </button>
               <button
                 onClick={goNext}
-                className="p-2 rounded-lg hover:bg-telink-surface-hover transition-all text-telink-dim hover:text-telink-text cursor-pointer"
+                className="p-2 rounded-md hover:bg-cockpit-surface-hover transition-colors text-cockpit-text-dim hover:text-cockpit-text cursor-pointer"
               >
                 <ChevronRight size={16} />
               </button>
             </div>
           </div>
-        </div>
 
-        <div className="flex items-center gap-3">
-          {/* Streak Momentum Counter - Premium styling */}
-          <div className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-all ${
-            sessionCalls >= 10
-              ? "bg-gradient-to-r from-orange-500/20 via-red-500/20 to-pink-500/20 border border-orange-500/40 shadow-glow-sm"
-              : sessionCalls >= 5
-                ? "bg-gradient-to-r from-telink-accent/15 to-pink-500/15 border border-telink-accent/30"
-                : sessionCalls >= 3
-                  ? "bg-telink-accent-muted border border-telink-accent/20"
-                  : "bg-telink-surface border border-telink-border"
-          }`}>
-            <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
-              sessionCalls >= 10
-                ? "bg-gradient-to-br from-orange-500 to-red-500"
-                : sessionCalls >= 5
-                  ? "bg-gradient-to-br from-telink-accent to-pink-500"
-                  : sessionCalls >= 3
-                    ? "bg-telink-accent/20"
-                    : "bg-telink-surface-elevated"
-            }`}>
-              {sessionCalls >= 10 ? (
-                <Flame size={14} className="text-white animate-pulse" />
-              ) : sessionCalls >= 5 ? (
-                <Zap size={14} className="text-telink-bg" />
-              ) : (
-                <Phone size={12} className={sessionCalls >= 3 ? "text-telink-accent" : "text-telink-dim"} />
-              )}
+          {/* Progress bar */}
+          <div className="flex-1 max-w-xs mx-8">
+            <div className="h-1 bg-cockpit-bg-muted rounded-full overflow-hidden">
+              <motion.div
+                className="h-full bg-cockpit-success rounded-full"
+                initial={{ width: 0 }}
+                animate={{ width: `${(worked / total) * 100}%` }}
+                transition={{ duration: 0.3 }}
+              />
             </div>
-            <div className="flex flex-col">
-              <span className={`text-sm font-bold tabular-nums ${
-                sessionCalls >= 10 ? "text-orange-400" : sessionCalls >= 5 ? "gradient-text" : sessionCalls >= 3 ? "text-telink-accent" : "text-telink-text"
-              }`}>
-                {sessionCalls}
-              </span>
-              <span className="text-[10px] text-telink-dim leading-none">samtal</span>
-            </div>
-            {sessionCalls >= 10 && (
-              <span className="text-[10px] font-bold text-orange-400 uppercase tracking-wide animate-pulse">On Fire!</span>
-            )}
-            {sessionCalls >= 5 && sessionCalls < 10 && (
-              <span className="text-[10px] font-semibold text-telink-accent uppercase tracking-wide">Streak!</span>
-            )}
           </div>
 
+          {/* Shortcuts toggle */}
           <button
             onClick={() => setShowShortcuts(!showShortcuts)}
-            className={`p-2.5 rounded-xl transition-all cursor-pointer ${
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
               showShortcuts
-                ? "bg-telink-accent-muted text-telink-accent border border-telink-accent/20"
-                : "hover:bg-telink-surface-hover text-telink-dim hover:text-telink-text border border-transparent"
+                ? "bg-cockpit-bg border border-cockpit-border-strong text-cockpit-text"
+                : "text-cockpit-text-muted hover:text-cockpit-text hover:bg-cockpit-surface-hover"
             }`}
           >
-            <Keyboard size={16} />
+            <kbd className="text-2xs">?</kbd>
+            <span>Genvägar</span>
           </button>
         </div>
-      </div>
 
-      {/* Shortcuts overlay - Premium styling */}
-      {showShortcuts && (
-        <div className="flex-shrink-0 px-6 py-4 bg-telink-surface-elevated border-b border-telink-border animate-fade-down">
-          <div className="flex items-center gap-2 mb-3">
-            <Keyboard size={14} className="text-telink-accent" />
-            <span className="text-xs font-semibold text-telink-text">Tangentbordsgenvägar</span>
-          </div>
-          <div className="flex flex-wrap gap-x-6 gap-y-2">
-            {SHORTCUTS.map(s => (
-              <div key={s.key} className="flex items-center gap-2">
-                <kbd className="px-2 py-1 rounded-md bg-telink-surface border border-telink-border text-xs font-mono text-telink-accent">{s.key}</kbd>
-                <span className="text-xs text-telink-muted">{s.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Main content area */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* LEFT: Contact info + Actions */}
-        <div className="w-[440px] flex-shrink-0 flex flex-col border-r border-telink-border overflow-y-auto bg-telink-bg-subtle/30">
-          {/* Contact header - Premium card */}
-          <div className="p-6 border-b border-telink-border bg-gradient-to-br from-telink-surface/80 to-telink-bg">
-            <div className="flex items-start justify-between mb-3">
-              <div className="flex-1 min-w-0">
-                <h2 className="text-xl font-bold text-telink-text tracking-tight leading-tight truncate">
-                  {contact.name || "Okänt namn"}
-                </h2>
-                <div className="flex items-center gap-2 mt-1.5">
-                  {contact.role && <span className="text-sm text-telink-muted">{contact.role}</span>}
-                  {contact.role && contact.company && <span className="text-telink-dim">•</span>}
-                  {contact.company && (
-                    <span className="text-sm font-medium text-telink-accent">{contact.company}</span>
-                  )}
+        {/* Shortcuts panel */}
+        <AnimatePresence>
+          {showShortcuts && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="flex-shrink-0 overflow-hidden border-b border-cockpit-border bg-cockpit-bg-subtle"
+            >
+              <div className="px-6 py-4">
+                <div className="flex flex-wrap gap-x-6 gap-y-2">
+                  {SHORTCUTS.map(s => (
+                    <div key={s.key} className="flex items-center gap-2">
+                      <kbd>{s.key}</kbd>
+                      <span className="text-xs text-cockpit-text-muted">{s.label}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
-              {/* Best-Time Indicator - Enhanced */}
-              {(() => {
-                const timeInfo = getBestTimeIndicator(contact.role);
-                return (
-                  <div
-                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] font-semibold uppercase tracking-wide ${
-                      timeInfo.status === "good"
-                        ? "bg-telink-success/10 text-telink-success border border-telink-success/20"
-                        : timeInfo.status === "bad"
-                          ? "bg-red-500/10 text-red-400 border border-red-500/20"
-                          : "bg-yellow-500/10 text-yellow-500 border border-yellow-500/20"
-                    }`}
-                    title={timeInfo.tip}
-                  >
-                    <Clock size={10} />
-                    <span>{timeInfo.label}</span>
-                  </div>
-                );
-              })()}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Main content split */}
+        <div className="flex-1 flex overflow-hidden">
+          {/* LEFT: Contact Profile + Actions */}
+          <motion.div
+            key={contact.id}
+            initial={isTransitioning ? { opacity: 0, x: 20 } : false}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            className="w-[380px] flex-shrink-0 flex flex-col overflow-y-auto border-r border-cockpit-border bg-cockpit-surface"
+          >
+            {/* Contact header */}
+            <div className="p-6 border-b border-cockpit-border">
+              <div className="flex items-start justify-between mb-1">
+                <div className="flex-1 min-w-0">
+                  <h2 className="text-lg font-semibold text-cockpit-text tracking-tight truncate">
+                    {contact.name || "Okänt namn"}
+                  </h2>
+                </div>
+                {/* Time indicator */}
+                <div
+                  className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-2xs font-medium ${
+                    timeInfo.status === "good"
+                      ? "bg-cockpit-success-bg text-cockpit-success"
+                      : timeInfo.status === "bad"
+                        ? "bg-cockpit-danger-bg text-cockpit-danger"
+                        : "bg-cockpit-warning-bg text-cockpit-warning"
+                  }`}
+                  title={timeInfo.tip}
+                >
+                  <Clock size={10} />
+                  <span>{timeInfo.label}</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 text-sm text-cockpit-text-muted">
+                {contact.role && <span>{contact.role}</span>}
+                {contact.role && contact.company && <span className="text-cockpit-text-dim">·</span>}
+                {contact.company && <span>{contact.company}</span>}
+              </div>
+
+              {contact.org_number && (
+                <div className="flex items-center gap-1.5 mt-3 text-2xs text-cockpit-text-dim font-mono">
+                  <Hash size={10} />
+                  <span>{contact.org_number}</span>
+                </div>
+              )}
             </div>
-            {contact.org_number && (
-              <div className="flex items-center gap-1.5 mt-2 px-2.5 py-1.5 rounded-lg bg-telink-surface/50 border border-telink-border/50 w-fit">
-                <Hash size={11} className="text-telink-dim" />
-                <span className="text-xs text-telink-dim font-mono">{contact.org_number}</span>
+
+            {/* Phone actions */}
+            <div className="p-4 border-b border-cockpit-border space-y-2">
+              {contact.direct_phone && (
+                <motion.a
+                  href={`tel:${contact.direct_phone}`}
+                  className="group flex items-center gap-3 w-full p-3 rounded-lg bg-cockpit-success-bg border border-cockpit-success/20 hover:border-cockpit-success/40 transition-all"
+                  whileHover={{ scale: 1.01 }}
+                  whileTap={{ scale: 0.99 }}
+                >
+                  <div className="w-10 h-10 rounded-lg bg-cockpit-success flex items-center justify-center shadow-button">
+                    <Phone size={18} className="text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-cockpit-success font-medium">Ring Direkt</p>
+                    <p className="text-base font-mono font-semibold text-cockpit-text">{contact.direct_phone}</p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <kbd>D</kbd>
+                  </div>
+                </motion.a>
+              )}
+
+              {contact.switchboard && (
+                <a
+                  href={`tel:${contact.switchboard}`}
+                  className="flex items-center gap-3 w-full p-3 rounded-lg bg-cockpit-surface border border-cockpit-border hover:border-cockpit-border-strong transition-all"
+                >
+                  <div className="w-9 h-9 rounded-lg bg-cockpit-bg flex items-center justify-center">
+                    <PhoneCall size={16} className="text-cockpit-text-muted" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-cockpit-text-dim font-medium">Växel</p>
+                    <p className="text-sm font-mono text-cockpit-text-secondary">{contact.switchboard}</p>
+                  </div>
+                  <kbd>V</kbd>
+                </a>
+              )}
+
+              {contact.email && (
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-cockpit-bg border border-cockpit-border">
+                  <Mail size={14} className="text-cockpit-text-dim flex-shrink-0" />
+                  <span className="text-xs text-cockpit-text-muted truncate flex-1 font-mono">{contact.email}</span>
+                  <button
+                    onClick={copyEmail}
+                    className={`p-1.5 rounded transition-all cursor-pointer ${
+                      copied ? "text-cockpit-success" : "text-cockpit-text-dim hover:text-cockpit-text"
+                    }`}
+                  >
+                    {copied ? <Check size={14} /> : <Copy size={14} />}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Status buttons */}
+            <div className="p-4 border-b border-cockpit-border">
+              <h4 className="text-xs font-semibold text-cockpit-text-muted uppercase tracking-wider mb-3">
+                Resultat
+              </h4>
+              <div className="grid grid-cols-2 gap-2">
+                {statusActions.map(s => {
+                  const cfg = STATUS_CONFIG[s];
+                  const active = contact.status === s;
+                  return (
+                    <motion.button
+                      key={s}
+                      onClick={() => handleStatusClick(s)}
+                      className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
+                        active
+                          ? "shadow-card-active"
+                          : "bg-cockpit-surface hover:bg-cockpit-surface-hover border-cockpit-border hover:border-cockpit-border-strong"
+                      }`}
+                      style={{
+                        color: cfg.color,
+                        backgroundColor: active ? cfg.bg : undefined,
+                        borderColor: active ? `${cfg.color}30` : undefined,
+                      }}
+                      whileHover={{ scale: active ? 1 : 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      <div
+                        className="w-6 h-6 rounded-md flex items-center justify-center"
+                        style={{ backgroundColor: active ? `${cfg.color}20` : "var(--bg)" }}
+                      >
+                        <cfg.icon size={12} />
+                      </div>
+                      <span className="flex-1 text-left">{cfg.label}</span>
+                      <kbd className="text-2xs">{cfg.key}</kbd>
+                    </motion.button>
+                  );
+                })}
               </div>
-            )}
-          </div>
+            </div>
 
-          {/* Phone actions - Premium CTA cards */}
-          <div className="p-6 border-b border-telink-border space-y-3">
-            {contact.direct_phone && (
-              <a
-                href={`tel:${contact.direct_phone}`}
-                className="group relative flex items-center gap-4 w-full p-4 rounded-2xl bg-gradient-to-br from-telink-accent/10 via-pink-500/5 to-telink-violet/10 border border-telink-accent/25 hover:border-telink-accent/40 hover:shadow-glow-md transition-all overflow-hidden"
-              >
-                {/* Background glow */}
-                <div className="absolute -top-10 -right-10 w-32 h-32 bg-telink-accent/20 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity" />
+            {/* Notes */}
+            <div className="flex-1 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <MessageSquare size={12} className="text-cockpit-text-dim" />
+                  <h4 className="text-xs font-semibold text-cockpit-text-muted uppercase tracking-wider">
+                    Anteckningar
+                  </h4>
+                </div>
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-cockpit-bg">
+                  <div className="w-1.5 h-1.5 rounded-full bg-cockpit-success animate-pulse-subtle" />
+                  <span className="text-2xs text-cockpit-text-dim">Auto-sparas</span>
+                </div>
+              </div>
+              <textarea
+                ref={notesRef}
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                placeholder="Skriv anteckningar här..."
+                className="w-full h-28 p-3 rounded-lg bg-cockpit-bg border border-cockpit-border text-sm text-cockpit-text placeholder:text-cockpit-text-dim resize-none focus:border-cockpit-border-focus focus:shadow-ring transition-all"
+              />
+            </div>
+          </motion.div>
 
-                <div className="relative w-12 h-12 rounded-xl bg-gradient-to-br from-telink-accent to-pink-500 flex items-center justify-center shadow-glow-sm group-hover:shadow-glow-md transition-shadow">
-                  <Phone size={20} className="text-telink-bg" />
-                </div>
-                <div className="relative flex-1">
-                  <div className="text-xs text-telink-accent/80 font-semibold uppercase tracking-wide">Ring Direkt</div>
-                  <div className="text-lg font-bold font-mono text-telink-accent">{contact.direct_phone}</div>
-                </div>
-                <div className="relative flex flex-col items-end gap-1">
-                  <kbd className="px-2 py-1 rounded-lg bg-telink-surface/50 border border-telink-border text-xs text-telink-accent">D</kbd>
-                  <span className="text-[10px] text-telink-dim">eller Space</span>
-                </div>
-              </a>
-            )}
-            {contact.switchboard && (
-              <a
-                href={`tel:${contact.switchboard}`}
-                className="group flex items-center gap-4 w-full p-3.5 rounded-xl bg-telink-surface border border-telink-border hover:bg-telink-surface-hover hover:border-telink-border-light transition-all"
-              >
-                <div className="w-10 h-10 rounded-xl bg-telink-surface-elevated flex items-center justify-center group-hover:bg-telink-surface transition-colors">
-                  <PhoneCall size={18} className="text-telink-muted group-hover:text-telink-text transition-colors" />
-                </div>
-                <div className="flex-1">
-                  <div className="text-xs text-telink-dim font-medium">Ring Växel</div>
-                  <div className="text-sm font-mono text-telink-text-secondary">{contact.switchboard}</div>
-                </div>
-                <kbd className="px-2 py-1 rounded-lg bg-telink-surface-elevated border border-telink-border text-xs text-telink-muted">V</kbd>
-              </a>
-            )}
-            {contact.email && (
-              <div className="flex items-center gap-3 p-3 rounded-xl bg-telink-surface border border-telink-border">
-                <Mail size={14} className="text-telink-dim flex-shrink-0" />
-                <span className="text-xs text-telink-muted truncate flex-1 font-mono">{contact.email}</span>
+          {/* RIGHT: Research Panel */}
+          <div className="flex-1 flex flex-col overflow-hidden bg-cockpit-bg">
+            {/* Research tabs */}
+            <div className="flex-shrink-0 flex items-center gap-2 px-4 py-3 border-b border-cockpit-border">
+              <div className="flex items-center bg-cockpit-surface rounded-lg p-1 border border-cockpit-border">
                 <button
-                  onClick={copyEmail}
-                  className={`p-2 rounded-lg transition-all cursor-pointer ${
-                    copied
-                      ? "bg-telink-success/10 text-telink-success"
-                      : "hover:bg-telink-surface-hover text-telink-dim hover:text-telink-text"
+                  onClick={() => { setResearchTab("website"); setIframeFailed(false); }}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                    researchTab === "website"
+                      ? "bg-cockpit-bg text-cockpit-text shadow-button"
+                      : "text-cockpit-text-muted hover:text-cockpit-text"
                   }`}
                 >
-                  {copied ? <Check size={14} /> : <Copy size={14} />}
+                  <Globe size={14} />
+                  Hemsida
                 </button>
-              </div>
-            )}
-          </div>
-
-          {/* Status buttons - Premium grid */}
-          <div className="p-6 border-b border-telink-border">
-            <div className="text-xs font-semibold text-telink-dim uppercase tracking-wider mb-4">Resultat</div>
-            <div className="grid grid-cols-2 gap-2.5">
-              {statusActions.map(s => {
-                const cfg = STATUS_CONFIG[s];
-                const active = contact.status === s;
-                return (
-                  <button
-                    key={s}
-                    onClick={() => handleStatusClick(s)}
-                    className={`
-                      group flex items-center gap-2.5 px-3.5 py-3 rounded-xl text-xs font-medium border transition-all cursor-pointer
-                      ${active
-                        ? "shadow-lg scale-[1.02]"
-                        : "bg-telink-surface hover:bg-telink-surface-hover border-telink-border hover:border-current/30 hover:scale-[1.01]"
-                      }
-                    `}
-                    style={{
-                      color: cfg.color,
-                      backgroundColor: active ? cfg.bg : undefined,
-                      borderColor: active ? cfg.color + "44" : undefined,
-                      boxShadow: active ? `0 4px 20px -4px ${cfg.color}40` : undefined,
-                    }}
-                  >
-                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${
-                      active ? "" : "bg-telink-surface-elevated group-hover:scale-110"
-                    }`} style={{ backgroundColor: active ? `${cfg.color}20` : undefined }}>
-                      <cfg.icon size={14} />
-                    </div>
-                    <span className="flex-1 text-left font-semibold">{cfg.label}</span>
-                    <kbd className="px-1.5 py-0.5 rounded-md bg-telink-surface/50 border border-telink-border/50 text-[10px]">{cfg.key}</kbd>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Notes - Premium styling */}
-          <div className="flex-1 p-6">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <MessageSquare size={12} className="text-telink-dim" />
-                <span className="text-xs font-semibold text-telink-dim uppercase tracking-wider">Anteckningar</span>
-              </div>
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-telink-surface border border-telink-border">
-                <div className="w-1.5 h-1.5 rounded-full bg-telink-success animate-pulse" />
-                <span className="text-[10px] text-telink-dim">Auto-sparas</span>
-              </div>
-            </div>
-            <textarea
-              ref={notesRef}
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              placeholder="Skriv anteckningar här..."
-              className="w-full h-28 p-4 rounded-xl bg-telink-surface border border-telink-border text-sm text-telink-text placeholder-telink-dim resize-none focus:outline-none focus:border-telink-accent/40 focus:ring-2 focus:ring-telink-accent/10 transition-all"
-            />
-            {/* Ghost Note Templates - Premium chips */}
-            <div className="flex flex-wrap gap-2 mt-3">
-              {[
-                { label: "Återkom", text: "Återkom kl " },
-                { label: "Skicka info", text: "Skicka info om " },
-                { label: "Möte bokat", text: `Möte bokat ${new Date().toLocaleDateString("sv-SE")} kl ` },
-                { label: "Ej intresserad", text: "Ej intresserad - " },
-                { label: "Beslutsfattare", text: "Beslutsfattare: " },
-                { label: "Budget", text: "Budget: " },
-              ].map(tmpl => (
                 <button
-                  key={tmpl.label}
-                  onClick={() => {
-                    const newNotes = notes + (notes && !notes.endsWith("\n") && !notes.endsWith(" ") ? "\n" : "") + tmpl.text;
-                    setNotes(newNotes);
-                    notesRef.current?.focus();
-                  }}
-                  className="group px-2.5 py-1.5 rounded-lg text-[10px] font-semibold bg-telink-surface border border-telink-border text-telink-muted hover:text-telink-accent hover:border-telink-accent/30 hover:bg-telink-accent/5 transition-all cursor-pointer"
+                  onClick={() => setResearchTab("linkedin")}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                    researchTab === "linkedin"
+                      ? "bg-cockpit-linkedin text-white shadow-button"
+                      : "text-cockpit-text-muted hover:text-cockpit-text"
+                  }`}
                 >
-                  <span className="opacity-50 group-hover:opacity-100 transition-opacity">+</span> {tmpl.label}
+                  <Linkedin size={14} />
+                  LinkedIn
                 </button>
-              ))}
-            </div>
-          </div>
-        </div>
+              </div>
 
-        {/* RIGHT: Research Engine */}
-        <div className="flex-1 flex flex-col overflow-hidden bg-telink-bg">
-          {/* Research tabs - Premium styling */}
-          <div className="flex-shrink-0 flex items-center gap-2 px-5 pt-4 pb-0">
-            <div className="flex items-center bg-telink-surface rounded-xl p-1 border border-telink-border">
-              <button
-                onClick={() => { setResearchTab("website"); setIframeFailed(false); }}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                  researchTab === "website"
-                    ? "bg-telink-accent text-telink-bg shadow-glow-sm"
-                    : "text-telink-muted hover:text-telink-text"
-                }`}
-              >
-                <Globe size={14} /> Hemsida
-              </button>
-              <button
-                onClick={() => setResearchTab("linkedin")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                  researchTab === "linkedin"
-                    ? "bg-[#0a66c2] text-white shadow-lg"
-                    : "text-telink-muted hover:text-telink-text"
-                }`}
-              >
-                <Linkedin size={14} /> LinkedIn
-              </button>
+              <div className="ml-auto">
+                {researchTab === "website" && websiteUrl && (
+                  <a
+                    href={websiteUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs text-cockpit-text-muted hover:text-cockpit-text hover:bg-cockpit-surface-hover transition-all"
+                  >
+                    <ExternalLink size={12} />
+                    Öppna i ny flik
+                  </a>
+                )}
+                {researchTab === "linkedin" && (
+                  <a
+                    href={linkedinUrl || linkedinSearchUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs text-cockpit-text-muted hover:text-cockpit-text hover:bg-cockpit-surface-hover transition-all"
+                  >
+                    <ExternalLink size={12} />
+                    Öppna i ny flik
+                  </a>
+                )}
+              </div>
             </div>
 
-            {/* Open in new tab - Premium button */}
-            <div className="ml-auto">
-              {researchTab === "website" && websiteUrl && (
-                <a
-                  href={websiteUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-telink-dim hover:text-telink-text bg-telink-surface border border-telink-border hover:border-telink-border-light transition-all"
-                >
-                  <ExternalLink size={12} /> Öppna i ny flik
-                </a>
-              )}
-              {researchTab === "linkedin" && (
-                <a
-                  href={linkedinUrl || linkedinSearchUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-telink-dim hover:text-telink-text bg-telink-surface border border-telink-border hover:border-telink-border-light transition-all"
-                >
-                  <ExternalLink size={12} /> Öppna i ny flik
-                </a>
-              )}
-            </div>
-          </div>
-
-          {/* Research content - Premium container */}
-          <div className="flex-1 m-5 mt-3 rounded-2xl border border-telink-border overflow-hidden bg-telink-surface shadow-elevation-1">
-            {researchTab === "website" ? (
-              websiteUrl && !iframeFailed ? (
-                <iframe
-                  key={websiteUrl}
-                  src={websiteUrl}
-                  className="w-full h-full border-0 bg-white"
-                  sandbox="allow-scripts allow-same-origin allow-popups"
-                  onError={() => setIframeFailed(true)}
-                  title="Företagets hemsida"
-                />
-              ) : (
-                <div className="h-full flex flex-col items-center justify-center p-10 text-center">
-                  <div className="relative mb-6">
-                    <div className="w-20 h-20 rounded-2xl bg-telink-surface-elevated flex items-center justify-center">
-                      <Globe size={32} className="text-telink-dim" />
+            {/* Research content */}
+            <div className="flex-1 m-4 rounded-lg border border-cockpit-border overflow-hidden bg-cockpit-surface shadow-card">
+              {researchTab === "website" ? (
+                websiteUrl && !iframeFailed ? (
+                  <iframe
+                    key={websiteUrl}
+                    src={websiteUrl}
+                    className="w-full h-full border-0 bg-white"
+                    sandbox="allow-scripts allow-same-origin allow-popups"
+                    onError={() => setIframeFailed(true)}
+                    title="Företagets hemsida"
+                  />
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center p-8 text-center">
+                    <div className="w-14 h-14 rounded-xl bg-cockpit-bg flex items-center justify-center mb-4">
+                      <Globe size={24} className="text-cockpit-text-dim" />
                     </div>
-                    <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-lg bg-telink-accent flex items-center justify-center">
-                      <ExternalLink size={12} className="text-telink-bg" />
-                    </div>
-                  </div>
-                  {websiteUrl ? (
-                    <>
-                      <p className="text-base font-semibold text-telink-text mb-2">Hemsidan blockerar iframe</p>
-                      <p className="text-sm text-telink-muted mb-6 max-w-xs">Många sidor tillåter inte inbäddning. Öppna istället i en ny flik.</p>
-                      <a
-                        href={websiteUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-telink-accent to-pink-500 text-telink-bg text-sm font-bold hover:shadow-glow-md transition-all"
-                      >
-                        <ExternalLink size={14} /> Öppna {new URL(websiteUrl).hostname}
-                      </a>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-base font-semibold text-telink-text mb-2">Ingen hemsida angiven</p>
-                      <p className="text-sm text-telink-muted mb-6">Denna kontakt har ingen URL i datasetet.</p>
-                      {contact.company && (
+                    {websiteUrl ? (
+                      <>
+                        <p className="text-sm font-medium text-cockpit-text mb-1">Hemsidan blockerar inbäddning</p>
+                        <p className="text-xs text-cockpit-text-muted mb-6">Öppna istället i en ny flik.</p>
                         <a
-                          href={`https://www.google.com/search?q=${encodeURIComponent(contact.company)}`}
+                          href={websiteUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex items-center gap-2 px-5 py-3 rounded-xl border border-telink-border bg-telink-surface-elevated text-sm font-medium text-telink-text hover:bg-telink-surface-hover hover:border-telink-border-light transition-all"
+                          className="btn-secondary"
                         >
-                          <Search size={14} /> Sök &quot;{contact.company}&quot; på Google
+                          <ExternalLink size={14} />
+                          Öppna {new URL(websiteUrl).hostname}
                         </a>
-                      )}
-                    </>
-                  )}
-                </div>
-              )
-            ) : (
-              /* LinkedIn tab - Premium enhanced view */
-              <div className="h-full flex flex-col overflow-hidden">
-                {/* LinkedIn Profile Card - Premium styling */}
-                <div className="p-6 border-b border-telink-border bg-gradient-to-br from-[#0a66c2]/10 via-[#0a66c2]/5 to-transparent">
-                  <div className="flex items-start gap-5">
-                    {/* Avatar placeholder - Premium */}
-                    <div className="relative">
-                      <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#0a66c2]/20 to-[#0a66c2]/5 border border-[#0a66c2]/20 flex items-center justify-center flex-shrink-0">
-                        <Linkedin size={32} className="text-[#0a66c2]" />
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-sm font-medium text-cockpit-text mb-1">Ingen hemsida angiven</p>
+                        <p className="text-xs text-cockpit-text-muted mb-6">Kontakten saknar URL i datasetet.</p>
+                        {contact.company && (
+                          <a
+                            href={`https://www.google.com/search?q=${encodeURIComponent(contact.company)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn-secondary"
+                          >
+                            <Search size={14} />
+                            Sök &quot;{contact.company}&quot;
+                          </a>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )
+              ) : (
+                <div className="h-full flex flex-col overflow-hidden">
+                  {/* LinkedIn profile card */}
+                  <div className="p-6 border-b border-cockpit-border bg-cockpit-linkedin-bg">
+                    <div className="flex items-start gap-4">
+                      <div className="w-16 h-16 rounded-xl bg-cockpit-linkedin/20 border border-cockpit-linkedin/30 flex items-center justify-center flex-shrink-0">
+                        <Linkedin size={28} className="text-cockpit-linkedin" />
                       </div>
-                      <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-lg bg-[#0a66c2] flex items-center justify-center shadow-lg">
-                        <Search size={12} className="text-white" />
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-base font-semibold text-cockpit-text">{contact.name}</h3>
+                        {contact.role && (
+                          <p className="text-sm text-cockpit-text-muted mt-0.5">{contact.role}</p>
+                        )}
+                        {contact.company && (
+                          <div className="flex items-center gap-1.5 mt-2 text-xs text-cockpit-linkedin">
+                            <Building2 size={12} />
+                            <span>{contact.company}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-lg font-bold text-telink-text">{contact.name}</h3>
-                      {contact.role && (
-                        <p className="text-sm text-telink-muted mt-1">{contact.role}</p>
-                      )}
-                      {contact.company && (
-                        <div className="flex items-center gap-2 mt-2 px-2.5 py-1.5 rounded-lg bg-[#0a66c2]/10 border border-[#0a66c2]/20 w-fit">
-                          <Building2 size={12} className="text-[#0a66c2]" />
-                          <span className="text-sm font-medium text-[#0a66c2]">{contact.company}</span>
+                  </div>
+
+                  {/* LinkedIn actions */}
+                  <div className="flex-1 p-4 space-y-2 overflow-y-auto">
+                    <h4 className="text-2xs font-semibold text-cockpit-text-muted uppercase tracking-wider mb-3">
+                      Snabbåtgärder
+                    </h4>
+
+                    {linkedinUrl ? (
+                      <a
+                        href={linkedinUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-3 w-full p-3 rounded-lg bg-cockpit-linkedin text-white hover:brightness-110 transition-all"
+                      >
+                        <Linkedin size={16} />
+                        <div className="flex-1 text-left">
+                          <p className="text-sm font-medium">Öppna profil</p>
                         </div>
-                      )}
-                      {linkedinUrl && (
-                        <p className="text-xs text-telink-dim mt-3 truncate font-mono">{linkedinUrl}</p>
-                      )}
-                    </div>
+                        <ExternalLink size={14} className="opacity-60" />
+                      </a>
+                    ) : (
+                      <a
+                        href={linkedinSearchUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-3 w-full p-3 rounded-lg bg-cockpit-linkedin text-white hover:brightness-110 transition-all"
+                      >
+                        <Search size={16} />
+                        <div className="flex-1 text-left">
+                          <p className="text-sm font-medium">Sök på LinkedIn</p>
+                          <p className="text-xs opacity-70">&quot;{contact.name}{cleanCompany ? ` AND ${cleanCompany}` : ""}&quot;</p>
+                        </div>
+                        <ExternalLink size={14} className="opacity-60" />
+                      </a>
+                    )}
+
+                    {contact.company && (
+                      <a
+                        href={`https://www.linkedin.com/company/${encodeURIComponent(cleanCompany.toLowerCase().replace(/\s+/g, "-").replace(/[åä]/g, "a").replace(/ö/g, "o"))}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-3 w-full p-3 rounded-lg border border-cockpit-border bg-cockpit-surface hover:bg-cockpit-surface-hover hover:border-cockpit-border-strong transition-all"
+                      >
+                        <Building2 size={16} className="text-cockpit-text-muted" />
+                        <div className="flex-1 text-left">
+                          <p className="text-sm font-medium text-cockpit-text">Företagssida</p>
+                          <p className="text-xs text-cockpit-text-muted">{contact.company}</p>
+                        </div>
+                        <ExternalLink size={12} className="text-cockpit-text-dim" />
+                      </a>
+                    )}
+
+                    <a
+                      href={`https://www.google.com/search?q=${encodeURIComponent(`"${contact.name}" "${cleanCompany}" site:linkedin.com`)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-3 w-full p-3 rounded-lg border border-cockpit-border bg-cockpit-surface hover:bg-cockpit-surface-hover hover:border-cockpit-border-strong transition-all"
+                    >
+                      <Globe size={16} className="text-cockpit-text-muted" />
+                      <div className="flex-1 text-left">
+                        <p className="text-sm font-medium text-cockpit-text">Google → LinkedIn</p>
+                        <p className="text-xs text-cockpit-text-muted">Sök via Google</p>
+                      </div>
+                      <ExternalLink size={12} className="text-cockpit-text-dim" />
+                    </a>
                   </div>
                 </div>
-
-                {/* Quick Actions - Premium cards */}
-                <div className="flex-1 p-5 space-y-3 overflow-y-auto">
-                  <div className="text-[10px] font-semibold text-telink-dim uppercase tracking-wider mb-4">Snabbåtgärder</div>
-
-                  {linkedinUrl ? (
-                    <a
-                      href={linkedinUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="group flex items-center gap-4 w-full p-4 rounded-2xl bg-gradient-to-r from-[#0a66c2] to-[#004182] text-white hover:shadow-lg transition-all"
-                    >
-                      <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
-                        <Linkedin size={20} />
-                      </div>
-                      <div className="flex-1 text-left">
-                        <div className="text-sm font-bold">Öppna LinkedIn-profil</div>
-                        <div className="text-xs opacity-70">Visa fullständig profil</div>
-                      </div>
-                      <ExternalLink size={16} className="opacity-60 group-hover:opacity-100 transition-opacity" />
-                    </a>
-                  ) : (
-                    <a
-                      href={linkedinSearchUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="group flex items-center gap-4 w-full p-4 rounded-2xl bg-gradient-to-r from-[#0a66c2] to-[#004182] text-white hover:shadow-lg transition-all"
-                    >
-                      <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
-                        <Search size={20} />
-                      </div>
-                      <div className="flex-1 text-left">
-                        <div className="text-sm font-bold">Sök på LinkedIn</div>
-                        <div className="text-xs opacity-70">&quot;{contact.name}{cleanCompany ? ` AND ${cleanCompany}` : ""}&quot;</div>
-                      </div>
-                      <ExternalLink size={16} className="opacity-60 group-hover:opacity-100 transition-opacity" />
-                    </a>
-                  )}
-
-                  {/* Company search */}
-                  {contact.company && (
-                    <a
-                      href={`https://www.linkedin.com/company/${encodeURIComponent(cleanCompany.toLowerCase().replace(/\s+/g, "-").replace(/[åä]/g, "a").replace(/ö/g, "o"))}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="group flex items-center gap-4 w-full p-3.5 rounded-xl border border-[#0a66c2]/25 bg-[#0a66c2]/5 hover:bg-[#0a66c2]/10 hover:border-[#0a66c2]/40 transition-all"
-                    >
-                      <div className="w-9 h-9 rounded-lg bg-[#0a66c2]/10 flex items-center justify-center">
-                        <Building2 size={16} className="text-[#0a66c2]" />
-                      </div>
-                      <div className="flex-1 text-left">
-                        <div className="text-sm font-semibold text-telink-text">Företagssida</div>
-                        <div className="text-xs text-telink-muted">{contact.company}</div>
-                      </div>
-                      <ExternalLink size={14} className="text-telink-dim group-hover:text-[#0a66c2] transition-colors" />
-                    </a>
-                  )}
-
-                  {/* Sales Navigator search */}
-                  <a
-                    href={`https://www.linkedin.com/sales/search/people?query=(keywords:${encodeURIComponent(`${contact.name}${cleanCompany ? ` AND ${cleanCompany}` : ""}`)})`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group flex items-center gap-4 w-full p-3.5 rounded-xl border border-telink-border bg-telink-surface-elevated hover:bg-telink-surface-hover hover:border-telink-border-light transition-all"
-                  >
-                    <div className="w-9 h-9 rounded-lg bg-telink-surface flex items-center justify-center">
-                      <Search size={16} className="text-telink-muted group-hover:text-telink-accent transition-colors" />
-                    </div>
-                    <div className="flex-1 text-left">
-                      <div className="text-sm font-semibold text-telink-text">Sales Navigator</div>
-                      <div className="text-xs text-telink-muted">Avancerad sökning</div>
-                    </div>
-                    <ExternalLink size={14} className="text-telink-dim" />
-                  </a>
-
-                  {/* Google search for LinkedIn */}
-                  <a
-                    href={`https://www.google.com/search?q=${encodeURIComponent(`"${contact.name}" "${cleanCompany}" site:linkedin.com`)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group flex items-center gap-4 w-full p-3.5 rounded-xl border border-telink-border bg-telink-surface-elevated hover:bg-telink-surface-hover hover:border-telink-border-light transition-all"
-                  >
-                    <div className="w-9 h-9 rounded-lg bg-telink-surface flex items-center justify-center">
-                      <Globe size={16} className="text-telink-muted group-hover:text-telink-accent transition-colors" />
-                    </div>
-                    <div className="flex-1 text-left">
-                      <div className="text-sm font-semibold text-telink-text">Google → LinkedIn</div>
-                      <div className="text-xs text-telink-muted">Sök via Google</div>
-                    </div>
-                    <ExternalLink size={14} className="text-telink-dim" />
-                  </a>
-                </div>
-
-                {/* Tips section - Premium styling */}
-                <div className="p-4 border-t border-telink-border bg-gradient-to-r from-telink-surface to-telink-bg">
-                  <div className="flex items-start gap-3 p-3 rounded-xl bg-telink-surface-elevated border border-telink-border">
-                    <div className="w-8 h-8 rounded-lg bg-telink-accent/10 flex items-center justify-center flex-shrink-0">
-                      <MessageSquare size={14} className="text-telink-accent" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-telink-text mb-0.5">Pro Tips</p>
-                      <p className="text-[11px] text-telink-muted leading-relaxed">
-                        Använd Sales Navigator för att se gemensamma kontakter och senaste aktivitet.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Intelligence Bar */}
+      <IntelligenceBar
+        contacts={contacts}
+        currentIndex={currentIndex}
+        sessionCalls={sessionCalls}
+        onSelectNext={setCurrentIndex}
+      />
     </div>
   );
 }
