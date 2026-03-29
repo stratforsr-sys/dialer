@@ -4,10 +4,10 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Phone, PhoneCall, Globe, Linkedin, ChevronLeft, ChevronRight,
-  ExternalLink, MessageSquare, Building2, Mail, Hash, User,
+  ExternalLink, MessageSquare, Building2, Mail, Hash,
   ArrowLeft, Search, Copy, Check, Clock, Command, CornerDownLeft,
-  LayoutGrid, Settings, BarChart3, X, Zap, Target, FileText,
-  ChevronUp, ChevronDown, Sparkles
+  LayoutGrid, Settings, BarChart3,
+  ChevronUp, ChevronDown
 } from "lucide-react";
 import type { Contact, ContactStatus } from "@/types";
 import { STATUS_CONFIG, SHORTCUTS } from "@/lib/constants";
@@ -314,135 +314,6 @@ function LeadStream({
 }
 
 // ============================================
-// COMPONENT: Intelligence Bar
-// ============================================
-function IntelligenceBar({
-  contacts,
-  currentIndex,
-  sessionCalls,
-  onSelectNext,
-}: {
-  contacts: Contact[];
-  currentIndex: number;
-  sessionCalls: number;
-  onSelectNext: (index: number) => void;
-}) {
-  const total = contacts.length;
-  const worked = contacts.filter(c => c.status !== "ej_ringd").length;
-  const pctDone = total > 0 ? Math.round((worked / total) * 100) : 0;
-  const meetings = contacts.filter(c => c.status === "bokat_mote").length;
-
-  // Find next unworked contact
-  const nextUnworked = contacts.findIndex((c, i) => i !== currentIndex && c.status === "ej_ringd");
-  const nextContact = nextUnworked >= 0 ? contacts[nextUnworked] : null;
-
-  // Quick templates for notes
-  const templates = [
-    { label: "Återkom", text: "Återkom kl " },
-    { label: "Möte", text: `Möte ${new Date().toLocaleDateString("sv-SE")} kl ` },
-    { label: "Ej intresse", text: "Ej intresserad pga " },
-    { label: "Budget", text: "Budget: " },
-  ];
-
-  return (
-    <div className="w-72 flex-shrink-0 flex flex-col border-l border-cockpit-border bg-cockpit-bg">
-      {/* Daily Progress */}
-      <div className="p-4 border-b border-cockpit-border">
-        <div className="flex items-center justify-between mb-3">
-          <h4 className="text-xs font-semibold text-cockpit-text-muted uppercase tracking-wider">
-            Dagens framsteg
-          </h4>
-          <span className="text-lg font-semibold text-cockpit-text tabular-nums">
-            {pctDone}%
-          </span>
-        </div>
-
-        {/* Progress bar */}
-        <div className="h-1.5 bg-cockpit-bg-muted rounded-full overflow-hidden mb-3">
-          <motion.div
-            className="h-full bg-cockpit-success rounded-full"
-            initial={{ width: 0 }}
-            animate={{ width: `${pctDone}%` }}
-            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-          />
-        </div>
-
-        {/* Stats grid */}
-        <div className="grid grid-cols-3 gap-2">
-          <div className="text-center p-2 rounded-md bg-cockpit-surface border border-cockpit-border">
-            <p className="text-lg font-semibold text-cockpit-text tabular-nums">{sessionCalls}</p>
-            <p className="text-2xs text-cockpit-text-dim">Samtal</p>
-          </div>
-          <div className="text-center p-2 rounded-md bg-cockpit-surface border border-cockpit-border">
-            <p className="text-lg font-semibold text-cockpit-success tabular-nums">{meetings}</p>
-            <p className="text-2xs text-cockpit-text-dim">Möten</p>
-          </div>
-          <div className="text-center p-2 rounded-md bg-cockpit-surface border border-cockpit-border">
-            <p className="text-lg font-semibold text-cockpit-text tabular-nums">{total - worked}</p>
-            <p className="text-2xs text-cockpit-text-dim">Kvar</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Next Up */}
-      {nextContact && (
-        <div className="p-4 border-b border-cockpit-border">
-          <h4 className="text-xs font-semibold text-cockpit-text-muted uppercase tracking-wider mb-3">
-            Nästa i kön
-          </h4>
-          <motion.button
-            onClick={() => onSelectNext(nextUnworked)}
-            className="w-full card-interactive p-3 text-left"
-            whileHover={{ scale: 1.01 }}
-            whileTap={{ scale: 0.99 }}
-          >
-            <p className="text-sm font-medium text-cockpit-text truncate">
-              {nextContact.name}
-            </p>
-            <p className="text-xs text-cockpit-text-muted truncate">
-              {nextContact.company}
-            </p>
-          </motion.button>
-        </div>
-      )}
-
-      {/* Quick Templates */}
-      <div className="p-4 flex-1">
-        <h4 className="text-xs font-semibold text-cockpit-text-muted uppercase tracking-wider mb-3">
-          Snabbmallar
-        </h4>
-        <div className="space-y-2">
-          {templates.map(t => (
-            <button
-              key={t.label}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-md bg-cockpit-surface border border-cockpit-border hover:bg-cockpit-surface-hover hover:border-cockpit-border-strong transition-all text-left text-xs text-cockpit-text-secondary cursor-pointer"
-            >
-              <FileText size={12} className="text-cockpit-text-dim" />
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Keyboard shortcut hint */}
-      <div className="p-4 border-t border-cockpit-border">
-        <div className="flex items-center gap-2 text-2xs text-cockpit-text-dim">
-          <kbd className="text-2xs">?</kbd>
-          <span>Visa alla genvägar</span>
-        </div>
-        <div className="flex items-center gap-2 text-2xs text-cockpit-text-dim mt-1">
-          <kbd className="text-2xs">
-            <Command size={10} />
-          </kbd>
-          <kbd className="text-2xs">K</kbd>
-          <span>Kommandopalett</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ============================================
 // MAIN COMPONENT: CockpitView
 // ============================================
 interface CockpitViewProps {
@@ -702,15 +573,35 @@ export function CockpitView({
             </div>
           </div>
 
-          {/* Progress bar */}
-          <div className="flex-1 max-w-xs mx-8">
-            <div className="h-1 bg-cockpit-bg-muted rounded-full overflow-hidden">
-              <motion.div
-                className="h-full bg-cockpit-success rounded-full"
-                initial={{ width: 0 }}
-                animate={{ width: `${(worked / total) * 100}%` }}
-                transition={{ duration: 0.3 }}
-              />
+          {/* Progress bar + Stats */}
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-4">
+              <div className="text-center">
+                <p className="text-lg font-semibold text-cockpit-text tabular-nums">{sessionCalls}</p>
+                <p className="text-2xs text-cockpit-text-dim">Samtal</p>
+              </div>
+              <div className="text-center">
+                <p className="text-lg font-semibold text-cockpit-success tabular-nums">
+                  {contacts.filter(c => c.status === "bokat_mote").length}
+                </p>
+                <p className="text-2xs text-cockpit-text-dim">Möten</p>
+              </div>
+              <div className="text-center">
+                <p className="text-lg font-semibold text-cockpit-text tabular-nums">{total - worked}</p>
+                <p className="text-2xs text-cockpit-text-dim">Kvar</p>
+              </div>
+            </div>
+
+            <div className="w-32">
+              <div className="h-1.5 bg-cockpit-bg-muted rounded-full overflow-hidden">
+                <motion.div
+                  className="h-full bg-cockpit-success rounded-full"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${(worked / total) * 100}%` }}
+                  transition={{ duration: 0.3 }}
+                />
+              </div>
+              <p className="text-2xs text-cockpit-text-dim text-center mt-1">{Math.round((worked / total) * 100)}% klart</p>
             </div>
           </div>
 
@@ -1117,13 +1008,6 @@ export function CockpitView({
         </div>
       </div>
 
-      {/* Intelligence Bar */}
-      <IntelligenceBar
-        contacts={contacts}
-        currentIndex={currentIndex}
-        sessionCalls={sessionCalls}
-        onSelectNext={setCurrentIndex}
-      />
     </div>
   );
 }
