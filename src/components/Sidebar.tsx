@@ -80,28 +80,28 @@ export function Sidebar({
   };
 
   return (
-    <aside className="w-[240px] flex-shrink-0 h-screen flex flex-col bg-cockpit-bg border-r border-cockpit-border">
+    <aside className="w-[240px] flex-shrink-0 h-screen flex flex-col" style={{ background: "var(--bg)", borderRight: "1px solid var(--border)" }}>
       {/* Logo */}
       <div className="px-5 pt-6 pb-5">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-cockpit-text flex items-center justify-center">
-            <Zap size={16} className="text-cockpit-bg" strokeWidth={2} />
+          <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "var(--text)" }}>
+            <Zap size={16} style={{ color: "var(--bg)" }} strokeWidth={2} />
           </div>
           <div>
-            <span className="font-semibold text-sm tracking-tight text-cockpit-text">telink</span>
-            <span className="text-2xs block text-cockpit-text-dim font-medium tracking-wider uppercase">Dialer</span>
+            <span className="font-semibold text-sm tracking-tight" style={{ color: "var(--text)" }}>telink</span>
+            <span className="text-2xs block font-medium tracking-wider uppercase" style={{ color: "var(--text-dim)" }}>Dialer</span>
           </div>
         </div>
       </div>
 
       {/* Divider */}
-      <div className="mx-4 h-px bg-cockpit-border" />
+      <div className="mx-4 h-px" style={{ background: "var(--border)" }} />
 
       {/* Call Lists Section */}
       <div className="px-3 py-4 flex-1 overflow-y-auto">
         <div className="flex items-center justify-between px-2 mb-3">
-          <span className="text-2xs font-semibold tracking-wider uppercase text-cockpit-text-dim">Ringlistor</span>
-          <span className="text-2xs font-mono text-cockpit-text-dim tabular-nums">{callLists.length}</span>
+          <span className="text-2xs font-semibold tracking-wider uppercase" style={{ color: "var(--text-dim)" }}>Ringlistor</span>
+          <span className="text-2xs font-mono tabular-nums" style={{ color: "var(--text-dim)" }}>{callLists.length}</span>
         </div>
 
         <div className="space-y-0.5">
@@ -112,21 +112,22 @@ export function Sidebar({
             return (
               <div
                 key={list.id}
-                className={`
-                  group relative flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-all duration-150
-                  ${isActive
-                    ? "bg-cockpit-surface border border-cockpit-border shadow-card"
-                    : "hover:bg-cockpit-surface-hover"
-                  }
-                `}
+                className="group relative flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-all duration-150"
+                style={{
+                  background: isActive ? "var(--surface)" : undefined,
+                  border: isActive ? "1px solid var(--border)" : "1px solid transparent",
+                  boxShadow: isActive ? "var(--shadow-sm)" : undefined,
+                }}
+                onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--surface-hover)"; }}
+                onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = ""; }}
               >
-                <div className={`
-                  w-6 h-6 rounded flex items-center justify-center flex-shrink-0 transition-colors duration-150
-                  ${isActive
-                    ? "bg-cockpit-bg text-cockpit-text"
-                    : "bg-cockpit-bg-subtle text-cockpit-text-muted group-hover:text-cockpit-text-secondary"
-                  }
-                `}>
+                <div
+                  className="w-6 h-6 rounded flex items-center justify-center flex-shrink-0 transition-colors duration-150"
+                  style={{
+                    background: isActive ? "var(--bg)" : "var(--bg-subtle)",
+                    color: isActive ? "var(--text)" : "var(--text-muted)",
+                  }}
+                >
                   <FolderOpen size={12} />
                 </div>
 
@@ -144,22 +145,27 @@ export function Sidebar({
                         setEditName("");
                       }
                     }}
-                    className="flex-1 min-w-0 px-2 py-0.5 -my-0.5 bg-cockpit-surface border border-cockpit-border-strong rounded text-sm text-cockpit-text focus:outline-none focus:border-cockpit-border-focus"
+                    className="flex-1 min-w-0 px-2 py-0.5 -my-0.5 rounded text-sm focus:outline-none"
+                    style={{
+                      background: "var(--surface)",
+                      border: "1px solid var(--border-strong)",
+                      color: "var(--text)",
+                    }}
                   />
                 ) : (
                   <button
                     onClick={() => onListSelect(list.id)}
-                    className={`flex-1 min-w-0 text-left truncate font-medium cursor-pointer transition-colors duration-150 ${
-                      isActive ? "text-cockpit-text" : "text-cockpit-text-secondary group-hover:text-cockpit-text"
-                    }`}
+                    className="flex-1 min-w-0 text-left truncate font-medium cursor-pointer transition-colors duration-150"
+                    style={{ color: isActive ? "var(--text)" : "var(--text-secondary)" }}
                   >
                     {list.name}
                   </button>
                 )}
 
-                <span className={`text-xs font-mono tabular-nums transition-colors duration-150 ${
-                  isActive ? "text-cockpit-text-muted" : "text-cockpit-text-dim"
-                }`}>
+                <span
+                  className="text-xs font-mono tabular-nums transition-colors duration-150"
+                  style={{ color: isActive ? "var(--text-muted)" : "var(--text-dim)" }}
+                >
                   {list.contacts.length}
                 </span>
 
@@ -169,7 +175,8 @@ export function Sidebar({
                       e.stopPropagation();
                       setMenuOpen(menuOpen === list.id ? null : list.id);
                     }}
-                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-cockpit-bg rounded transition-all cursor-pointer text-cockpit-text-dim hover:text-cockpit-text"
+                    className="opacity-0 group-hover:opacity-100 p-1 rounded transition-all cursor-pointer"
+                    style={{ color: "var(--text-dim)" }}
                   >
                     <MoreHorizontal size={12} />
                   </button>
@@ -178,18 +185,21 @@ export function Sidebar({
                 {menuOpen === list.id && (
                   <div
                     ref={menuRef}
-                    className="absolute right-0 top-full mt-1 w-36 py-1 bg-cockpit-surface border border-cockpit-border-strong rounded-lg shadow-elevation-3 z-50 animate-fade-down"
+                    className="absolute right-0 top-full mt-1 w-36 py-1 rounded-lg shadow-elevation-3 z-50 animate-fade-down"
+                    style={{ background: "var(--surface)", border: "1px solid var(--border-strong)" }}
                   >
                     <button
                       onClick={() => handleStartEdit(list)}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-cockpit-text hover:bg-cockpit-surface-hover transition-colors cursor-pointer"
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors cursor-pointer"
+                      style={{ color: "var(--text)" }}
                     >
-                      <Pencil size={11} className="text-cockpit-text-muted" />
+                      <Pencil size={11} style={{ color: "var(--text-muted)" }} />
                       Byt namn
                     </button>
                     <button
                       onClick={() => handleDelete(list.id)}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-cockpit-danger hover:bg-cockpit-danger-bg transition-colors cursor-pointer"
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors cursor-pointer"
+                      style={{ color: "var(--danger)" }}
                     >
                       <Trash2 size={11} />
                       Ta bort
@@ -203,22 +213,21 @@ export function Sidebar({
           {/* Import new list button */}
           <button
             onClick={() => setView("import")}
-            className={`
-              w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-all duration-150
-              ${view === "import"
-                ? "bg-cockpit-surface border border-cockpit-border shadow-card text-cockpit-text"
-                : "text-cockpit-text-muted hover:bg-cockpit-surface-hover hover:text-cockpit-text-secondary"
-              }
-              cursor-pointer group
-            `}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-all duration-150 cursor-pointer group"
+            style={{
+              background: view === "import" ? "var(--surface)" : undefined,
+              border: view === "import" ? "1px solid var(--border)" : "1px solid transparent",
+              boxShadow: view === "import" ? "var(--shadow-sm)" : undefined,
+              color: view === "import" ? "var(--text)" : "var(--text-muted)",
+            }}
           >
-            <div className={`
-              w-6 h-6 rounded flex items-center justify-center border border-dashed transition-colors duration-150
-              ${view === "import"
-                ? "border-cockpit-border-strong bg-cockpit-bg"
-                : "border-cockpit-border group-hover:border-cockpit-border-strong"
-              }
-            `}>
+            <div
+              className="w-6 h-6 rounded flex items-center justify-center border border-dashed transition-colors duration-150"
+              style={{
+                borderColor: view === "import" ? "var(--border-strong)" : "var(--border)",
+                background: view === "import" ? "var(--bg)" : undefined,
+              }}
+            >
               <Plus size={12} />
             </div>
             <span>Importera ny</span>
@@ -229,11 +238,11 @@ export function Sidebar({
       {/* Navigation - only show if we have an active list */}
       {hasData && (
         <>
-          <div className="mx-4 h-px bg-cockpit-border" />
+          <div className="mx-4 h-px" style={{ background: "var(--border)" }} />
 
           <nav className="px-3 py-4">
             <div className="px-2 mb-3">
-              <span className="text-2xs font-semibold tracking-wider uppercase text-cockpit-text-dim">Navigering</span>
+              <span className="text-2xs font-semibold tracking-wider uppercase" style={{ color: "var(--text-dim)" }}>Navigering</span>
             </div>
 
             <div className="space-y-0.5">
@@ -245,28 +254,28 @@ export function Sidebar({
                     key={item.key}
                     onClick={() => !disabled && setView(item.key)}
                     disabled={disabled}
-                    className={`
-                      w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-all duration-150
-                      ${active
-                        ? "bg-cockpit-surface border border-cockpit-border shadow-card text-cockpit-text"
-                        : disabled
-                          ? "text-cockpit-text-dim cursor-not-allowed opacity-40"
-                          : "text-cockpit-text-secondary hover:bg-cockpit-surface-hover hover:text-cockpit-text cursor-pointer"
-                      }
-                    `}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-all duration-150"
+                    style={{
+                      background: active ? "var(--surface)" : undefined,
+                      border: active ? "1px solid var(--border)" : "1px solid transparent",
+                      boxShadow: active ? "var(--shadow-sm)" : undefined,
+                      color: active ? "var(--text)" : disabled ? "var(--text-dim)" : "var(--text-secondary)",
+                      opacity: disabled ? 0.4 : 1,
+                      cursor: disabled ? "not-allowed" : "pointer",
+                    }}
                   >
-                    <div className={`
-                      w-6 h-6 rounded flex items-center justify-center transition-colors duration-150
-                      ${active
-                        ? "bg-cockpit-bg text-cockpit-text"
-                        : "bg-cockpit-bg-subtle text-cockpit-text-muted"
-                      }
-                    `}>
+                    <div
+                      className="w-6 h-6 rounded flex items-center justify-center transition-colors duration-150"
+                      style={{
+                        background: active ? "var(--bg)" : "var(--bg-subtle)",
+                        color: active ? "var(--text)" : "var(--text-muted)",
+                      }}
+                    >
                       <item.icon size={12} />
                     </div>
                     {item.label}
                     {active && (
-                      <div className="ml-auto w-1.5 h-1.5 rounded-full bg-cockpit-success" />
+                      <div className="ml-auto w-1.5 h-1.5 rounded-full" style={{ background: "var(--success)" }} />
                     )}
                   </button>
                 );
@@ -277,8 +286,8 @@ export function Sidebar({
       )}
 
       {/* Footer */}
-      <div className="px-4 py-4 mt-auto border-t border-cockpit-border">
-        <div className="flex items-center gap-2 text-2xs text-cockpit-text-dim">
+      <div className="px-4 py-4 mt-auto" style={{ borderTop: "1px solid var(--border)" }}>
+        <div className="flex items-center gap-2 text-2xs" style={{ color: "var(--text-dim)" }}>
           <kbd className="text-2xs">
             <Command size={10} />
           </kbd>

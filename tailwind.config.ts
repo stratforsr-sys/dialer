@@ -6,52 +6,73 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // ELITE ENGINEER - Deep Zinc Monochrome
-        // Inspired by Linear, Vercel, Stripe
+        // TELINK - Theme-aware using CSS variables
+        // Legacy naming convention - maps to same CSS variables as cockpit
+        telink: {
+          bg: "var(--bg)",
+          "bg-subtle": "var(--bg-subtle)",
+          "bg-muted": "var(--bg-muted)",
+          surface: "var(--surface)",
+          "surface-hover": "var(--surface-hover)",
+          "surface-elevated": "var(--surface-elevated)",
+          "surface-inset": "var(--surface-inset)",
+          border: "var(--border)",
+          "border-light": "var(--border-strong)",
+          text: "var(--text)",
+          "text-secondary": "var(--text-secondary)",
+          muted: "var(--text-muted)",
+          dim: "var(--text-dim)",
+          accent: "var(--accent)",
+          "accent-muted": "var(--accent-muted)",
+          "accent-hover": "var(--success)",
+          violet: "#8b5cf6",
+        },
+        // ELITE ENGINEER - Theme-aware using CSS variables
+        // These follow the light/dark theme automatically
         cockpit: {
-          // Backgrounds - Deep black hierarchy
-          bg: "#020202",
-          "bg-subtle": "#0a0a0a",
-          "bg-muted": "#0f0f0f",
-          surface: "#09090b",
-          "surface-hover": "#0c0c0e",
-          "surface-elevated": "#111113",
-          "surface-inset": "#060608",
+          // Backgrounds - Using CSS variables
+          bg: "var(--bg)",
+          "bg-subtle": "var(--bg-subtle)",
+          "bg-muted": "var(--bg-muted)",
+          surface: "var(--surface)",
+          "surface-hover": "var(--surface-hover)",
+          "surface-elevated": "var(--surface-elevated)",
+          "surface-inset": "var(--surface-inset)",
 
-          // Borders - Barely visible precision lines
-          border: "#18181b",
-          "border-subtle": "#141416",
-          "border-strong": "#27272a",
-          "border-focus": "#3f3f46",
+          // Borders - Using CSS variables
+          border: "var(--border)",
+          "border-subtle": "var(--border-subtle)",
+          "border-strong": "var(--border-strong)",
+          "border-focus": "var(--border-focus)",
 
-          // Text hierarchy - Silver scale
-          text: "#fafafa",
-          "text-secondary": "#d4d4d8",
-          "text-muted": "#a1a1aa",
-          "text-dim": "#71717a",
-          "text-faint": "#52525b",
+          // Text hierarchy - Using CSS variables
+          text: "var(--text)",
+          "text-secondary": "var(--text-secondary)",
+          "text-muted": "var(--text-muted)",
+          "text-dim": "var(--text-dim)",
+          "text-faint": "var(--text-faint)",
 
-          // Functional accents - Muted, professional
-          success: "#22c55e",
-          "success-bg": "rgba(34, 197, 94, 0.10)",
-          "success-border": "rgba(34, 197, 94, 0.20)",
-          danger: "#ef4444",
-          "danger-bg": "rgba(239, 68, 68, 0.10)",
-          "danger-border": "rgba(239, 68, 68, 0.20)",
-          warning: "#f59e0b",
-          "warning-bg": "rgba(245, 158, 11, 0.10)",
-          "warning-border": "rgba(245, 158, 11, 0.20)",
-          info: "#3b82f6",
-          "info-bg": "rgba(59, 130, 246, 0.10)",
-          "info-border": "rgba(59, 130, 246, 0.20)",
+          // Functional accents - Using CSS variables
+          success: "var(--success)",
+          "success-bg": "var(--success-bg)",
+          "success-border": "var(--success-border)",
+          danger: "var(--danger)",
+          "danger-bg": "var(--danger-bg)",
+          "danger-border": "var(--danger-border)",
+          warning: "var(--warning)",
+          "warning-bg": "var(--warning-bg)",
+          "warning-border": "var(--warning-border)",
+          info: "var(--info)",
+          "info-bg": "var(--info-bg)",
+          "info-border": "var(--info-border)",
 
           // LinkedIn
-          linkedin: "#0a66c2",
-          "linkedin-bg": "rgba(10, 102, 194, 0.12)",
+          linkedin: "var(--linkedin)",
+          "linkedin-bg": "var(--linkedin-bg)",
 
           // Accent - Single brand accent
-          accent: "#22c55e",
-          "accent-muted": "rgba(34, 197, 94, 0.15)",
+          accent: "var(--accent)",
+          "accent-muted": "var(--accent-muted)",
         },
       },
       fontFamily: {

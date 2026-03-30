@@ -278,14 +278,14 @@ function LeadStream({
   };
 
   return (
-    <div className="w-64 flex-shrink-0 flex flex-col border-r border-cockpit-border bg-cockpit-surface">
+    <div className="w-64 flex-shrink-0 flex flex-col" style={{ background: "var(--surface)", borderRight: "1px solid var(--border)" }}>
       {/* Header */}
-      <div className="px-4 py-3 border-b border-cockpit-border">
+      <div className="px-4 py-3" style={{ borderBottom: "1px solid var(--border)" }}>
         <div className="flex items-center justify-between">
-          <h3 className="text-xs font-semibold text-cockpit-text uppercase tracking-wider">
+          <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text)" }}>
             Leads
           </h3>
-          <span className="text-2xs text-cockpit-text-dim tabular-nums">
+          <span className="text-2xs tabular-nums" style={{ color: "var(--text-dim)" }}>
             {contacts.filter(c => c.status !== "ej_ringd").length}/{contacts.length}
           </span>
         </div>
@@ -313,16 +313,16 @@ function LeadStream({
                   style={{ backgroundColor: statusColor }}
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-cockpit-text truncate">
+                  <p className="text-sm font-medium truncate" style={{ color: "var(--text)" }}>
                     {contact.name || "Okänt namn"}
                   </p>
-                  <p className="text-xs text-cockpit-text-muted truncate">
+                  <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>
                     {contact.company}
                   </p>
                 </div>
                 {contact.status === "bokat_mote" && (
-                  <div className="w-4 h-4 rounded bg-cockpit-success-bg flex items-center justify-center">
-                    <Check size={10} className="text-cockpit-success" />
+                  <div className="w-4 h-4 rounded flex items-center justify-center" style={{ background: "var(--success-bg)" }}>
+                    <Check size={10} style={{ color: "var(--success)" }} />
                   </div>
                 )}
               </div>
@@ -541,7 +541,7 @@ export function CockpitView({
   const timeInfo = getBestTimeIndicator(contact.role);
 
   return (
-    <div className="h-full flex overflow-hidden bg-cockpit-bg">
+    <div className="h-full flex overflow-hidden" style={{ background: "var(--bg)" }}>
       {/* Command Palette */}
       <CommandPalette
         isOpen={showCommandPalette}

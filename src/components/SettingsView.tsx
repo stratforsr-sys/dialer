@@ -5,7 +5,7 @@ import {
   Moon, Sun, Monitor, Save, RotateCcw, Trash2, Download,
   Zap, Check
 } from "lucide-react";
-import { useTheme, type Theme } from "@/hooks/useTheme";
+import { useTheme, type Theme } from "@/components/ThemeProvider";
 
 interface SettingsViewProps {
   onExportData?: () => void;
