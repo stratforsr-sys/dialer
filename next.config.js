@@ -7,6 +7,7 @@ const nextConfig = {
     serverComponentsExternalPackages: [
       "@mendable/firecrawl-js",
       "@anthropic-ai/sdk",
+      "@google/generative-ai",
     ],
   },
 };

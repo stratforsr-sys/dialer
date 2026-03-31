@@ -12,6 +12,7 @@ import { ListView } from "@/components/ListView";
 import { CockpitView } from "@/components/CockpitView";
 import { StatsView } from "@/components/StatsView";
 import { SettingsView } from "@/components/SettingsView";
+import { ResearchView } from "@/components/ResearchView";
 
 export default function Home() {
   const {
@@ -220,8 +221,11 @@ export default function Home() {
             }}
           />
         )}
-        {/* Show import view if no active list (except for settings) */}
-        {!activeList && view !== "import" && view !== "mapping" && view !== "settings" && (
+        {view === "research" && (
+          <ResearchView />
+        )}
+        {/* Show import view if no active list (except for settings/research) */}
+        {!activeList && view !== "import" && view !== "mapping" && view !== "settings" && view !== "research" && (
           <ImportView
             onImportReady={handleImportReady}
             onLoadDemo={handleLoadDemo}

@@ -59,4 +59,4 @@ export interface CSVData {
   rows: Record<string, string>[];
 }
 
-export type ViewMode = "import" | "mapping" | "dashboard" | "list" | "cockpit" | "stats" | "settings";
+export type ViewMode = "import" | "mapping" | "dashboard" | "list" | "cockpit" | "stats" | "settings" | "research";
