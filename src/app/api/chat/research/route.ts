@@ -6,6 +6,7 @@ import { scrapeNews } from "@/lib/research/scrapers/news";
 import { scrapeWebsite } from "@/lib/research/scrapers/website";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export interface ChatMessage {
   role: "user" | "model";

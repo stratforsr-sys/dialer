@@ -205,8 +205,9 @@ export function ResearchView() {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let fullText = "";
+        let apiError: string | null = null;
 
-        while (true) {
+        outer: while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
@@ -215,11 +216,14 @@ export function ResearchView() {
 
           for (const line of lines) {
             const data = line.replace("data: ", "");
-            if (data === "[DONE]") break;
+            if (data === "[DONE]") break outer;
 
             try {
               const parsed = JSON.parse(data);
-              if (parsed.error) throw new Error(parsed.error);
+              if (parsed.error) {
+                apiError = parsed.error;
+                break outer;
+              }
               if (parsed.text) {
                 fullText += parsed.text;
                 setMessages((prev) => {
@@ -229,10 +233,12 @@ export function ResearchView() {
                 });
               }
             } catch {
-              // ignore parse errors on partial chunks
+              // ignore JSON parse errors on partial chunks
             }
           }
         }
+
+        if (apiError) throw new Error(apiError);
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : "Något gick fel";
         setMessages((prev) => {
