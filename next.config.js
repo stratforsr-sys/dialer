@@ -6,7 +6,6 @@ const nextConfig = {
     // (undici, crypto, etc.) that can't be bundled by webpack.
     serverComponentsExternalPackages: [
       "@mendable/firecrawl-js",
-      "@anthropic-ai/sdk",
       "@google/generative-ai",
     ],
   },

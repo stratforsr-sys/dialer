@@ -1,9 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { getGeminiClient, GEMINI_MODEL } from "./gemini-client";
 import type { BattleCard, ResearchRequest } from "@/types/research";
-
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
 
 const SYSTEM_PROMPT = `Du är en senior B2B-sälj-strateg som skapar battle cards för säljare på Telink.ai.
 
@@ -21,8 +17,6 @@ REGLER:
 - "math"-fältet MÅSTE visa kalkylen: [antal reps] × [timmar/vecka] × [timpris SEK] = SEK total
   Om antal anställda saknas, skriv "X anställda (bekräfta) × ..."
 - "one_question" ska vara SPECIFIK för detta företag — aldrig generisk
-  Bra: "Ni gick från 8 till 23 säljare i år — hur har er dokumentationsprocess skalat?"
-  Dålig: "Hur hanterar ni dokumentation idag?"
 
 RETURFORMAT: Returnera ENBART ett JSON-objekt som matchar BattleCard-schemat. Ingen förklarande text utanför JSON.`;
 
@@ -50,39 +44,29 @@ Returnera BattleCard JSON:
   "company_name": "${request.company_name}",
   "generated_at": "${new Date().toISOString()}",
   "meeting_at": "${request.meeting_at ?? ""}",
-  "stripped": {
-    "one_sentence": "...",
-    "one_number": "... (VERIFIED/INFERRED/ESTIMATED)",
-    "one_question": "..."
-  },
+  "stripped": { "one_sentence": "...", "one_number": "...", "one_question": "..." },
   "hook": "...",
   "gap": "...",
   "math": "... reps × ... h/vecka × SEK .../h = SEK ... läckage/vecka",
-  "killers": [
-    { "feature": "auto-doc|pattern-recognition|just-ask", "label": "...", "reason": "...", "confidence": "VERIFIED|INFERRED|ESTIMATED" }
-  ],
+  "killers": [{ "feature": "auto-doc", "label": "...", "reason": "...", "confidence": "ESTIMATED" }],
   "bullets": ["...", "...", "...", "...", "..."],
-  "objection_prep": [
-    { "objection": "...", "response": "..." }
-  ],
+  "objection_prep": [{ "objection": "...", "response": "..." }],
   "data_freshness": "fresh",
   "confidence_summary": { "verified_count": 0, "inferred_count": 0, "estimated_count": 0 }
 }`;
 
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 2000,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userMessage }],
+  const genAI = getGeminiClient();
+  const model = genAI.getGenerativeModel({
+    model: GEMINI_MODEL,
+    systemInstruction: SYSTEM_PROMPT,
   });
 
-  const text =
-    response.content[0].type === "text" ? response.content[0].text : "";
+  const result = await model.generateContent(userMessage);
+  const text = result.response.text();
 
-  // Extract JSON from response (strip any markdown fences if present)
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
-    throw new Error("Sonnet returned no valid JSON");
+    throw new Error("Gemini returned no valid JSON");
   }
 
   return JSON.parse(jsonMatch[0]) as BattleCard;
