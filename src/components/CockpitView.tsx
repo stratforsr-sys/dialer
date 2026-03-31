@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import type { Contact, ContactStatus, ViewMode } from "@/types";
 import { STATUS_CONFIG, SHORTCUTS } from "@/lib/constants";
+import { ResearchPanel } from "@/components/research/ResearchPanel";
 
 // ============================================
 // UTILITY: Best-Time Indicator
@@ -357,6 +358,7 @@ export function CockpitView({
   const [notes, setNotes] = useState("");
   const [copied, setCopied] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [showResearch, setShowResearch] = useState(false);
   const [keyPressed, setKeyPressed] = useState<string | null>(null);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const notesTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -626,6 +628,19 @@ export function CockpitView({
               <p className="text-2xs text-cockpit-text-dim text-center mt-1">{Math.round((worked / total) * 100)}% klart</p>
             </div>
           </div>
+
+          {/* Research toggle */}
+          <button
+            onClick={() => setShowResearch(!showResearch)}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
+              showResearch
+                ? "bg-blue-100 border border-blue-300 text-blue-700"
+                : "text-cockpit-text-muted hover:text-cockpit-text hover:bg-cockpit-surface-hover"
+            }`}
+          >
+            <Search size={13} />
+            <span>Research</span>
+          </button>
 
           {/* Shortcuts toggle */}
           <button
@@ -1029,6 +1044,14 @@ export function CockpitView({
           </div>
         </div>
       </div>
+
+      {/* Research Panel */}
+      {showResearch && contact && (
+        <ResearchPanel
+          contact={contact}
+          onClose={() => setShowResearch(false)}
+        />
+      )}
 
     </div>
   );
