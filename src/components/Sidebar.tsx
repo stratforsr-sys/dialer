@@ -236,10 +236,9 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* Navigation - only show if we have an active list */}
-      {hasData && (
-        <>
-          <div className="mx-4 h-px" style={{ background: "var(--border)" }} />
+      {/* Navigation - always visible, data-dependent items are disabled */}
+      <>
+        <div className="mx-4 h-px" style={{ background: "var(--border)" }} />
 
           <nav className="px-3 py-4">
             <div className="px-2 mb-3">
@@ -283,8 +282,7 @@ export function Sidebar({
               })}
             </div>
           </nav>
-        </>
-      )}
+      </>
 
       {/* Footer */}
       <div className="px-4 py-4 mt-auto" style={{ borderTop: "1px solid var(--border)" }}>
