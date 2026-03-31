@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useMemo, useRef, useEffect } from "react";
-import { Search, Play, Phone, ArrowUpDown, ExternalLink, MoreHorizontal, FolderInput, Filter } from "lucide-react";
+import { Search, Play, Phone, ArrowUpDown, ExternalLink, MoreHorizontal, FolderInput, Filter, FlaskConical, X } from "lucide-react";
 import type { Contact, ContactStatus, CallList } from "@/types";
 import { STATUS_CONFIG } from "@/lib/constants";
+import { ResearchPanel } from "@/components/research/ResearchPanel";
 
 interface ListViewProps {
   contacts: Contact[];
@@ -22,6 +23,7 @@ export function ListView({ contacts, callLists, activeListId, onStartDialer, onO
   const [sortField, setSortField] = useState<SortField>("name");
   const [sortAsc, setSortAsc] = useState(true);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const [researchContact, setResearchContact] = useState<Contact | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const queue = contacts.filter(c => c.status === "ej_ringd").length;
@@ -238,6 +240,14 @@ export function ListView({ contacts, callLists, activeListId, onStartDialer, onO
                           <ExternalLink size={14} />
                         </button>
 
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setResearchContact(contact); }}
+                          title="Sales Research"
+                          className="p-1.5 rounded-lg hover:bg-blue-50 transition-colors text-telink-dim hover:text-blue-600 cursor-pointer"
+                        >
+                          <FlaskConical size={14} />
+                        </button>
+
                         {otherLists.length > 0 && (
                           <button
                             onClick={(e) => {
@@ -294,6 +304,20 @@ export function ListView({ contacts, callLists, activeListId, onStartDialer, onO
           </table>
         </div>
       </div>
+
+      {/* Research side panel */}
+      {researchContact && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div
+            className="flex-1 bg-black/20"
+            onClick={() => setResearchContact(null)}
+          />
+          <ResearchPanel
+            contact={researchContact}
+            onClose={() => setResearchContact(null)}
+          />
+        </div>
+      )}
     </div>
   );
 }
