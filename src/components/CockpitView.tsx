@@ -363,6 +363,7 @@ export function CockpitView({
   const [isTransitioning, setIsTransitioning] = useState(false);
   const notesTimerRef = useRef<NodeJS.Timeout | null>(null);
   const notesRef = useRef<HTMLTextAreaElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const contact = contacts[currentIndex];
   const total = contacts.length;
@@ -373,6 +374,19 @@ export function CockpitView({
     if (contact) setNotes(contact.notes || "");
     setIframeFailed(false);
   }, [contact?.id]);
+
+  // Detect when iframe is blocked by X-Frame-Options (onError never fires for this).
+  // After load, if we can read contentDocument and body is empty → blocked.
+  const handleIframeLoad = useCallback(() => {
+    try {
+      const doc = iframeRef.current?.contentDocument;
+      if (doc && (!doc.body || doc.body.innerHTML.trim() === "")) {
+        setIframeFailed(true);
+      }
+    } catch {
+      // SecurityError = cross-origin content loaded successfully — do nothing.
+    }
+  }, []);
 
   // Auto-save notes with debounce
   useEffect(() => {
@@ -905,10 +919,12 @@ export function CockpitView({
               {researchTab === "website" ? (
                 websiteUrl && !iframeFailed ? (
                   <iframe
+                    ref={iframeRef}
                     key={websiteUrl}
                     src={websiteUrl}
                     className="w-full h-full border-0 bg-white"
-                    sandbox="allow-scripts allow-same-origin allow-popups"
+                    sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+                    onLoad={handleIframeLoad}
                     onError={() => setIframeFailed(true)}
                     title="Företagets hemsida"
                   />
@@ -919,13 +935,14 @@ export function CockpitView({
                     </div>
                     {websiteUrl ? (
                       <>
-                        <p className="text-sm font-medium text-cockpit-text mb-1">Hemsidan blockerar inbäddning</p>
-                        <p className="text-xs text-cockpit-text-muted mb-6">Öppna istället i en ny flik.</p>
+                        <p className="text-sm font-medium text-cockpit-text mb-1">Kan inte visa hemsidan inbäddad</p>
+                        <p className="text-xs text-cockpit-text-muted mb-1">Sajten blockerar förhandsvisning.</p>
+                        <p className="text-xs text-cockpit-text-dim mb-6 font-mono">{new URL(websiteUrl).hostname}</p>
                         <a
                           href={websiteUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="btn-secondary"
+                          className="btn-primary"
                         >
                           <ExternalLink size={14} />
                           Öppna {new URL(websiteUrl).hostname}
