@@ -7,7 +7,8 @@ export type ContactStatus =
   | "fel_nummer"
   | "atersam"
   | "intresserad"
-  | "klar";
+  | "klar"
+  | "hoppat_over";
 
 export interface Contact {
   id: string;

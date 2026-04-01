@@ -1,7 +1,7 @@
 import {
   Phone, PhoneCall, PhoneMissed, User, Building2, Hash, Mail, Globe,
   Linkedin, X, ThumbsDown, CalendarCheck, AlertTriangle, Ban,
-  RotateCcw, Star,
+  RotateCcw, Star, SkipForward,
 } from "lucide-react";
 import type { ContactStatus, SystemFieldKey } from "@/types";
 import { LucideIcon } from "lucide-react";
@@ -24,6 +24,7 @@ export const STATUS_CONFIG: Record<ContactStatus, StatusDef> = {
   atersam:      { label: "Återsamtal",   color: "#3b82f6", bg: "rgba(59,130,246,0.1)",   icon: RotateCcw,     key: "6" },
   intresserad:  { label: "Intresserad",  color: "#a78bfa", bg: "rgba(167,139,250,0.1)",  icon: Star,          key: "7" },
   klar:         { label: "Klar",         color: "#22c55e", bg: "rgba(34,197,94,0.1)",    icon: CalendarCheck },
+  hoppat_over:  { label: "Hoppat över",  color: "#6b7280", bg: "rgba(107,114,128,0.1)",  icon: SkipForward },
 };
 
 export interface SystemFieldDef {

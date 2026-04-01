@@ -117,6 +117,11 @@ export default function Home() {
     if (status === "bokat_mote") setSessionMeetings(p => p + 1);
   }, [setContactStatus]);
 
+  const handleSkipContact = useCallback((id: string) => {
+    setContactStatus(id, "hoppat_over");
+    // Intentionally NOT incrementing sessionCalls
+  }, [setContactStatus]);
+
   const handleMoveContact = useCallback((contactId: string, toListId: string) => {
     if (!activeListId) return;
     moveContacts([contactId], activeListId, toListId);
@@ -215,6 +220,7 @@ export default function Home() {
             currentIndex={cockpitIndex}
             setCurrentIndex={setCockpitIndex}
             setStatus={handleSetStatus}
+            onSkip={handleSkipContact}
             updateContact={handleUpdateContact}
             onExit={() => setView("dashboard")}
             onNavigate={setView}

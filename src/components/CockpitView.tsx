@@ -6,7 +6,7 @@ import {
   Phone, PhoneCall, Globe, Linkedin, ChevronLeft, ChevronRight,
   ExternalLink, MessageSquare, Building2, Mail, Hash,
   ArrowLeft, Search, Copy, Check, Clock, Command, CornerDownLeft,
-  LayoutGrid, Settings, BarChart3,
+  LayoutGrid, Settings, BarChart3, SkipForward,
   ChevronUp, ChevronDown
 } from "lucide-react";
 import type { Contact, ContactStatus, ViewMode } from "@/types";
@@ -343,6 +343,7 @@ interface CockpitViewProps {
   currentIndex: number;
   setCurrentIndex: (i: number) => void;
   setStatus: (id: string, status: ContactStatus) => void;
+  onSkip: (id: string) => void;
   updateContact: (id: string, updates: Partial<Contact>) => void;
   onExit: () => void;
   onNavigate: (view: ViewMode) => void;
@@ -350,7 +351,7 @@ interface CockpitViewProps {
 }
 
 export function CockpitView({
-  contacts, currentIndex, setCurrentIndex, setStatus, updateContact, onExit, onNavigate, sessionCalls
+  contacts, currentIndex, setCurrentIndex, setStatus, onSkip, updateContact, onExit, onNavigate, sessionCalls
 }: CockpitViewProps) {
   const [researchTab, setResearchTab] = useState<"website" | "linkedin">("website");
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -428,13 +429,24 @@ export function CockpitView({
     updateContact(contact.id, { notes });
     setStatus(contact.id, status);
 
-    // Animate out then advance
     setIsTransitioning(true);
     setTimeout(() => {
       goNext();
       setIsTransitioning(false);
     }, 200);
   }, [contact, notes, updateContact, setStatus, goNext]);
+
+  const handleSkip = useCallback(() => {
+    if (!contact) return;
+    updateContact(contact.id, { notes });
+    onSkip(contact.id);
+
+    setIsTransitioning(true);
+    setTimeout(() => {
+      goNext();
+      setIsTransitioning(false);
+    }, 200);
+  }, [contact, notes, updateContact, onSkip, goNext]);
 
   const copyEmail = useCallback(() => {
     if (contact?.email) {
@@ -553,7 +565,7 @@ export function CockpitView({
 
   const linkedinSearchUrl = `https://www.linkedin.com/search/results/all/?keywords=${encodeURIComponent(`${contact.name}${cleanCompany ? ` AND ${cleanCompany}` : ""}`)}`;
 
-  const statusActions: ContactStatus[] = ["svarar_ej", "nej_tack", "bokat_mote", "upptaget", "fel_nummer", "atersam", "intresserad"];
+  const statusActions: ContactStatus[] = ["svarar_ej", "nej_tack", "bokat_mote", "fel_nummer", "atersam"];
   const timeInfo = getBestTimeIndicator(contact.role);
 
   return (
@@ -833,6 +845,29 @@ export function CockpitView({
                   );
                 })}
               </div>
+
+              {/* Skip button — does not count as a call */}
+              <button
+                onClick={handleSkip}
+                className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-all cursor-pointer"
+                style={{
+                  background: "var(--bg)",
+                  borderColor: "var(--border)",
+                  color: "var(--text-muted)",
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.borderColor = "var(--border-strong)";
+                  e.currentTarget.style.color = "var(--text-secondary)";
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.borderColor = "var(--border)";
+                  e.currentTarget.style.color = "var(--text-muted)";
+                }}
+              >
+                <SkipForward size={12} />
+                Hoppa över
+                <span className="ml-auto text-2xs opacity-50">räknas ej som samtal</span>
+              </button>
             </div>
 
             {/* Notes */}

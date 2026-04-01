@@ -71,7 +71,7 @@ export function ListView({ contacts, callLists, activeListId, onStartDialer, onO
   };
 
   const statusFilters: ("alla" | ContactStatus)[] = [
-    "alla", "ej_ringd", "svarar_ej", "bokat_mote", "intresserad", "nej_tack", "upptaget", "atersam", "fel_nummer"
+    "alla", "ej_ringd", "svarar_ej", "bokat_mote", "intresserad", "nej_tack", "atersam", "fel_nummer", "hoppat_over"
   ];
 
   return (
