@@ -85,7 +85,13 @@ export function autoGuessMapping(headers: string[]): FieldMapping {
       mapping[h] = "switchboard";
     } else if (hl.includes("email") || hl.includes("e-post") || hl.includes("mail") || hl === "epost") {
       mapping[h] = "email";
-    } else if (hl === "url" || hl === "hemsida" || hl === "website" || hl === "webb" || hl === "web") {
+    } else if (
+      hl === "url" || hl === "hemsida" || hl === "website" || hl === "webb" || hl === "web" || hl === "www" ||
+      hl.includes("hemsida") || hl.includes("webbplats") || hl.includes("webbadress") ||
+      hl.includes("website") || hl.includes("homepage") ||
+      (hl.includes("webb") && !hl.includes("linkedin")) ||
+      (hl.includes("url") && (hl.includes("web") || hl.includes("hem") || hl.includes("site")))
+    ) {
       mapping[h] = "website";
     } else if (hl.includes("linkedin")) {
       mapping[h] = "linkedin";
