@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { Contact, CSVData, FieldMapping, ViewMode } from "@/types";
 import { DEMO_CONTACTS } from "@/lib/constants";
 import { useCallLists } from "@/hooks/useCallLists";
 import { Sidebar } from "@/components/Sidebar";
+import { ListsView } from "@/components/ListsView";
 import { ImportView } from "@/components/ImportView";
 import { MappingView } from "@/components/MappingView";
 import { DashboardView } from "@/components/DashboardView";
@@ -29,7 +30,7 @@ export default function Home() {
     moveContacts,
   } = useCallLists();
 
-  const [view, setView] = useState<ViewMode>("import");
+  const [view, setView] = useState<ViewMode>("lists");
   const [csvData, setCsvData] = useState<CSVData | null>(null);
   const [mapping, setMapping] = useState<FieldMapping>({});
   const [importFileName, setImportFileName] = useState("");
@@ -42,12 +43,33 @@ export default function Home() {
   const listName = activeList?.name || "";
   const hasData = activeList !== null && contacts.length > 0;
 
-  // Switch to dashboard if we have an active list on load
-  const handleListSelect = useCallback((listId: string) => {
+  // On load: if no lists at all, show import; otherwise show lists panel
+  useEffect(() => {
+    if (!isLoaded) return;
+    if (callLists.length === 0) {
+      setView("import");
+    }
+    // else keep "lists" as default (already the initial state)
+  }, [isLoaded, callLists.length]);
+
+  // Select list and go to dashboard
+  const handleSelectList = useCallback((listId: string) => {
     setActiveListId(listId);
     setView("dashboard");
     setCockpitIndex(0);
   }, [setActiveListId]);
+
+  // Select list and start dialer immediately
+  const handleStartDialerForList = useCallback((listId: string) => {
+    setActiveListId(listId);
+    // find first uncalled contact in that list
+    const list = callLists.find(l => l.id === listId);
+    if (list) {
+      const idx = list.contacts.findIndex(c => c.status === "ej_ringd");
+      setCockpitIndex(idx >= 0 ? idx : 0);
+    }
+    setView("cockpit");
+  }, [callLists, setActiveListId]);
 
   const handleImportReady = useCallback((data: CSVData, guessedMapping: FieldMapping, fileName: string) => {
     setCsvData(data);
@@ -77,12 +99,12 @@ export default function Home() {
     setCsvData(null);
     setMapping({});
     setImportFileName("");
-    setView("dashboard");
+    setView("lists");
   }, [csvData, mapping, createList]);
 
   const handleLoadDemo = useCallback(() => {
     createList("Demo - SaaS-leads", DEMO_CONTACTS);
-    setView("dashboard");
+    setView("lists");
   }, [createList]);
 
   const handleUpdateContact = useCallback((id: string, updates: Partial<Contact>) => {
@@ -108,9 +130,10 @@ export default function Home() {
 
   const handleDeleteList = useCallback((listId: string) => {
     deleteList(listId);
-    // If we have no lists left, go to import
     if (callLists.length <= 1) {
       setView("import");
+    } else {
+      setView("lists");
     }
   }, [deleteList, callLists.length]);
 
@@ -118,7 +141,6 @@ export default function Home() {
     updateList(listId, { name: newName });
   }, [updateList]);
 
-  // Show loading state
   if (!isLoaded) {
     return (
       <div className="flex h-screen items-center justify-center bg-telink-bg">
@@ -127,7 +149,6 @@ export default function Home() {
     );
   }
 
-  // Hide sidebar in cockpit mode for maximum dialer space
   const showSidebar = view !== "cockpit";
 
   return (
@@ -137,16 +158,21 @@ export default function Home() {
           view={view}
           setView={setView}
           hasData={hasData}
-          listName={listName}
-          contactCount={contacts.length}
-          callLists={callLists}
-          activeListId={activeListId}
-          onListSelect={handleListSelect}
-          onDeleteList={handleDeleteList}
-          onRenameList={handleRenameList}
+          activeListName={activeList?.name}
         />
       )}
       <main className="flex-1 overflow-hidden">
+        {view === "lists" && (
+          <ListsView
+            callLists={callLists}
+            activeListId={activeListId}
+            onSelectList={handleSelectList}
+            onStartDialer={handleStartDialerForList}
+            onDeleteList={handleDeleteList}
+            onRenameList={handleRenameList}
+            onImportNew={() => setView("import")}
+          />
+        )}
         {view === "import" && (
           <ImportView
             onImportReady={handleImportReady}
@@ -224,11 +250,16 @@ export default function Home() {
         {view === "research" && (
           <ResearchView />
         )}
-        {/* Show import view if no active list (except for settings/research) */}
-        {!activeList && view !== "import" && view !== "mapping" && view !== "settings" && view !== "research" && (
-          <ImportView
-            onImportReady={handleImportReady}
-            onLoadDemo={handleLoadDemo}
+        {/* Fallback: data-dependent views with no active list → go to lists */}
+        {!activeList && !["lists", "import", "mapping", "settings", "research"].includes(view) && (
+          <ListsView
+            callLists={callLists}
+            activeListId={activeListId}
+            onSelectList={handleSelectList}
+            onStartDialer={handleStartDialerForList}
+            onDeleteList={handleDeleteList}
+            onRenameList={handleRenameList}
+            onImportNew={() => setView("import")}
           />
         )}
       </main>
