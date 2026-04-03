@@ -4,6 +4,8 @@ import { useState, useCallback, useEffect } from "react";
 import type { Contact, CSVData, FieldMapping, ViewMode } from "@/types";
 import { DEMO_CONTACTS } from "@/lib/constants";
 import { useCallLists } from "@/hooks/useCallLists";
+import { useDailyStats } from "@/hooks/useDailyStats";
+import { useSettings } from "@/hooks/useSettings";
 import { Sidebar } from "@/components/Sidebar";
 import { ListsView } from "@/components/ListsView";
 import { ImportView } from "@/components/ImportView";
@@ -30,6 +32,9 @@ export default function Home() {
     moveContacts,
   } = useCallLists();
 
+  const { todayStats, getLast30Days, recordCall } = useDailyStats();
+  const { settings, updateSettings } = useSettings();
+
   const [view, setView] = useState<ViewMode>("lists");
   const [csvData, setCsvData] = useState<CSVData | null>(null);
   const [mapping, setMapping] = useState<FieldMapping>({});
@@ -38,34 +43,26 @@ export default function Home() {
   const [sessionCalls, setSessionCalls] = useState(0);
   const [sessionMeetings, setSessionMeetings] = useState(0);
 
-  // Derived state
   const contacts = activeList?.contacts || [];
   const listName = activeList?.name || "";
   const hasData = activeList !== null && contacts.length > 0;
 
-  // On load: if no lists at all, show import; otherwise show lists panel
   useEffect(() => {
     if (!isLoaded) return;
-    if (callLists.length === 0) {
-      setView("import");
-    }
-    // else keep "lists" as default (already the initial state)
+    if (callLists.length === 0) setView("import");
   }, [isLoaded, callLists.length]);
 
-  // Select list and go to dashboard
   const handleSelectList = useCallback((listId: string) => {
     setActiveListId(listId);
     setView("dashboard");
     setCockpitIndex(0);
   }, [setActiveListId]);
 
-  // Select list and start dialer immediately
   const handleStartDialerForList = useCallback((listId: string) => {
     setActiveListId(listId);
-    // find first uncalled contact in that list
-    const list = callLists.find(l => l.id === listId);
+    const list = callLists.find((l) => l.id === listId);
     if (list) {
-      const idx = list.contacts.findIndex(c => c.status === "ej_ringd");
+      const idx = list.contacts.findIndex((c) => c.status === "ej_ringd");
       setCockpitIndex(idx >= 0 ? idx : 0);
     }
     setView("cockpit");
@@ -93,7 +90,7 @@ export default function Home() {
         }
       });
       return c;
-    }).filter(c => c.name || c.company || c.direct_phone);
+    }).filter((c) => c.name || c.company || c.direct_phone);
 
     createList(listNameInput || "Ny ringlista", imported);
     setCsvData(null);
@@ -113,13 +110,15 @@ export default function Home() {
 
   const handleSetStatus = useCallback((id: string, status: Contact["status"]) => {
     setContactStatus(id, status);
-    setSessionCalls(p => p + 1);
-    if (status === "bokat_mote") setSessionMeetings(p => p + 1);
-  }, [setContactStatus]);
+    setSessionCalls((p) => p + 1);
+    const isMeeting = status === "bokat_mote";
+    if (isMeeting) setSessionMeetings((p) => p + 1);
+    recordCall(isMeeting, activeListId ?? "unknown");
+  }, [setContactStatus, recordCall, activeListId]);
 
   const handleSkipContact = useCallback((id: string) => {
     setContactStatus(id, "hoppat_over");
-    // Intentionally NOT incrementing sessionCalls
+    // intentionally NOT counting as a call
   }, [setContactStatus]);
 
   const handleMoveContact = useCallback((contactId: string, toListId: string) => {
@@ -128,18 +127,15 @@ export default function Home() {
   }, [activeListId, moveContacts]);
 
   const startDialer = useCallback((startIndex?: number) => {
-    const idx = startIndex ?? contacts.findIndex(c => c.status === "ej_ringd");
+    const idx = startIndex ?? contacts.findIndex((c) => c.status === "ej_ringd");
     setCockpitIndex(idx >= 0 ? idx : 0);
     setView("cockpit");
   }, [contacts]);
 
   const handleDeleteList = useCallback((listId: string) => {
     deleteList(listId);
-    if (callLists.length <= 1) {
-      setView("import");
-    } else {
-      setView("lists");
-    }
+    if (callLists.length <= 1) setView("import");
+    else setView("lists");
   }, [deleteList, callLists.length]);
 
   const handleRenameList = useCallback((listId: string, newName: string) => {
@@ -155,6 +151,7 @@ export default function Home() {
   }
 
   const showSidebar = view !== "cockpit";
+  const last30Days = getLast30Days();
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -179,10 +176,7 @@ export default function Home() {
           />
         )}
         {view === "import" && (
-          <ImportView
-            onImportReady={handleImportReady}
-            onLoadDemo={handleLoadDemo}
-          />
+          <ImportView onImportReady={handleImportReady} onLoadDemo={handleLoadDemo} />
         )}
         {view === "mapping" && csvData && (
           <MappingView
@@ -202,6 +196,13 @@ export default function Home() {
             listName={listName}
             onStartDialer={() => startDialer()}
             onGoToList={() => setView("list")}
+            todayCalls={todayStats.calls}
+            todayMeetings={todayStats.meetings}
+            dailyCallGoal={settings.dailyCallGoal}
+            dailyMeetingGoal={settings.dailyMeetingGoal}
+            last30Days={last30Days}
+            callLists={callLists}
+            activeListId={activeListId}
           />
         )}
         {view === "list" && activeList && (
@@ -225,6 +226,8 @@ export default function Home() {
             onExit={() => setView("dashboard")}
             onNavigate={setView}
             sessionCalls={sessionCalls}
+            todayCalls={todayStats.calls}
+            dailyCallGoal={settings.dailyCallGoal}
           />
         )}
         {view === "stats" && activeList && (
@@ -237,6 +240,8 @@ export default function Home() {
         )}
         {view === "settings" && (
           <SettingsView
+            settings={settings}
+            onUpdateSettings={updateSettings}
             onExportData={() => {
               const data = JSON.stringify(callLists, null, 2);
               const blob = new Blob([data], { type: "application/json" });
@@ -248,15 +253,12 @@ export default function Home() {
               URL.revokeObjectURL(url);
             }}
             onClearData={() => {
-              callLists.forEach(list => deleteList(list.id));
+              callLists.forEach((list) => deleteList(list.id));
               setView("import");
             }}
           />
         )}
-        {view === "research" && (
-          <ResearchView />
-        )}
-        {/* Fallback: data-dependent views with no active list → go to lists */}
+        {view === "research" && <ResearchView />}
         {!activeList && !["lists", "import", "mapping", "settings", "research"].includes(view) && (
           <ListsView
             callLists={callLists}

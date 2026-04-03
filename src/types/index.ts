@@ -61,3 +61,15 @@ export interface CSVData {
 }
 
 export type ViewMode = "lists" | "import" | "mapping" | "dashboard" | "list" | "cockpit" | "stats" | "settings" | "research";
+
+export interface AppSettings {
+  dailyCallGoal: number;
+  dailyMeetingGoal: number;
+}
+
+export interface DayStats {
+  date: string; // "2026-04-01"
+  calls: number;
+  meetings: number;
+  byList: Record<string, number>;
+}

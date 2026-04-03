@@ -254,7 +254,7 @@ function NavigationRail({
 }
 
 // ============================================
-// COMPONENT: Lead Stream (Contact List)
+// COMPONENT: Lead Stream (Contact List) — collapsible
 // ============================================
 function LeadStream({
   contacts,
@@ -265,39 +265,80 @@ function LeadStream({
   currentIndex: number;
   onSelect: (index: number) => void;
 }) {
+  const [collapsed, setCollapsed] = useState(true);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Scroll to active item
-    const el = listRef.current?.querySelector(`[data-index="${currentIndex}"]`);
-    el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [currentIndex]);
+    if (!collapsed) {
+      const el = listRef.current?.querySelector(`[data-index="${currentIndex}"]`);
+      el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [currentIndex, collapsed]);
 
-  const getStatusColor = (status: ContactStatus) => {
-    const cfg = STATUS_CONFIG[status];
-    return cfg?.color || "#71717a";
-  };
+  const getStatusColor = (status: ContactStatus) => STATUS_CONFIG[status]?.color || "#71717a";
 
-  return (
-    <div className="w-64 flex-shrink-0 flex flex-col" style={{ background: "var(--surface)", borderRight: "1px solid var(--border)" }}>
-      {/* Header */}
-      <div className="px-4 py-3" style={{ borderBottom: "1px solid var(--border)" }}>
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text)" }}>
-            Leads
-          </h3>
-          <span className="text-2xs tabular-nums" style={{ color: "var(--text-dim)" }}>
-            {contacts.filter(c => c.status !== "ej_ringd").length}/{contacts.length}
-          </span>
+  // ── Collapsed: 36px dot-strip ──
+  if (collapsed) {
+    return (
+      <div
+        className="flex-shrink-0 flex flex-col items-center py-3 overflow-hidden"
+        style={{ width: "36px", background: "var(--surface)", borderRight: "1px solid var(--border)" }}
+      >
+        <button
+          onClick={() => setCollapsed(false)}
+          className="w-6 h-6 rounded flex items-center justify-center mb-2 transition-colors"
+          style={{ color: "var(--text-dim)" }}
+          title="Expandera"
+        >
+          <ChevronRight size={12} />
+        </button>
+        <div className="flex flex-col gap-1.5 overflow-y-auto flex-1 items-center py-1">
+          {contacts.map((c, i) => (
+            <button
+              key={c.id}
+              onClick={() => onSelect(i)}
+              title={c.company || c.name}
+              className="rounded-full flex-shrink-0 transition-all cursor-pointer"
+              style={{
+                width: i === currentIndex ? "10px" : "7px",
+                height: i === currentIndex ? "10px" : "7px",
+                backgroundColor: getStatusColor(c.status),
+                opacity: i === currentIndex ? 1 : 0.3,
+              }}
+            />
+          ))}
         </div>
       </div>
+    );
+  }
 
-      {/* List */}
+  // ── Expanded: full 220px panel ──
+  return (
+    <div
+      className="flex-shrink-0 flex flex-col"
+      style={{ width: "220px", background: "var(--surface)", borderRight: "1px solid var(--border)" }}
+    >
+      <div className="px-3 py-3 flex items-center justify-between" style={{ borderBottom: "1px solid var(--border)" }}>
+        <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text)" }}>
+          Leads
+        </h3>
+        <div className="flex items-center gap-2">
+          <span className="text-2xs tabular-nums" style={{ color: "var(--text-dim)" }}>
+            {contacts.filter((c) => c.status !== "ej_ringd").length}/{contacts.length}
+          </span>
+          <button
+            onClick={() => setCollapsed(true)}
+            className="w-5 h-5 rounded flex items-center justify-center transition-colors cursor-pointer"
+            style={{ color: "var(--text-dim)" }}
+            title="Minimera"
+          >
+            <ChevronLeft size={11} />
+          </button>
+        </div>
+      </div>
       <div ref={listRef} className="flex-1 overflow-y-auto">
         {contacts.map((contact, index) => {
           const isActive = index === currentIndex;
-          const statusColor = getStatusColor(contact.status);
-
           return (
             <motion.div
               key={contact.id}
@@ -307,23 +348,22 @@ function LeadStream({
               whileHover={{ x: isActive ? 0 : 2 }}
               transition={{ duration: 0.15 }}
             >
-              <div className="flex items-start gap-3">
-                {/* Status indicator */}
+              <div className="flex items-start gap-2.5">
                 <div
                   className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0"
-                  style={{ backgroundColor: statusColor }}
+                  style={{ backgroundColor: getStatusColor(contact.status) }}
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate" style={{ color: "var(--text)" }}>
+                  <p className="text-xs font-medium truncate" style={{ color: "var(--text)" }}>
                     {contact.name || "Okänt namn"}
                   </p>
-                  <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>
+                  <p className="text-2xs truncate" style={{ color: "var(--text-muted)" }}>
                     {contact.company}
                   </p>
                 </div>
                 {contact.status === "bokat_mote" && (
-                  <div className="w-4 h-4 rounded flex items-center justify-center" style={{ background: "var(--success-bg)" }}>
-                    <Check size={10} style={{ color: "var(--success)" }} />
+                  <div className="w-3.5 h-3.5 rounded flex items-center justify-center flex-shrink-0" style={{ background: "var(--success-bg)" }}>
+                    <Check size={9} style={{ color: "var(--success)" }} />
                   </div>
                 )}
               </div>
@@ -348,10 +388,13 @@ interface CockpitViewProps {
   onExit: () => void;
   onNavigate: (view: ViewMode) => void;
   sessionCalls: number;
+  todayCalls: number;
+  dailyCallGoal: number;
 }
 
 export function CockpitView({
-  contacts, currentIndex, setCurrentIndex, setStatus, onSkip, updateContact, onExit, onNavigate, sessionCalls
+  contacts, currentIndex, setCurrentIndex, setStatus, onSkip, updateContact, onExit, onNavigate,
+  sessionCalls, todayCalls, dailyCallGoal,
 }: CockpitViewProps) {
   const [researchTab, setResearchTab] = useState<"website" | "linkedin">("website");
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -568,6 +611,22 @@ export function CockpitView({
   const statusActions: ContactStatus[] = ["svarar_ej", "nej_tack", "bokat_mote", "fel_nummer", "atersam"];
   const timeInfo = getBestTimeIndicator(contact.role);
 
+  // Next uncalled contact (for label next to arrows)
+  const nextContact = useMemo(() => {
+    for (let i = currentIndex + 1; i < contacts.length; i++) {
+      if (contacts[i].status === "ej_ringd") return contacts[i];
+    }
+    for (let i = 0; i < currentIndex; i++) {
+      if (contacts[i].status === "ej_ringd") return contacts[i];
+    }
+    return null;
+  }, [contacts, currentIndex]);
+
+  // Daily goal ring — circumference of r=15 is ≈94.25
+  const CIRC = 94.25;
+  const goalPct = Math.min(todayCalls / Math.max(dailyCallGoal, 1), 1);
+  const dash = goalPct * CIRC;
+
   return (
     <div className="h-full flex overflow-hidden" style={{ background: "var(--bg)" }}>
       {/* Command Palette */}
@@ -597,16 +656,14 @@ export function CockpitView({
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top bar */}
         <div className="flex-shrink-0 flex items-center justify-between px-6 py-3 border-b border-cockpit-border bg-cockpit-surface">
-          <div className="flex items-center gap-4">
-            {/* Position indicator */}
+          {/* Left: position + nav + next company */}
+          <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-cockpit-bg border border-cockpit-border">
               <span className="text-sm font-semibold text-cockpit-text tabular-nums">{currentIndex + 1}</span>
               <span className="text-xs text-cockpit-text-dim">/</span>
               <span className="text-xs text-cockpit-text-muted tabular-nums">{total}</span>
             </div>
-
-            {/* Navigation buttons */}
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-0.5">
               <button
                 onClick={goPrev}
                 disabled={currentIndex === 0}
@@ -621,37 +678,76 @@ export function CockpitView({
                 <ChevronRight size={16} />
               </button>
             </div>
+            {nextContact && (
+              <div className="flex items-center gap-1.5 text-2xs" style={{ color: "var(--text-dim)" }}>
+                <span>→</span>
+                <span className="truncate max-w-[120px]" style={{ color: "var(--text-muted)" }}>
+                  {nextContact.company || nextContact.name}
+                </span>
+              </div>
+            )}
           </div>
 
-          {/* Progress bar + Stats */}
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-4">
-              <div className="text-center">
-                <p className="text-lg font-semibold text-cockpit-text tabular-nums">{sessionCalls}</p>
-                <p className="text-2xs text-cockpit-text-dim">Samtal</p>
+          {/* Center: Daily goal ring + stats */}
+          <div className="flex items-center gap-5">
+            {/* Goal ring */}
+            <div className="flex items-center gap-2.5">
+              <div className="relative">
+                <svg width="38" height="38" viewBox="0 0 38 38">
+                  <circle cx="19" cy="19" r="15" fill="none" stroke="var(--border)" strokeWidth="3" />
+                  <circle
+                    cx="19" cy="19" r="15" fill="none"
+                    stroke={goalPct >= 1 ? "var(--success)" : "rgb(99,102,241)"}
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeDasharray={`${dash} ${CIRC}`}
+                    transform="rotate(-90 19 19)"
+                    style={{ transition: "stroke-dasharray 0.4s cubic-bezier(0.16,1,0.3,1)" }}
+                  />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-[10px] font-bold tabular-nums" style={{ color: "var(--text)" }}>
+                    {todayCalls}
+                  </span>
+                </div>
               </div>
-              <div className="text-center">
-                <p className="text-lg font-semibold text-cockpit-success tabular-nums">
-                  {contacts.filter(c => c.status === "bokat_mote").length}
+              <div>
+                <p className="text-xs font-semibold tabular-nums" style={{ color: "var(--text)" }}>
+                  {todayCalls}<span className="font-normal text-2xs" style={{ color: "var(--text-dim)" }}>/{dailyCallGoal}</span>
                 </p>
-                <p className="text-2xs text-cockpit-text-dim">Möten</p>
-              </div>
-              <div className="text-center">
-                <p className="text-lg font-semibold text-cockpit-text tabular-nums">{total - worked}</p>
-                <p className="text-2xs text-cockpit-text-dim">Kvar</p>
+                <p className="text-2xs" style={{ color: "var(--text-dim)" }}>Idag</p>
               </div>
             </div>
 
-            <div className="w-32">
-              <div className="h-1.5 bg-cockpit-bg-muted rounded-full overflow-hidden">
+            {/* Divider */}
+            <div className="w-px h-6" style={{ background: "var(--border)" }} />
+
+            {/* Session + kvar */}
+            <div className="flex items-center gap-4">
+              <div className="text-center">
+                <p className="text-sm font-semibold tabular-nums" style={{ color: "var(--cockpit-success, #22c55e)" }}>
+                  {contacts.filter((c) => c.status === "bokat_mote").length}
+                </p>
+                <p className="text-2xs" style={{ color: "var(--text-dim)" }}>Möten</p>
+              </div>
+              <div className="text-center">
+                <p className="text-sm font-semibold tabular-nums" style={{ color: "var(--text)" }}>{total - worked}</p>
+                <p className="text-2xs" style={{ color: "var(--text-dim)" }}>Kvar</p>
+              </div>
+            </div>
+
+            {/* List progress bar */}
+            <div className="w-24">
+              <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
                 <motion.div
-                  className="h-full bg-cockpit-success rounded-full"
+                  className="h-full rounded-full"
+                  style={{ background: "var(--success)" }}
                   initial={{ width: 0 }}
                   animate={{ width: `${(worked / total) * 100}%` }}
                   transition={{ duration: 0.3 }}
                 />
               </div>
-              <p className="text-2xs text-cockpit-text-dim text-center mt-1">{Math.round((worked / total) * 100)}% klart</p>
+              <p className="text-2xs text-center mt-0.5" style={{ color: "var(--text-dim)" }}>{Math.round((worked / total) * 100)}% klart</p>
             </div>
           </div>
 

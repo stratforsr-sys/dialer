@@ -1,19 +1,25 @@
 "use client";
 
+import { useState } from "react";
 import {
   Settings, Bell, Palette, Phone, Target,
-  Moon, Sun, Monitor, Save, RotateCcw, Trash2, Download,
-  Zap, Check
+  Moon, Sun, Monitor, Trash2, Download,
+  Zap,
 } from "lucide-react";
-import { useTheme, type Theme } from "@/components/ThemeProvider";
+import { useTheme } from "@/components/ThemeProvider";
+import type { AppSettings } from "@/types";
 
 interface SettingsViewProps {
+  settings: AppSettings;
+  onUpdateSettings: (updates: Partial<AppSettings>) => void;
   onExportData?: () => void;
   onClearData?: () => void;
 }
 
-export function SettingsView({ onExportData, onClearData }: SettingsViewProps) {
+export function SettingsView({ settings, onUpdateSettings, onExportData, onClearData }: SettingsViewProps) {
   const { theme, setTheme } = useTheme();
+  const [callGoalInput, setCallGoalInput] = useState(String(settings.dailyCallGoal));
+  const [meetingGoalInput, setMeetingGoalInput] = useState(String(settings.dailyMeetingGoal));
 
   const handleClearData = () => {
     if (confirm("Är du säker? Detta kommer radera ALLA dina ringlistor och kontakter permanent.")) {
@@ -74,16 +80,68 @@ export function SettingsView({ onExportData, onClearData }: SettingsViewProps) {
           {/* Calling Settings */}
           <SettingsSection
             icon={Phone}
-            title="Samtalsinställningar"
-            description="Justera hur dialern fungerar"
+            title="Dagliga mål"
+            description="Sätt dina dagliga aktivitetsmål"
             delay="100ms"
           >
             <SettingRow
-              label="Dagligt mål"
-              description="Antal samtal du siktar på per dag"
+              label="Samtal per dag"
+              description="Antal samtal du siktar på varje dag"
             >
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-mono tabular-nums" style={{ color: "var(--text)" }}>50</span>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={999}
+                  value={callGoalInput}
+                  onChange={(e) => setCallGoalInput(e.target.value)}
+                  onBlur={() => {
+                    const n = parseInt(callGoalInput, 10);
+                    if (!isNaN(n) && n > 0) {
+                      onUpdateSettings({ dailyCallGoal: n });
+                      setCallGoalInput(String(n));
+                    } else {
+                      setCallGoalInput(String(settings.dailyCallGoal));
+                    }
+                  }}
+                  className="w-20 px-3 py-1.5 rounded-lg text-sm font-mono text-center focus:outline-none"
+                  style={{
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                    color: "var(--text)",
+                  }}
+                />
+                <span className="text-sm" style={{ color: "var(--text-muted)" }}>samtal</span>
+              </div>
+            </SettingRow>
+            <SettingRow
+              label="Möten per dag"
+              description="Antal bokade möten du siktar på varje dag"
+            >
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={99}
+                  value={meetingGoalInput}
+                  onChange={(e) => setMeetingGoalInput(e.target.value)}
+                  onBlur={() => {
+                    const n = parseInt(meetingGoalInput, 10);
+                    if (!isNaN(n) && n > 0) {
+                      onUpdateSettings({ dailyMeetingGoal: n });
+                      setMeetingGoalInput(String(n));
+                    } else {
+                      setMeetingGoalInput(String(settings.dailyMeetingGoal));
+                    }
+                  }}
+                  className="w-20 px-3 py-1.5 rounded-lg text-sm font-mono text-center focus:outline-none"
+                  style={{
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                    color: "var(--text)",
+                  }}
+                />
+                <span className="text-sm" style={{ color: "var(--text-muted)" }}>möten</span>
               </div>
             </SettingRow>
           </SettingsSection>
