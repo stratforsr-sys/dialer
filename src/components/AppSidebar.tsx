@@ -11,12 +11,14 @@ import {
   Settings,
   LogOut,
   Zap,
+  Upload,
 } from "lucide-react";
 
 const NAV = [
   { href: "/leads",    label: "Leads",    icon: Users },
   { href: "/pipeline", label: "Pipeline", icon: LayoutGrid },
   { href: "/cockpit",  label: "Cockpit",  icon: Phone },
+  { href: "/import",   label: "Importera", icon: Upload },
   { href: "/stats",    label: "Statistik",icon: BarChart2 },
   { href: "/settings", label: "Inställningar", icon: Settings },
 ];
