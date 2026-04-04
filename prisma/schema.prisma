@@ -1,0 +1,222 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ==================== USERS ====================
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role     @default(SELLER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  leads        Lead[]         @relation("LeadOwner")
+  activities   Activity[]     @relation("ActivityActor")
+  callSessions CallSession[]
+  meetings     Meeting[]      @relation("MeetingBookedBy")
+}
+
+enum Role {
+  ADMIN
+  SELLER
+}
+
+// ==================== LEADS & CONTACTS ====================
+
+model Lead {
+  id          String   @id @default(cuid())
+  companyName String
+  orgNumber   String?  @unique
+  website     String?
+  address     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  ownerId String
+  owner   User   @relation("LeadOwner", fields: [ownerId], references: [id])
+
+  stageId String
+  stage   PipelineStage @relation(fields: [stageId], references: [id])
+
+  contacts   Contact[]
+  activities Activity[]
+  meetings   Meeting[]
+  deals      Deal[]
+  tags       TagOnLead[]
+}
+
+model Contact {
+  id          String   @id @default(cuid())
+  name        String
+  role        String?
+  directPhone String?
+  switchboard String?
+  email       String?
+  linkedin    String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  activities Activity[]
+}
+
+// ==================== PIPELINE ====================
+
+model PipelineStage {
+  id        String   @id @default(cuid())
+  name      String
+  order     Int
+  color     String   @default("#6B7280")
+  isDefault Boolean  @default(false)
+  isWon     Boolean  @default(false)
+  isLost    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  leads Lead[]
+}
+
+// ==================== DEALS ====================
+
+model Deal {
+  id          String     @id @default(cuid())
+  title       String
+  value       Float?
+  status      DealStatus @default(OPEN)
+  notes       String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  leadId      String
+  lead        Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  createdById String
+}
+
+enum DealStatus {
+  OPEN
+  WON
+  LOST
+}
+
+// ==================== ACTIVITY LOG ====================
+
+model Activity {
+  id        String       @id @default(cuid())
+  type      ActivityType
+  timestamp DateTime     @default(now())
+  metadata  String?      // JSON string: { note, status, from, to, etc. }
+
+  actorId String
+  actor   User   @relation("ActivityActor", fields: [actorId], references: [id])
+
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id])
+
+  @@index([leadId, timestamp])
+  @@index([actorId, timestamp])
+}
+
+enum ActivityType {
+  CALL
+  CALL_NO_ANSWER
+  NOTE
+  STAGE_CHANGE
+  MEETING_BOOKED
+  MEETING_COMPLETED
+  MEETING_NO_SHOW
+  LEAD_CREATED
+  LEAD_ASSIGNED
+  LEAD_IMPORTED
+  CONTACT_ADDED
+  STATUS_CHANGE
+}
+
+// ==================== MEETINGS ====================
+
+model Meeting {
+  id          String         @id @default(cuid())
+  title       String?
+  scheduledAt DateTime
+  outcome     MeetingOutcome @default(PENDING)
+  notes       String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  leadId     String
+  lead       Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  bookedById String
+  bookedBy   User   @relation("MeetingBookedBy", fields: [bookedById], references: [id])
+
+  @@index([scheduledAt])
+  @@index([outcome, scheduledAt])
+}
+
+enum MeetingOutcome {
+  PENDING
+  SHOW
+  NO_SHOW
+  CANCELLED
+  RESCHEDULED
+}
+
+// ==================== CALL SESSIONS (Fluff-tracking) ====================
+
+model CallSession {
+  id         String    @id @default(cuid())
+  startedAt  DateTime  @default(now())
+  endedAt    DateTime?
+  totalCalls Int       @default(0)
+  totalIdle  Int       @default(0)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  events CallEvent[]
+
+  @@index([userId, startedAt])
+}
+
+model CallEvent {
+  id            String    @id @default(cuid())
+  callStartedAt DateTime
+  callEndedAt   DateTime?
+  idleBefore    Int       @default(0)
+
+  sessionId String
+  session   CallSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+}
+
+// ==================== TAGS ====================
+
+model Tag {
+  id    String @id @default(cuid())
+  name  String @unique
+  color String @default("#6B7280")
+
+  leads TagOnLead[]
+}
+
+model TagOnLead {
+  leadId String
+  tagId  String
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([leadId, tagId])
+}

@@ -4,6 +4,14 @@ out/
 .DS_Store
 *.tsbuildinfo
 
-# Environment variables (contains API keys — never commit)
+# Prisma generated client
+/src/generated/prisma
+
+# Env files (contain secrets)
+.env
 .env.local
-.env*.local
+.env.*.local
+
+# Prisma local dev db
+prisma/dev.db
+prisma/dev.db-journal
