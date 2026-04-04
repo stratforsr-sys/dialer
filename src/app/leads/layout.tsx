@@ -1,7 +1,7 @@
 import { requireAuth } from "@/lib/auth";
 import { AppSidebar } from "@/components/AppSidebar";
 
-export default async function AppLayout({
+export default async function LeadsLayout({
   children,
 }: {
   children: React.ReactNode;
