@@ -22,6 +22,7 @@
     "@types/react": "^18.3.18",
     "autoprefixer": "^10.4.21",
     "bcryptjs": "^3.0.3",
+    "dotenv": "^17.4.0",
     "framer-motion": "^12.38.0",
     "lucide-react": "^0.468.0",
     "next": "^14.2.28",
