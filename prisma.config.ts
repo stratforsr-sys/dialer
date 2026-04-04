@@ -7,10 +7,7 @@ export default defineConfig({
   migrations: {
     path: "prisma/migrations",
   },
-  datasource: {
-    url: process.env.TURSO_DATABASE_URL!,
-    authToken: process.env.TURSO_AUTH_TOKEN,
-  },
+  // @ts-expect-error adapter is a valid runtime property but not yet typed in PrismaConfig
   adapter: () =>
     new PrismaLibSql({
       url: process.env.TURSO_DATABASE_URL!,
