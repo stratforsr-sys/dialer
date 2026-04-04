@@ -19,9 +19,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 config({ path: join(__dirname, "../.env.local") });
 
 // ── Change these before running ─────────────────────────────────────────────
-const ADMIN_EMAIL = "admin@example.com";
+const ADMIN_EMAIL = "admin@telink.se";
 const ADMIN_NAME = "Admin";
-const ADMIN_PASSWORD = "change-me-123";
+const ADMIN_PASSWORD = "Familjen123";
 // ────────────────────────────────────────────────────────────────────────────
 
 const client = createClient({
