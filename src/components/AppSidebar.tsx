@@ -12,15 +12,16 @@ import {
   LogOut,
   Zap,
   Upload,
+  ShieldCheck,
 } from "lucide-react";
 
 const NAV = [
-  { href: "/leads",    label: "Leads",    icon: Users },
-  { href: "/pipeline", label: "Pipeline", icon: LayoutGrid },
-  { href: "/cockpit",  label: "Cockpit",  icon: Phone },
-  { href: "/import",   label: "Importera", icon: Upload },
-  { href: "/stats",    label: "Statistik",icon: BarChart2 },
-  { href: "/settings", label: "Inställningar", icon: Settings },
+  { href: "/leads",    label: "Leads",       icon: Users },
+  { href: "/pipeline", label: "Pipeline",    icon: LayoutGrid },
+  { href: "/cockpit",  label: "Cockpit",     icon: Phone },
+  { href: "/import",   label: "Importera",   icon: Upload },
+  { href: "/stats",    label: "Statistik",   icon: BarChart2 },
+  { href: "/admin",    label: "Admin",       icon: ShieldCheck, adminOnly: true },
 ];
 
 export function AppSidebar({
@@ -59,7 +60,7 @@ export function AppSidebar({
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 flex flex-col gap-[2px]">
-        {NAV.map(({ href, label, icon: Icon }) => {
+        {NAV.filter((item) => !("adminOnly" in item) || !item.adminOnly || user.role === "ADMIN").map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(href + "/");
           return (
             <Link
