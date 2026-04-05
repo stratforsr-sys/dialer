@@ -4,24 +4,16 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
-  LayoutGrid,
-  Users,
-  Phone,
-  BarChart2,
-  Settings,
-  LogOut,
-  Zap,
-  Upload,
-  ShieldCheck,
+  Users, LayoutGrid, Phone, Upload, BarChart2, ShieldCheck, LogOut, Zap,
 } from "lucide-react";
 
 const NAV = [
-  { href: "/leads",    label: "Leads",       icon: Users },
-  { href: "/pipeline", label: "Pipeline",    icon: LayoutGrid },
-  { href: "/cockpit",  label: "Cockpit",     icon: Phone },
-  { href: "/import",   label: "Importera",   icon: Upload },
-  { href: "/stats",    label: "Statistik",   icon: BarChart2 },
-  { href: "/admin",    label: "Admin",       icon: ShieldCheck, adminOnly: true },
+  { href: "/leads",    label: "Leads",     icon: Users },
+  { href: "/pipeline", label: "Pipeline",  icon: LayoutGrid },
+  { href: "/cockpit",  label: "Cockpit",   icon: Phone },
+  { href: "/import",   label: "Importera", icon: Upload },
+  { href: "/stats",    label: "Statistik", icon: BarChart2 },
+  { href: "/admin",    label: "Admin",     icon: ShieldCheck, adminOnly: true },
 ];
 
 export function AppSidebar({
@@ -30,103 +22,91 @@ export function AppSidebar({
   user: { id: string; name: string; email: string; role: string };
 }) {
   const pathname = usePathname();
+  const navItems = NAV.filter((n) => !("adminOnly" in n) || !n.adminOnly || user.role === "ADMIN");
 
   return (
     <aside
-      className="flex flex-col w-[220px] shrink-0 h-screen border-r"
-      style={{
-        background: "var(--surface)",
-        borderColor: "var(--border)",
-      }}
+      className="flex flex-col items-center w-[56px] shrink-0 h-screen border-r py-4 gap-1"
+      style={{ background: "var(--surface)", borderColor: "var(--border)" }}
     >
-      {/* Logo */}
-      <div
-        className="flex items-center gap-2 px-5 h-[56px] border-b"
-        style={{ borderColor: "var(--border)" }}
-      >
+      {/* Logo mark */}
+      <div className="mb-4 flex items-center justify-center">
         <div
-          className="w-7 h-7 rounded-[7px] flex items-center justify-center shrink-0"
+          className="w-8 h-8 rounded-[9px] flex items-center justify-center"
           style={{ background: "var(--accent)" }}
         >
-          <Zap size={13} color="white" strokeWidth={2.5} />
+          <Zap size={14} color="var(--bg)" strokeWidth={2.5} />
         </div>
-        <span
-          className="text-[14px] font-semibold tracking-tight"
-          style={{ color: "var(--text)" }}
-        >
-          Sales Hub
-        </span>
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 px-3 py-4 flex flex-col gap-[2px]">
-        {NAV.filter((item) => !("adminOnly" in item) || !item.adminOnly || user.role === "ADMIN").map(({ href, label, icon: Icon }) => {
+      {/* Nav icons */}
+      <nav className="flex flex-col items-center gap-[3px] flex-1">
+        {navItems.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(href + "/");
           return (
             <Link
               key={href}
               href={href}
-              className="flex items-center gap-[10px] px-3 py-[7px] text-[13px] font-medium transition-colors duration-100"
+              title={label}
+              className="relative group flex items-center justify-center w-9 h-9 transition-all duration-150"
               style={{
-                borderRadius: "8px",
-                background: active ? "var(--accent-muted)" : "transparent",
-                color: active ? "var(--accent)" : "var(--text-muted)",
+                borderRadius: "10px",
+                background: active ? "var(--accent)" : "transparent",
+                color: active ? "var(--bg)" : "var(--text-dim)",
               }}
             >
-              <Icon size={15} strokeWidth={active ? 2.5 : 2} />
-              {label}
+              <Icon size={16} strokeWidth={active ? 2.2 : 1.8} />
+
+              {/* Tooltip */}
+              <span
+                className="pointer-events-none absolute left-full ml-3 whitespace-nowrap px-2 py-1 text-[11px] font-medium rounded-[6px] opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-50"
+                style={{
+                  background: "var(--text)",
+                  color: "var(--bg)",
+                  boxShadow: "var(--shadow-md)",
+                }}
+              >
+                {label}
+              </span>
             </Link>
           );
         })}
       </nav>
 
-      {/* User + signout */}
-      <div
-        className="px-3 py-3 border-t"
-        style={{ borderColor: "var(--border)" }}
-      >
+      {/* User avatar + signout */}
+      <div className="flex flex-col items-center gap-[3px] mt-auto">
+        {/* Avatar */}
         <div
-          className="flex items-center gap-[10px] px-3 py-2 rounded-[8px] mb-1"
-          style={{ background: "var(--surface-inset)" }}
+          className="group relative flex items-center justify-center w-9 h-9 rounded-[10px] text-[12px] font-bold"
+          style={{ background: "var(--surface-inset)", color: "var(--text-muted)", border: "1px solid var(--border-strong)" }}
+          title={user.name}
         >
-          <div
-            className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
-            style={{ background: "var(--accent)", color: "white" }}
+          {user.name.charAt(0).toUpperCase()}
+          {/* Tooltip */}
+          <span
+            className="pointer-events-none absolute left-full ml-3 whitespace-nowrap px-2 py-1 text-[11px] font-medium rounded-[6px] opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-50"
+            style={{ background: "var(--text)", color: "var(--bg)", boxShadow: "var(--shadow-md)" }}
           >
-            {user.name.charAt(0).toUpperCase()}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p
-              className="text-[12px] font-medium truncate"
-              style={{ color: "var(--text)" }}
-            >
-              {user.name}
-            </p>
-            <p
-              className="text-[11px] truncate"
-              style={{ color: "var(--text-dim)" }}
-            >
-              {user.role === "ADMIN" ? "Admin" : "Säljare"}
-            </p>
-          </div>
+            {user.name} · {user.role === "ADMIN" ? "Admin" : "Säljare"}
+          </span>
         </div>
 
+        {/* Signout */}
         <button
           onClick={() => signOut({ callbackUrl: "/login" })}
-          className="flex items-center gap-[10px] w-full px-3 py-[7px] text-[13px] transition-colors duration-100"
-          style={{
-            borderRadius: "8px",
-            color: "var(--text-muted)",
-          }}
-          onMouseEnter={(e) =>
-            (e.currentTarget.style.color = "var(--danger)")
-          }
-          onMouseLeave={(e) =>
-            (e.currentTarget.style.color = "var(--text-muted)")
-          }
+          title="Logga ut"
+          className="group relative flex items-center justify-center w-9 h-9 transition-all duration-150"
+          style={{ borderRadius: "10px", color: "var(--text-dim)" }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "var(--danger)"; (e.currentTarget as HTMLButtonElement).style.background = "var(--danger-bg)"; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "var(--text-dim)"; (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
         >
-          <LogOut size={14} />
-          Logga ut
+          <LogOut size={15} strokeWidth={1.8} />
+          <span
+            className="pointer-events-none absolute left-full ml-3 whitespace-nowrap px-2 py-1 text-[11px] font-medium rounded-[6px] opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-50"
+            style={{ background: "var(--text)", color: "var(--bg)", boxShadow: "var(--shadow-md)" }}
+          >
+            Logga ut
+          </span>
         </button>
       </div>
     </aside>
