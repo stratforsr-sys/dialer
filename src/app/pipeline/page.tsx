@@ -1,6 +1,6 @@
 import { requireAuth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { KanbanBoard } from "@/components/pipeline/KanbanBoard";
+import { PipelineView } from "@/components/pipeline/PipelineView";
 
 export default async function PipelinePage() {
   const user = await requireAuth();
@@ -23,5 +23,5 @@ export default async function PipelinePage() {
     }),
   ]);
 
-  return <KanbanBoard initialStages={stages} initialLeads={leads} />;
+  return <PipelineView stages={stages} leads={leads} />;
 }

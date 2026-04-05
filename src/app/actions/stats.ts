@@ -93,6 +93,54 @@ export async function getFluffStats(days = 7) {
   };
 }
 
+export async function getSellerStats(days = 30) {
+  const user = await requireAuth();
+  if (user.role !== "ADMIN") return [];
+
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+
+  const sellers = await db.user.findMany({
+    where: { role: "SELLER" },
+    select: { id: true, name: true },
+  });
+
+  const results = await Promise.all(
+    sellers.map(async (seller) => {
+      const [callCount, meetingCount, sessions] = await Promise.all([
+        db.activity.count({
+          where: { actorId: seller.id, type: { in: ["CALL", "CALL_NO_ANSWER"] }, timestamp: { gte: since } },
+        }),
+        db.activity.count({
+          where: { actorId: seller.id, type: "MEETING_BOOKED", timestamp: { gte: since } },
+        }),
+        db.callSession.findMany({
+          where: { userId: seller.id, startedAt: { gte: since } },
+          select: { totalCalls: true, totalIdle: true },
+        }),
+      ]);
+
+      const totalIdleSecs = sessions.reduce((s, sess) => s + sess.totalIdle, 0);
+      const sessionCalls = sessions.reduce((s, sess) => s + sess.totalCalls, 0);
+      const avgIdlePerCall = sessionCalls > 0 ? Math.round(totalIdleSecs / sessionCalls) : 0;
+      const convRate = callCount > 0 ? ((meetingCount / callCount) * 100).toFixed(1) : "0";
+
+      return {
+        id: seller.id,
+        name: seller.name,
+        calls: callCount,
+        meetings: meetingCount,
+        convRate,
+        avgIdlePerCall,
+        totalIdleMins: Math.round(totalIdleSecs / 60),
+        callsPerDay: Math.round(callCount / Math.max(days, 1)),
+      };
+    })
+  );
+
+  return results.sort((a, b) => b.calls - a.calls);
+}
+
 export async function getPipelineOverview() {
   const user = await requireAuth();
   const ownerFilter = user.role === "SELLER" ? { ownerId: user.id } : {};
