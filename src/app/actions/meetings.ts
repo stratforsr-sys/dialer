@@ -34,25 +34,6 @@ export async function bookMeeting(
     },
   });
 
-  // Move lead to "Möte bokat" stage if it exists
-  const meetingStage = await db.pipelineStage.findFirst({
-    where: { name: { contains: "Möte" } },
-  });
-  if (meetingStage) {
-    const lead = await db.lead.findUnique({ where: { id: leadId }, include: { stage: true } });
-    if (lead && lead.stage.isDefault) {
-      await db.lead.update({ where: { id: leadId }, data: { stageId: meetingStage.id } });
-      await db.activity.create({
-        data: {
-          type: "STAGE_CHANGE",
-          actorId: user.id,
-          leadId,
-          metadata: JSON.stringify({ from: lead.stage.name, to: meetingStage.name }),
-        },
-      });
-    }
-  }
-
   revalidatePath(`/leads/${leadId}`);
   return meeting;
 }

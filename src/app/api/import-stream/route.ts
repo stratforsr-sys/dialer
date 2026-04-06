@@ -39,13 +39,6 @@ export async function POST(req: NextRequest) {
       const enqueue = (data: object) => controller.enqueue(encoder.encode(sse(data)));
 
       try {
-        const defaultStage = await db.pipelineStage.findFirst({ where: { isDefault: true } });
-        if (!defaultStage) {
-          enqueue({ error: "Ingen default pipeline-stadium hittades" });
-          controller.close();
-          return;
-        }
-
         let created = 0;
         let updated = 0;
         let skipped = 0;
@@ -112,7 +105,6 @@ export async function POST(req: NextRequest) {
                     orgNumber,
                     website: row.website?.trim() || null,
                     ownerId: session.user.id,
-                    stageId: defaultStage.id,
                     contacts: row.contactName?.trim() ? {
                       create: {
                         name: row.contactName.trim(),

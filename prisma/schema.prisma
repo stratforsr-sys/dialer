@@ -22,6 +22,7 @@ model User {
   activities   Activity[]     @relation("ActivityActor")
   callSessions CallSession[]
   meetings     Meeting[]      @relation("MeetingBookedBy")
+  dealsCreated Deal[]         @relation("DealCreatedBy")
 }
 
 enum Role {
@@ -32,19 +33,17 @@ enum Role {
 // ==================== LEADS & CONTACTS ====================
 
 model Lead {
-  id          String   @id @default(cuid())
-  companyName String
-  orgNumber   String?  @unique
-  website     String?
-  address     String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String   @id @default(cuid())
+  companyName   String
+  orgNumber     String?  @unique
+  website       String?
+  address       String?
+  hasActiveDeal Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   ownerId String
   owner   User   @relation("LeadOwner", fields: [ownerId], references: [id])
-
-  stageId String
-  stage   PipelineStage @relation(fields: [stageId], references: [id])
 
   contacts   Contact[]
   activities Activity[]
@@ -83,29 +82,75 @@ model PipelineStage {
   isLost    Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  leads Lead[]
+  deals Deal[]
 }
 
 // ==================== DEALS ====================
 
 model Deal {
-  id          String     @id @default(cuid())
-  title       String
-  value       Float?
-  status      DealStatus @default(OPEN)
-  notes       String?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id              String     @id @default(cuid())
+  title           String
+  valueType       ValueType  @default(ONE_TIME)
+  oneTimeValue    Float?
+  arrValue        Float?
+  probability     Int        @default(20)
+  expectedCloseAt DateTime?
+  notes           String?
+  status          DealStatus @default(OPEN)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  stageId     String
+  stage       PipelineStage @relation(fields: [stageId], references: [id])
 
   leadId      String
-  lead        Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  lead        Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
   createdById String
+  createdBy   User          @relation("DealCreatedBy", fields: [createdById], references: [id])
+
+  products    DealProduct[]
 }
 
 enum DealStatus {
   OPEN
   WON
   LOST
+}
+
+enum ValueType {
+  ONE_TIME
+  ARR
+}
+
+// ==================== PRODUCTS ====================
+
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  basePrice   Float?
+  isRecurring Boolean  @default(false)
+  unit        String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  dealProducts DealProduct[]
+}
+
+model DealProduct {
+  id          String   @id @default(cuid())
+  name        String
+  price       Float?
+  quantity    Int      @default(1)
+  isRecurring Boolean  @default(false)
+  unit        String?
+
+  dealId    String
+  deal      Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
 }
 
 // ==================== ACTIVITY LOG ====================
@@ -142,6 +187,10 @@ enum ActivityType {
   LEAD_IMPORTED
   CONTACT_ADDED
   STATUS_CHANGE
+  DEAL_CREATED
+  DEAL_STAGE_CHANGE
+  DEAL_WON
+  DEAL_LOST
 }
 
 // ==================== MEETINGS ====================

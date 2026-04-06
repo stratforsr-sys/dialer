@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import {
   DndContext,
   DragOverlay,
@@ -12,9 +11,7 @@ import {
   type DragEndEvent,
   type DragOverEvent,
 } from "@dnd-kit/core";
-import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Users } from "lucide-react";
-import { moveLeadToStage } from "@/app/actions/pipeline";
+import { moveDealToStage } from "@/app/actions/deals";
 import { KanbanColumn } from "./KanbanColumn";
 import { LeadCard } from "./LeadCard";
 
@@ -45,7 +42,6 @@ export function KanbanBoard({
   initialStages: Stage[];
   initialLeads: Lead[];
 }) {
-  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [leads, setLeads] = useState<Lead[]>(initialLeads);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -90,71 +86,39 @@ export function KanbanBoard({
     const overStage = initialStages.find((s) => s.id === overId);
     if (!lead || !overStage || lead.stageId === overId) return;
 
-    startTransition(() => moveLeadToStage(leadId, overId));
+    startTransition(() => moveDealToStage(leadId, overId));
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div
-        className="flex items-center justify-between px-6 h-[56px] border-b shrink-0"
-        style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+    <div className="h-full overflow-x-auto overflow-y-hidden">
+      <DndContext
+        sensors={sensors}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
       >
-        <div className="flex items-center gap-3">
-          <h1 className="text-[15px] font-semibold" style={{ color: "var(--text)" }}>
-            Pipeline
-          </h1>
-          <span
-            className="text-[12px] px-2 py-[2px] rounded-full font-medium"
-            style={{ background: "var(--accent-muted)", color: "var(--accent)" }}
-          >
-            {leads.length} leads
-          </span>
+        <div className="flex gap-3 p-4 h-full min-w-max">
+          {initialStages.map((stage) => {
+            const stageLeads = leads.filter((l) => l.stageId === stage.id);
+            return (
+              <KanbanColumn
+                key={stage.id}
+                stage={stage}
+                leads={stageLeads}
+                isDragging={!!activeId}
+              />
+            );
+          })}
         </div>
-        <button
-          onClick={() => router.push("/leads")}
-          className="text-[13px] px-3 py-[6px] rounded-[8px] transition-colors"
-          style={{
-            background: "var(--surface-inset)",
-            border: "1px solid var(--border)",
-            color: "var(--text-muted)",
-          }}
-        >
-          Listvy
-        </button>
-      </div>
 
-      {/* Board */}
-      <div className="flex-1 overflow-x-auto overflow-y-hidden">
-        <DndContext
-          sensors={sensors}
-          onDragStart={handleDragStart}
-          onDragOver={handleDragOver}
-          onDragEnd={handleDragEnd}
-        >
-          <div className="flex gap-3 p-4 h-full min-w-max">
-            {initialStages.map((stage) => {
-              const stageLeads = leads.filter((l) => l.stageId === stage.id);
-              return (
-                <KanbanColumn
-                  key={stage.id}
-                  stage={stage}
-                  leads={stageLeads}
-                  isDragging={!!activeId}
-                />
-              );
-            })}
-          </div>
-
-          <DragOverlay>
-            {activeLead && (
-              <div style={{ transform: "rotate(2deg)", opacity: 0.95 }}>
-                <LeadCard lead={activeLead} isDragging />
-              </div>
-            )}
-          </DragOverlay>
-        </DndContext>
-      </div>
+        <DragOverlay>
+          {activeLead && (
+            <div style={{ transform: "rotate(2deg)", opacity: 0.95 }}>
+              <LeadCard lead={activeLead} isDragging />
+            </div>
+          )}
+        </DragOverlay>
+      </DndContext>
     </div>
   );
 }

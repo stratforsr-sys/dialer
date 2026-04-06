@@ -51,8 +51,8 @@ export async function getConversionRates() {
   const [totalCalls, totalMeetings, totalWon, totalLost] = await Promise.all([
     db.activity.count({ where: { ...actorFilter, type: { in: ["CALL", "CALL_NO_ANSWER"] } } }),
     db.activity.count({ where: { ...actorFilter, type: "MEETING_BOOKED" } }),
-    db.lead.count({ where: { ...(user.role === "SELLER" ? { ownerId: user.id } : {}), stage: { isWon: true } } }),
-    db.lead.count({ where: { ...(user.role === "SELLER" ? { ownerId: user.id } : {}), stage: { isLost: true } } }),
+    db.deal.count({ where: { ...(user.role === "SELLER" ? { lead: { ownerId: user.id } } : {}), status: "WON" } }),
+    db.deal.count({ where: { ...(user.role === "SELLER" ? { lead: { ownerId: user.id } } : {}), status: "LOST" } }),
   ]);
 
   return {
@@ -145,15 +145,15 @@ export async function getPipelineOverview() {
   const user = await requireAuth();
   const ownerFilter = user.role === "SELLER" ? { ownerId: user.id } : {};
 
+  const dealOwnerFilter = user.role === "SELLER" ? { lead: { ownerId: user.id } } : {};
+
   const stages = await db.pipelineStage.findMany({
     orderBy: { order: "asc" },
     include: {
-      _count: { select: { leads: true } },
-      leads: {
-        where: ownerFilter,
-        select: {
-          deals: { where: { status: "WON" }, select: { value: true } },
-        },
+      _count: { select: { deals: true } },
+      deals: {
+        where: { status: "OPEN", ...dealOwnerFilter },
+        select: { oneTimeValue: true, arrValue: true, valueType: true, probability: true },
       },
     },
   });
@@ -162,10 +162,10 @@ export async function getPipelineOverview() {
     id: s.id,
     name: s.name,
     color: s.color,
-    leadCount: s._count.leads,
-    totalValue: s.leads.reduce(
-      (sum, l) => sum + l.deals.reduce((ds, d) => ds + (d.value ?? 0), 0),
-      0
-    ),
+    leadCount: s._count.deals,
+    totalValue: s.deals.reduce((sum, d) => {
+      const v = d.valueType === "ARR" ? (d.arrValue ?? 0) : (d.oneTimeValue ?? 0);
+      return sum + v * (d.probability / 100);
+    }, 0),
   }));
 }

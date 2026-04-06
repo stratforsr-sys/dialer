@@ -5,17 +5,15 @@ import { CockpitDb } from "@/components/CockpitDb";
 export default async function CockpitPage() {
   const user = await requireAuth();
 
-  // Load leads that have contacts, owned by this seller (or all for admin)
   const leads = await db.lead.findMany({
     where: {
       ...(user.role === "SELLER" ? { ownerId: user.id } : {}),
       contacts: { some: {} },
-      stage: { isLost: false, isWon: false },
+      hasActiveDeal: false, // leads with active deals live in pipeline now
     },
     orderBy: { updatedAt: "asc" },
     include: {
       contacts: { orderBy: { createdAt: "asc" } },
-      stage: { select: { id: true, name: true, color: true } },
       activities: {
         where: { type: { in: ["CALL", "CALL_NO_ANSWER"] } },
         orderBy: { timestamp: "desc" },
@@ -25,5 +23,8 @@ export default async function CockpitPage() {
     },
   });
 
-  return <CockpitDb leads={leads} userId={user.id} />;
+  // Fetch pipeline stages for the CreateDeal modal
+  const stages = await db.pipelineStage.findMany({ orderBy: { order: "asc" } });
+
+  return <CockpitDb leads={leads} userId={user.id} stages={stages} />;
 }

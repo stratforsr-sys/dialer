@@ -3,25 +3,27 @@ import { db } from "@/lib/db";
 import { PipelineView } from "@/components/pipeline/PipelineView";
 
 export default async function PipelinePage() {
-  const user = await requireAuth();
+  await requireAuth();
 
-  const [stages, leads] = await Promise.all([
+  const [stages, deals] = await Promise.all([
     db.pipelineStage.findMany({ orderBy: { order: "asc" } }),
-    db.lead.findMany({
-      where: user.role === "SELLER" ? { ownerId: user.id } : {},
+    db.deal.findMany({
+      where: { status: "OPEN" },
       orderBy: { updatedAt: "desc" },
       include: {
         stage: true,
-        owner: { select: { id: true, name: true } },
-        _count: { select: { contacts: true } },
-        activities: {
-          orderBy: { timestamp: "desc" },
-          take: 1,
-          select: { type: true, timestamp: true },
+        lead: {
+          select: {
+            id: true,
+            companyName: true,
+            website: true,
+            owner: { select: { id: true, name: true } },
+          },
         },
+        products: { select: { id: true, name: true } },
       },
     }),
   ]);
 
-  return <PipelineView stages={stages} leads={leads} />;
+  return <PipelineView stages={stages} deals={deals} />;
 }

@@ -26,11 +26,6 @@ export type ImportResult = {
 export async function importLeads(rows: ImportRow[]): Promise<ImportResult> {
   const user = await requireAuth();
 
-  const defaultStage = await db.pipelineStage.findFirst({
-    where: { isDefault: true },
-  });
-  if (!defaultStage) throw new Error("No default pipeline stage found");
-
   const result: ImportResult = { created: 0, updated: 0, skipped: 0, errors: [] };
 
   for (const row of rows) {
@@ -102,7 +97,6 @@ export async function importLeads(rows: ImportRow[]): Promise<ImportResult> {
             orgNumber,
             website: row.website?.trim() || null,
             ownerId: user.id,
-            stageId: defaultStage.id,
             contacts: row.contactName?.trim()
               ? {
                   create: {

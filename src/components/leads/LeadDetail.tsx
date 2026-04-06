@@ -4,13 +4,12 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowLeft, Globe, Phone, Mail, Linkedin, ChevronDown,
+  ArrowLeft, Globe, Phone, Mail, Linkedin,
   Plus, Send, Edit2, Trash2, Building2, Users,
 } from "lucide-react";
 import type { LeadDetail as LeadDetailType } from "@/app/actions/leads";
 import { updateLead, reassignLead } from "@/app/actions/leads";
 import { createNote } from "@/app/actions/activities";
-import { moveLeadToStage } from "@/app/actions/pipeline";
 import { createContact } from "@/app/actions/contacts";
 
 type Stage = { id: string; name: string; color: string };
@@ -41,19 +40,13 @@ function formatDate(d: Date | string) {
 
 export function LeadDetail({
   lead,
-  stages,
 }: {
   lead: NonNullable<LeadDetailType>;
-  stages: Stage[];
 }) {
   const [isPending, startTransition] = useTransition();
   const [note, setNote] = useState("");
   const [showAddContact, setShowAddContact] = useState(false);
   const [newContact, setNewContact] = useState({ name: "", role: "", directPhone: "", email: "" });
-
-  function handleStageChange(stageId: string) {
-    startTransition(() => moveLeadToStage(lead.id, stageId));
-  }
 
   function handleNoteSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -92,32 +85,7 @@ export function LeadDetail({
           {lead.companyName}
         </span>
 
-        <div className="ml-auto flex items-center gap-2">
-          {/* Stage selector */}
-          <div className="relative">
-            <select
-              value={lead.stageId}
-              onChange={(e) => handleStageChange(e.target.value)}
-              disabled={isPending}
-              className="appearance-none pl-3 pr-8 py-[5px] text-[12px] font-medium outline-none cursor-pointer"
-              style={{
-                background: lead.stage.color + "18",
-                border: `1px solid ${lead.stage.color}40`,
-                borderRadius: "8px",
-                color: lead.stage.color,
-              }}
-            >
-              {stages.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
-            <ChevronDown
-              size={11}
-              className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"
-              style={{ color: lead.stage.color }}
-            />
-          </div>
-        </div>
+        <div className="ml-auto" />
       </div>
 
       {/* Main content */}
@@ -282,9 +250,10 @@ export function LeadDetail({
                     style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
                     <div>
                       <p className="text-[13px] font-medium" style={{ color: "var(--text)" }}>{d.title}</p>
-                      {d.value && (
+                      {(d.oneTimeValue || d.arrValue) && (
                         <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>
-                          {d.value.toLocaleString("sv-SE")} kr
+                          {(d.oneTimeValue ?? d.arrValue ?? 0).toLocaleString("sv-SE")} kr
+                          {d.valueType === "ARR" ? " /år" : ""}
                         </p>
                       )}
                     </div>
