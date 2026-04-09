@@ -146,9 +146,10 @@ function Section({
 interface ResearchPanelProps {
   contact: Contact;
   onClose?: () => void;
+  className?: string;
 }
 
-export function ResearchPanel({ contact, onClose }: ResearchPanelProps) {
+export function ResearchPanel({ contact, onClose, className }: ResearchPanelProps) {
   const { job, loading, error, startResearch, reset, progressiveMode } = useResearch();
 
   // Auto-start when contact changes
@@ -174,7 +175,7 @@ export function ResearchPanel({ contact, onClose }: ResearchPanelProps) {
   };
 
   return (
-    <div className="flex flex-col h-full bg-white border-l border-zinc-200 w-80 shrink-0">
+    <div className={`flex flex-col h-full bg-white border-l border-zinc-200 ${className ?? "w-80 shrink-0"}`}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200">
         <div className="flex items-center gap-2">

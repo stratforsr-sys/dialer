@@ -5,12 +5,13 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, Globe, Phone, Mail, Linkedin,
-  Plus, Send, Edit2, Trash2, Building2, Users,
+  Plus, Send, Edit2, Trash2, Building2, Users, Bell,
 } from "lucide-react";
 import type { LeadDetail as LeadDetailType } from "@/app/actions/leads";
 import { updateLead, reassignLead } from "@/app/actions/leads";
 import { createNote } from "@/app/actions/activities";
 import { createContact } from "@/app/actions/contacts";
+import { SetCallbackModal } from "@/components/callbacks/SetCallbackModal";
 
 type Stage = { id: string; name: string; color: string };
 
@@ -27,6 +28,8 @@ const ACTIVITY_ICONS: Record<string, string> = {
   LEAD_IMPORTED: "📥",
   CONTACT_ADDED: "👥",
   STATUS_CHANGE: "🔁",
+  CALLBACK_SET: "🔔",
+  CALLBACK_COMPLETED: "🔕",
 };
 
 function formatDate(d: Date | string) {
@@ -47,6 +50,7 @@ export function LeadDetail({
   const [note, setNote] = useState("");
   const [showAddContact, setShowAddContact] = useState(false);
   const [newContact, setNewContact] = useState({ name: "", role: "", directPhone: "", email: "" });
+  const [showCallbackModal, setShowCallbackModal] = useState(false);
 
   function handleNoteSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -86,7 +90,25 @@ export function LeadDetail({
         </span>
 
         <div className="ml-auto" />
+
+        {/* Callback button */}
+        <button
+          onClick={() => setShowCallbackModal(true)}
+          className="flex items-center gap-1 text-[12px] font-medium px-3 py-[5px] rounded-[7px] transition-colors"
+          style={{ background: "var(--surface-inset)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
+        >
+          <Bell size={12} />
+          Återkomst
+        </button>
       </div>
+
+      {showCallbackModal && (
+        <SetCallbackModal
+          leadId={lead.id}
+          companyName={lead.companyName}
+          onClose={() => setShowCallbackModal(false)}
+        />
+      )}
 
       {/* Main content */}
       <div className="flex-1 overflow-hidden flex">
@@ -358,6 +380,8 @@ export function LeadDetail({
                           {a.type === "MEETING_BOOKED" && "Möte bokat"}
                           {a.type === "MEETING_COMPLETED" && "Show ✓"}
                           {a.type === "MEETING_NO_SHOW" && "No-show"}
+                          {a.type === "CALLBACK_SET" && `Återkomst satt: ${meta.scheduledAt ? new Date(meta.scheduledAt).toLocaleString("sv-SE", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}${meta.notes ? ` — ${meta.notes}` : ""}`}
+                          {a.type === "CALLBACK_COMPLETED" && "Återkomst avklarad"}
                         </p>
                       </div>
                     </motion.div>

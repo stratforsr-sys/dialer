@@ -1,8 +1,7 @@
 import { requireAuth } from "@/lib/auth";
 import { AppSidebar } from "@/components/AppSidebar";
-import { CallbackToastManager } from "@/components/callbacks/CallbackToastManager";
 
-export default async function LeadsLayout({
+export default async function ResearchLayout({
   children,
 }: {
   children: React.ReactNode;
@@ -12,10 +11,9 @@ export default async function LeadsLayout({
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: "var(--bg)" }}>
       <AppSidebar user={user} />
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-hidden">
         {children}
       </main>
-      <CallbackToastManager />
     </div>
   );
 }

@@ -4,17 +4,18 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
-  Users, LayoutGrid, Phone, Upload, BarChart2, ShieldCheck, LogOut, Zap, Search,
+  Users, LayoutGrid, Phone, Upload, BarChart2, ShieldCheck, LogOut, Zap, Search, Bell,
 } from "lucide-react";
+import { CallbackBell } from "@/components/callbacks/CallbackBell";
 
 const NAV = [
-  { href: "/leads",    label: "Leads",     icon: Users },
-  { href: "/pipeline", label: "Pipeline",  icon: LayoutGrid },
-  { href: "/cockpit",  label: "Cockpit",   icon: Phone },
-  { href: "/research", label: "Research",  icon: Search },
-  { href: "/import",   label: "Importera", icon: Upload },
-  { href: "/stats",    label: "Statistik", icon: BarChart2 },
-  { href: "/admin",    label: "Admin",     icon: ShieldCheck, adminOnly: true },
+  { href: "/leads",     label: "Leads",        icon: Users },
+  { href: "/pipeline",  label: "Pipeline",     icon: LayoutGrid },
+  { href: "/cockpit",   label: "Cockpit",      icon: Phone },
+  { href: "/research",  label: "Research",     icon: Search },
+  { href: "/import",    label: "Importera",    icon: Upload },
+  { href: "/stats",     label: "Statistik",    icon: BarChart2 },
+  { href: "/admin",     label: "Admin",        icon: ShieldCheck, adminOnly: true },
 ];
 
 export function AppSidebar({
@@ -73,6 +74,9 @@ export function AppSidebar({
           );
         })}
       </nav>
+
+      {/* Callbacks bell */}
+      <CallbackBell />
 
       {/* User avatar + signout */}
       <div className="flex flex-col items-center gap-[3px] mt-auto">

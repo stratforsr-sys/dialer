@@ -23,6 +23,7 @@ model User {
   callSessions CallSession[]
   meetings     Meeting[]      @relation("MeetingBookedBy")
   dealsCreated Deal[]         @relation("DealCreatedBy")
+  callbacks    Callback[]
 }
 
 enum Role {
@@ -50,6 +51,7 @@ model Lead {
   meetings   Meeting[]
   deals      Deal[]
   tags       TagOnLead[]
+  callbacks  Callback[]
 }
 
 model Contact {
@@ -191,6 +193,8 @@ enum ActivityType {
   DEAL_STAGE_CHANGE
   DEAL_WON
   DEAL_LOST
+  CALLBACK_SET
+  CALLBACK_COMPLETED
 }
 
 // ==================== MEETINGS ====================
@@ -268,4 +272,23 @@ model TagOnLead {
   tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@id([leadId, tagId])
+}
+
+// ==================== CALLBACKS (Återkomst) ====================
+
+model Callback {
+  id          String    @id @default(cuid())
+  scheduledAt DateTime
+  notes       String?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([scheduledAt])
+  @@index([userId, scheduledAt])
 }
