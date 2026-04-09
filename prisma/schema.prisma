@@ -5,6 +5,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
+  // Database migrated to support Deal pipeline (Apr 2026)
 }
 
 // ==================== USERS ====================
