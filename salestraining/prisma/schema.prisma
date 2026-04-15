@@ -1,0 +1,299 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  pin       String
+  createdAt DateTime @default(now())
+
+  modules          Module[]
+  practiceSessions PracticeSession[]
+  realMeetings     RealMeetingAnalysis[]
+  reflections      ReflectionEntry[]
+  achievements     Achievement[]
+  dailyStreaks     DailyStreak[]
+  settings         UserSettings?
+}
+
+model UserSettings {
+  id                  String @id @default(cuid())
+  userId              String @unique
+  user                User   @relation(fields: [userId], references: [id])
+  repetitionFrequency String @default("daily")
+  customSchedule      String?
+  dailyGoalMinutes    Int    @default(60)
+  preferredTime       String @default("18:00")
+}
+
+model Module {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  name        String
+  description String?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rawNotes   RawNote[]
+  techniques Technique[]
+}
+
+model RawNote {
+  id        String   @id @default(cuid())
+  moduleId  String
+  module    Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  content   String
+  source    String?
+  createdAt DateTime @default(now())
+}
+
+model Technique {
+  id          String @id @default(cuid())
+  moduleId    String
+  module      Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  name        String
+  description String
+  whenToUse   String
+  howToUse    String
+  difficulty  String @default("medium")
+  order       Int    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  ifThenPatterns IfThenPattern[]
+  skillProgress  SkillProgress?
+  repetitionCard RepetitionCard?
+  exerciseAttempts ExerciseAttempt[]
+}
+
+model IfThenPattern {
+  id          String @id @default(cuid())
+  techniqueId String
+  technique   Technique @relation(fields: [techniqueId], references: [id], onDelete: Cascade)
+  trigger     String
+  response    String
+  context     String?
+  createdAt   DateTime @default(now())
+}
+
+model SkillProgress {
+  id          String @id @default(cuid())
+  techniqueId String @unique
+  technique   Technique @relation(fields: [techniqueId], references: [id], onDelete: Cascade)
+
+  level       String @default("beginner")
+  totalReps   Int    @default(0)
+  avgScore    Float  @default(0)
+  bestScore   Float  @default(0)
+  lastScore   Float  @default(0)
+  consecutiveHighScores Int @default(0)
+  totalXp     Int    @default(0)
+
+  lastPracticedAt DateTime?
+  updatedAt       DateTime @updatedAt
+}
+
+model RepetitionCard {
+  id          String @id @default(cuid())
+  techniqueId String @unique
+  technique   Technique @relation(fields: [techniqueId], references: [id], onDelete: Cascade)
+
+  interval      Int      @default(1)
+  easeFactor    Float    @default(2.5)
+  repetitions   Int      @default(0)
+  nextReviewAt  DateTime @default(now())
+  lastReviewedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Persona {
+  id              String @id @default(cuid())
+  name            String
+  title           String
+  company         String
+  industry        String
+  companySize     String
+  personality     String
+  currentSolution String?
+  painPoints      String?
+  objections      String?
+  avatarUrl       String?
+  isDefault       Boolean @default(true)
+  createdAt       DateTime @default(now())
+
+  roleplaySessions RoleplaySession[]
+}
+
+model PracticeSession {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  date      DateTime @default(now())
+  duration  Int      @default(0)
+  totalXp   Int      @default(0)
+  sessionType String @default("mixed")
+
+  exercises  ExerciseAttempt[]
+  roleplay   RoleplaySession?
+  reflection ReflectionEntry?
+}
+
+model ExerciseAttempt {
+  id        String @id @default(cuid())
+  sessionId String
+  session   PracticeSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  techniqueId String
+  technique   Technique @relation(fields: [techniqueId], references: [id])
+
+  exerciseType String
+  difficulty   String
+  prompt       String
+  userResponse String
+  aiEvaluation String
+  score        Int
+  xpEarned     Int    @default(0)
+  createdAt    DateTime @default(now())
+}
+
+model RoleplaySession {
+  id        String @id @default(cuid())
+  sessionId String @unique
+  session   PracticeSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  personaId String
+  persona   Persona @relation(fields: [personaId], references: [id])
+
+  meetingType   String
+  difficulty    String
+  focusTechnique String?
+  transcript    String
+  duration      Int    @default(0)
+
+  scorecard     Scorecard?
+  feedbackItems TimestampedFeedback[]
+}
+
+model Scorecard {
+  id               String @id @default(cuid())
+  roleplayId       String @unique
+  roleplay         RoleplaySession @relation(fields: [roleplayId], references: [id], onDelete: Cascade)
+
+  rightTechniqueScore  Int @default(0)
+  frameworkCoverage     Int @default(0)
+  objectionHandling    Int @default(0)
+  meetingStructure     Int @default(0)
+  naturalFormulation   Int @default(0)
+  totalScore           Int @default(0)
+
+  detailedFeedback String
+  createdAt        DateTime @default(now())
+}
+
+model TimestampedFeedback {
+  id         String @id @default(cuid())
+  roleplayId String
+  roleplay   RoleplaySession @relation(fields: [roleplayId], references: [id], onDelete: Cascade)
+
+  timestamp    Int
+  type         String
+  buyerSaid    String
+  userSaid     String
+  techniqueName String
+  idealResponse String
+  explanation   String
+}
+
+model RealMeetingAnalysis {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  date        DateTime @default(now())
+  meetingType String
+  transcript  String
+  summary     String?
+
+  talkRatio       Float?
+  questionsAsked  Int?
+  longestMonologue Int?
+  techniqueHits   String?
+  techniqueMisses String?
+
+  feedbackItems   MeetingFeedbackItem[]
+  generatedExercises GeneratedExercise[]
+  reflection      ReflectionEntry?
+}
+
+model MeetingFeedbackItem {
+  id        String @id @default(cuid())
+  meetingId String
+  meeting   RealMeetingAnalysis @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  timestamp     String
+  type          String
+  techniqueName String
+  whatHappened   String
+  suggestion    String?
+  quote         String?
+}
+
+model GeneratedExercise {
+  id        String @id @default(cuid())
+  meetingId String
+  meeting   RealMeetingAnalysis @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  exerciseType String
+  prompt       String
+  techniqueName String
+  completed    Boolean @default(false)
+  createdAt    DateTime @default(now())
+}
+
+model ReflectionEntry {
+  id        String @id @default(cuid())
+  userId    String
+  user      User   @relation(fields: [userId], references: [id])
+
+  sessionId String? @unique
+  session   PracticeSession? @relation(fields: [sessionId], references: [id])
+  meetingId String? @unique
+  meeting   RealMeetingAnalysis? @relation(fields: [meetingId], references: [id])
+
+  question1 String
+  question2 String
+  question3 String
+  question4 String
+  question5 String
+
+  createdAt DateTime @default(now())
+}
+
+model Achievement {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  name      String
+  description String
+  icon      String   @default("trophy")
+  unlockedAt DateTime @default(now())
+}
+
+model DailyStreak {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  date      DateTime
+  xpEarned  Int      @default(0)
+  minutesSpent Int   @default(0)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, date])
+}
