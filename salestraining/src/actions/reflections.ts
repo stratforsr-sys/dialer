@@ -3,16 +3,19 @@
 import { prisma } from "@/lib/prisma";
 import { getXpReward } from "@/lib/spaced-repetition";
 
+// ============================================================
+// SUBMIT REFLECTION
+// ============================================================
 export async function submitReflection(
   userId: string,
   data: {
     sessionId?: string;
     meetingId?: string;
-    question1: string;
-    question2: string;
-    question3: string;
-    question4: string;
-    question5: string;
+    question1: string; // Vilken teknik anvande du medvetet?
+    question2: string; // Beskriv svaraste ogonblicket
+    question3: string; // Vilken teknik borde du ha anvant?
+    question4: string; // Vilka 3 delar kan du forbattra?
+    question5: string; // OM [situation], DA gor jag [handling]
   }
 ) {
   const reflection = await prisma.reflectionEntry.create({
@@ -28,7 +31,9 @@ export async function submitReflection(
     },
   });
 
+  // XP for reflection
   const xp = getXpReward("reflection");
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -41,6 +46,9 @@ export async function submitReflection(
   return { reflectionId: reflection.id, xpEarned: xp };
 }
 
+// ============================================================
+// GET REFLECTIONS
+// ============================================================
 export async function getUserReflections(userId: string, limit = 20) {
   return prisma.reflectionEntry.findMany({
     where: { userId },
