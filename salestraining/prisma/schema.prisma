@@ -1,0 +1,331 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ============================================================
+// USER
+// ============================================================
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  pin       String // Simple PIN auth for v1
+  createdAt DateTime @default(now())
+
+  modules          Module[]
+  practiceSessions PracticeSession[]
+  realMeetings     RealMeetingAnalysis[]
+  reflections      ReflectionEntry[]
+  achievements     Achievement[]
+  dailyStreaks     DailyStreak[]
+  settings         UserSettings?
+}
+
+model UserSettings {
+  id                  String @id @default(cuid())
+  userId              String @unique
+  user                User   @relation(fields: [userId], references: [id])
+  repetitionFrequency String @default("daily") // daily | everyOtherDay | custom
+  customSchedule      String? // JSON: ["mon","wed","fri"]
+  dailyGoalMinutes    Int    @default(60)
+  preferredTime       String @default("18:00")
+}
+
+// ============================================================
+// KNOWLEDGE BASE — Modules & Techniques
+// ============================================================
+model Module {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  name        String // e.g. "Behovsanalys", "Forhandlingsteknik"
+  description String?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rawNotes   RawNote[]
+  techniques Technique[]
+}
+
+model RawNote {
+  id        String   @id @default(cuid())
+  moduleId  String
+  module    Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  content   String // The original notes in markdown/bullet format
+  source    String? // e.g. "Lion Academy - Video 3"
+  createdAt DateTime @default(now())
+}
+
+model Technique {
+  id          String @id @default(cuid())
+  moduleId    String
+  module      Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  name        String // e.g. "Proaktiv invandningshantering"
+  description String // What the technique is about
+  whenToUse   String // Trigger: when should this be used?
+  howToUse    String // Step-by-step or key phrases
+  difficulty  String @default("medium") // easy | medium | hard
+  order       Int    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  ifThenPatterns IfThenPattern[]
+  skillProgress  SkillProgress?
+  repetitionCard RepetitionCard?
+  exerciseAttempts ExerciseAttempt[]
+}
+
+model IfThenPattern {
+  id          String @id @default(cuid())
+  techniqueId String
+  technique   Technique @relation(fields: [techniqueId], references: [id], onDelete: Cascade)
+  trigger     String // "OM kunden sager 'vi ar nojda med var nuvarande losning'"
+  response    String // "DA sager jag: 'Jag forstar! Beratta, vad fungerar bra...'"
+  context     String? // Optional: which meeting phase this belongs to
+  createdAt   DateTime @default(now())
+}
+
+// ============================================================
+// SKILL PROGRESSION — Quality-based leveling
+// ============================================================
+model SkillProgress {
+  id          String @id @default(cuid())
+  techniqueId String @unique
+  technique   Technique @relation(fields: [techniqueId], references: [id], onDelete: Cascade)
+
+  level       String @default("beginner") // beginner | advanced | competent | skilled | expert
+  totalReps   Int    @default(0)
+  avgScore    Float  @default(0)
+  bestScore   Float  @default(0)
+  lastScore   Float  @default(0)
+  consecutiveHighScores Int @default(0) // Track consecutive high scores for level-up
+  totalXp     Int    @default(0)
+
+  lastPracticedAt DateTime?
+  updatedAt       DateTime @updatedAt
+}
+
+// ============================================================
+// SPACED REPETITION
+// ============================================================
+model RepetitionCard {
+  id          String @id @default(cuid())
+  techniqueId String @unique
+  technique   Technique @relation(fields: [techniqueId], references: [id], onDelete: Cascade)
+
+  // SM-2 algorithm fields
+  interval      Int      @default(1) // Days until next review
+  easeFactor    Float    @default(2.5)
+  repetitions   Int      @default(0)
+  nextReviewAt  DateTime @default(now())
+  lastReviewedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================================
+// PERSONAS — Roleplay buyer profiles
+// ============================================================
+model Persona {
+  id              String @id @default(cuid())
+  name            String // "Anna Lindstrom"
+  title           String // "IT-chef"
+  company         String // "TechNord AB"
+  industry        String // "SaaS / Tech"
+  companySize     String // "200 anstallda"
+  personality     String // Description of behavior style
+  currentSolution String? // What they currently use
+  painPoints      String? // JSON array of pain points
+  objections      String? // JSON array of typical objections
+  avatarUrl       String? // Path to avatar image
+  isDefault       Boolean @default(true)
+  createdAt       DateTime @default(now())
+
+  roleplaySessions RoleplaySession[]
+}
+
+// ============================================================
+// PRACTICE SESSIONS
+// ============================================================
+model PracticeSession {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  date      DateTime @default(now())
+  duration  Int      @default(0) // Duration in seconds
+  totalXp   Int      @default(0)
+  sessionType String @default("mixed") // mixed | scenario | roleplay | recall | simulation
+
+  exercises  ExerciseAttempt[]
+  roleplay   RoleplaySession?
+  reflection ReflectionEntry?
+}
+
+model ExerciseAttempt {
+  id        String @id @default(cuid())
+  sessionId String
+  session   PracticeSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  techniqueId String
+  technique   Technique @relation(fields: [techniqueId], references: [id])
+
+  exerciseType String // scenario_card | recall_test | process_training | simulation
+  difficulty   String // easy | medium | hard | expert
+  prompt       String // The situation/question presented
+  userResponse String // What the user answered
+  aiEvaluation String // AI's evaluation in detail
+  score        Int    // 0-100
+  xpEarned     Int    @default(0)
+  createdAt    DateTime @default(now())
+}
+
+// ============================================================
+// ROLEPLAY SESSIONS
+// ============================================================
+model RoleplaySession {
+  id        String @id @default(cuid())
+  sessionId String @unique
+  session   PracticeSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  personaId String
+  persona   Persona @relation(fields: [personaId], references: [id])
+
+  meetingType   String // cold_call | meeting_1 | meeting_2 | meeting_3
+  difficulty    String // easy | medium | hard | expert
+  focusTechnique String? // Which technique to focus on, if any
+  transcript    String // JSON: array of {role, content, timestamp}
+  duration      Int    @default(0) // seconds
+
+  scorecard     Scorecard?
+  feedbackItems TimestampedFeedback[]
+}
+
+model Scorecard {
+  id               String @id @default(cuid())
+  roleplayId       String @unique
+  roleplay         RoleplaySession @relation(fields: [roleplayId], references: [id], onDelete: Cascade)
+
+  rightTechniqueScore  Int @default(0) // 0-25: Right technique at right time
+  frameworkCoverage     Int @default(0) // 0-25: SPKVP/BBBTUUICC coverage
+  objectionHandling    Int @default(0) // 0-20: Objections handled correctly
+  meetingStructure     Int @default(0) // 0-15: Meeting structure maintained
+  naturalFormulation   Int @default(0) // 0-15: Natural language, not robotic
+  totalScore           Int @default(0) // 0-100 computed
+
+  detailedFeedback String // AI-generated detailed text feedback
+  createdAt        DateTime @default(now())
+}
+
+model TimestampedFeedback {
+  id         String @id @default(cuid())
+  roleplayId String
+  roleplay   RoleplaySession @relation(fields: [roleplayId], references: [id], onDelete: Cascade)
+
+  timestamp    Int    // Seconds into the conversation
+  type         String // positive | missed_opportunity | correction
+  buyerSaid    String // What the buyer said at that moment
+  userSaid     String // What the user responded
+  techniqueName String // Which technique is relevant
+  idealResponse String // What the ideal response would be
+  explanation   String // Why, referencing the knowledge base
+}
+
+// ============================================================
+// REAL MEETING ANALYSIS
+// ============================================================
+model RealMeetingAnalysis {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  date        DateTime @default(now())
+  meetingType String // meeting_1 | meeting_2 | meeting_3
+  transcript  String // Full transcript text
+  summary     String? // AI-generated summary
+
+  talkRatio       Float? // 0-100 percentage
+  questionsAsked  Int?
+  longestMonologue Int? // seconds
+  techniqueHits   String? // JSON: techniques successfully used
+  techniqueMisses String? // JSON: missed opportunities
+
+  feedbackItems   MeetingFeedbackItem[]
+  generatedExercises GeneratedExercise[]
+  reflection      ReflectionEntry?
+}
+
+model MeetingFeedbackItem {
+  id        String @id @default(cuid())
+  meetingId String
+  meeting   RealMeetingAnalysis @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  timestamp     String // "12:15" timestamp in transcript
+  type          String // technique_used | missed_opportunity | good_moment
+  techniqueName String
+  whatHappened   String // Description of the moment
+  suggestion    String? // What could be improved
+  quote         String? // Exact quote from transcript
+}
+
+model GeneratedExercise {
+  id        String @id @default(cuid())
+  meetingId String
+  meeting   RealMeetingAnalysis @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  exerciseType String // scenario_card | roleplay_focus
+  prompt       String // The generated exercise
+  techniqueName String // Which technique to practice
+  completed    Boolean @default(false)
+  createdAt    DateTime @default(now())
+}
+
+// ============================================================
+// REFLECTION
+// ============================================================
+model ReflectionEntry {
+  id        String @id @default(cuid())
+  userId    String
+  user      User   @relation(fields: [userId], references: [id])
+
+  // Can be linked to a practice session OR a real meeting
+  sessionId String? @unique
+  session   PracticeSession? @relation(fields: [sessionId], references: [id])
+  meetingId String? @unique
+  meeting   RealMeetingAnalysis? @relation(fields: [meetingId], references: [id])
+
+  question1 String // Vilken teknik anvande du medvetet?
+  question2 String // Beskriv svaraste ogonblicket
+  question3 String // Vilken teknik borde du ha anvant?
+  question4 String // Vilka 3 delar kan du forbattra?
+  question5 String // OM [situation], DA gor jag [handling]
+
+  createdAt DateTime @default(now())
+}
+
+// ============================================================
+// GAMIFICATION
+// ============================================================
+model Achievement {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  name      String // "Forsta REFLEX!", "30-dagars streak"
+  description String
+  icon      String   @default("trophy") // Icon identifier
+  unlockedAt DateTime @default(now())
+}
+
+model DailyStreak {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  date      DateTime // The date of practice
+  xpEarned  Int      @default(0)
+  minutesSpent Int   @default(0)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, date])
+}
