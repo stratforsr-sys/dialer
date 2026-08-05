@@ -4,6 +4,14 @@
     {
       "path": "/api/cron/meeting-reminder",
       "schedule": "0 6 * * 1-5"
+    },
+    {
+      "path": "/api/cron/enrich?tier=0",
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/cron/enrich?tier=1&limit=40",
+      "schedule": "30 2 * * 1-5"
     }
   ]
 }

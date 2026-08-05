@@ -16,5 +16,8 @@
     "paths": { "@/*": ["./src/*"] }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  // scripts/ körs av node --experimental-strip-types, som KRÄVER .ts i
+  // importsökvägen — det motsatta av vad bundler-upplösningen tillåter.
+  // De verifieras genom att köras (npm test), inte av tsc.
+  "exclude": ["node_modules", "scripts"]
 }

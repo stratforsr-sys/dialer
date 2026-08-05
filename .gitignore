@@ -15,5 +15,12 @@ out/
 # Prisma local dev db
 prisma/dev.db
 prisma/dev.db-journal
+
+# Databasdumpar — innehåller produktionsdata (kunduppgifter, org.nummer,
+# telefonnummer). Får aldrig committas.
+backups/
+*.dump.sql
+prisma/shadow.db
+prisma/shadow.db-journal
 .vercel
 .env*.local
