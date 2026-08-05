@@ -47,9 +47,31 @@ export function useDispositionQueue() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ items: batch }),
         keepalive: useKeepalive,
+        // Utan detta följer webbläsaren middlewares omdirigering till
+        // inloggningen, får HTML tillbaka med status 200, och res.ok blir
+        // sant. Kön skulle då lägga tillbaka posterna och försöka igen i all
+        // evighet medan samtalen tyst gick förlorade.
+        redirect: "manual",
       });
 
+      // En utgången session ger 3xx eller ett ogenomskinligt svar. Det går
+      // inte att lösa genom att försöka igen — säljaren måste logga in.
+      if (res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400) || res.status === 401) {
+        setFailed((prev) => [
+          ...prev,
+          ...batch.map((b) => ({
+            companyName: b.companyName,
+            error: "Sessionen har gått ut — logga in igen",
+          })),
+        ]);
+        return; // posterna kastas medvetet: en omladdning löser inget
+      }
+
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const ct = res.headers.get("content-type") ?? "";
+      if (!ct.includes("application/json")) throw new Error("Oväntat svar");
+
       const data = (await res.json()) as {
         results: Array<{ key: string; ok: boolean; error?: string }>;
       };
