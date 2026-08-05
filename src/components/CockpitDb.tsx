@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { logCall, createNote } from "@/app/actions/activities";
 import { startSession, endSession, logCallEvent } from "@/app/actions/sessions";
+import { claimLead } from "@/app/actions/lists";
 import { CreateDealModal } from "@/components/deals/CreateDealModal";
 
 type Contact = {
@@ -157,12 +158,25 @@ function formatIdle(s: number) {
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
-export function CockpitDb({ leads, userId, stages }: { leads: Lead[]; userId: string; stages: Stage[] }) {
+export function CockpitDb({
+  leads,
+  userId,
+  stages,
+  listId = null,
+  listName = null,
+}: {
+  leads: Lead[];
+  userId: string;
+  stages: Stage[];
+  listId?: string | null;
+  listName?: string | null;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [index, setIndex] = useState(0);
   const [contactIndex, setContactIndex] = useState(0);
   const [skipped, setSkipped] = useState<Set<string>>(new Set());
+  const [claimWarning, setClaimWarning] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [totalCalls, setTotalCalls] = useState(0);
   const [idleSeconds, setIdleSeconds] = useState(0);
@@ -194,6 +208,15 @@ export function CockpitDb({ leads, userId, stages }: { leads: Lead[]; userId: st
     const t = setInterval(() => setIdleSeconds((s) => s + 1), 1000);
     return () => clearInterval(t);
   }, []);
+
+  // Claim-varningen försvinner av sig själv
+  useEffect(() => {
+    if (!claimWarning) return;
+    const t = setTimeout(() => setClaimWarning(null), 5000);
+    return () => clearTimeout(t);
+  }, [claimWarning]);
+
+  const exitHref = listId ? `/lists/${listId}` : "/leads";
 
   // Stable nav callbacks — FIX for stale closure navigation bug
   const nextLead = useCallback(() => {
@@ -229,15 +252,31 @@ export function CockpitDb({ leads, userId, stages }: { leads: Lead[]; userId: st
 
   function handleStatus(status: string, label: string) {
     if (!lead || !sessionId) return;
+    const target = lead;
+    const targetContactId = contact?.id ?? null;
     const idle = idleSeconds;
     const noteText = notes.trim();
     setIdleSeconds(0);
     setTotalCalls((n) => n + 1);
     setTotalIdleSeconds((n) => n + idle);
     setNotes("");
+
     startTransition(async () => {
+      // Först till kvarn: låset måste tas innan samtalet loggas. Misslyckas
+      // det har någon annan hunnit före — då loggas ingenting.
+      const claim = await claimLead(target.id);
+      if (!claim.ok) {
+        setTotalCalls((n) => Math.max(0, n - 1));
+        setTotalIdleSeconds((n) => Math.max(0, n - idle));
+        setClaimWarning(
+          claim.reason === "taken"
+            ? `${target.companyName} togs precis av ${claim.by} — samtalet loggades inte.`
+            : `Du har inte längre åtkomst till ${target.companyName}.`
+        );
+        return;
+      }
       await Promise.all([
-        logCall(lead.id, contact?.id ?? null, status, noteText || undefined),
+        logCall(target.id, targetContactId, status, noteText || undefined),
         logCallEvent(sessionId, idle),
       ]);
     });
@@ -270,10 +309,15 @@ export function CockpitDb({ leads, userId, stages }: { leads: Lead[]; userId: st
         <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: "var(--success-bg)", border: "1px solid var(--success-border)" }}>
           <Zap size={28} style={{ color: "var(--success)" }} />
         </div>
-        <h2 className="text-[20px] font-semibold" style={{ color: "var(--text)" }}>Listan är klar!</h2>
-        <p className="text-[14px]" style={{ color: "var(--text-muted)" }}>{totalCalls} samtal gjorda denna session</p>
-        <button onClick={() => router.push("/leads")} className="px-5 py-2 text-[13px] font-medium rounded-[10px] mt-2" style={{ background: "var(--accent)", color: "var(--bg)" }}>
-          Tillbaka till leads
+        <h2 className="text-[20px] font-semibold" style={{ color: "var(--text)" }}>
+          {listName ? `${listName} är slut!` : "Listan är klar!"}
+        </h2>
+        <p className="text-[14px]" style={{ color: "var(--text-muted)" }}>
+          {totalCalls} samtal gjorda denna session
+          {listName ? " — inga lediga leads kvar i mappen" : ""}
+        </p>
+        <button onClick={() => router.push(exitHref)} className="px-5 py-2 text-[13px] font-medium rounded-[10px] mt-2" style={{ background: "var(--accent)", color: "var(--bg)" }}>
+          {listId ? "Tillbaka till listan" : "Tillbaka till leads"}
         </button>
       </div>
     );
@@ -284,13 +328,45 @@ export function CockpitDb({ leads, userId, stages }: { leads: Lead[]; userId: st
   const progress = (index / Math.max(activeLeads.length - 1, 1)) * 100;
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden" style={{ background: "var(--bg)" }}>
+    <div className="relative flex flex-col h-screen overflow-hidden" style={{ background: "var(--bg)" }}>
+
+      {/* Claim-varning — någon annan hann före */}
+      <AnimatePresence>
+        {claimWarning && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="absolute top-[62px] left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 rounded-[12px]"
+            style={{
+              background: "var(--danger-bg)",
+              border: "1px solid var(--danger-border)",
+              boxShadow: "var(--shadow-md)",
+            }}
+          >
+            <AlertTriangle size={14} style={{ color: "var(--danger)" }} />
+            <span className="text-[12px] font-medium" style={{ color: "var(--danger)" }}>
+              {claimWarning}
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Top bar */}
       <div className="flex items-center justify-between px-5 h-[52px] border-b shrink-0" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
-        <button onClick={() => router.push("/leads")} className="flex items-center gap-1 text-[13px]" style={{ color: "var(--text-muted)" }}>
-          <ArrowLeft size={14} /> Avsluta
-        </button>
+        <div className="flex items-center gap-2.5 min-w-0">
+          <button onClick={() => router.push(exitHref)} className="flex items-center gap-1 text-[13px] shrink-0" style={{ color: "var(--text-muted)" }}>
+            <ArrowLeft size={14} /> Avsluta
+          </button>
+          {listName && (
+            <>
+              <span className="text-[13px]" style={{ color: "var(--border-strong)" }}>/</span>
+              <span className="text-[13px] font-medium truncate" style={{ color: "var(--text)" }}>
+                {listName}
+              </span>
+            </>
+          )}
+        </div>
         <div className="flex items-center gap-3">
           <div className="w-[160px] h-[3px] rounded-full overflow-hidden" style={{ background: "var(--surface-inset)" }}>
             <motion.div className="h-full rounded-full" style={{ background: "var(--accent)" }}

@@ -3,11 +3,13 @@
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, ChevronRight, Check, AlertCircle, X, ArrowLeft } from "lucide-react";
+import { Upload, ChevronRight, Check, AlertCircle, X, ArrowLeft, Users, Play, FolderOpen } from "lucide-react";
 import { parseCSV, parseXLSX, autoGuessMapping } from "@/lib/csv-parser";
 import type { CSVData, FieldMapping } from "@/types";
 
 type Step = "upload" | "mapping" | "preview" | "importing" | "done";
+
+type UserOption = { id: string; name: string; email: string; role: string };
 
 type ProgressState = {
   total: number;
@@ -16,6 +18,8 @@ type ProgressState = {
   updated: number;
   skipped: number;
   errors: string[];
+  listId?: string | null;
+  listName?: string;
 };
 
 const SYSTEM_FIELDS = [
@@ -31,17 +35,24 @@ const SYSTEM_FIELDS = [
   { value: "linkedin",     label: "LinkedIn" },
 ];
 
-export function DbImportView() {
+export function DbImportView({ users = [] }: { users?: UserOption[] }) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("upload");
   const [csvData, setCsvData] = useState<CSVData | null>(null);
   const [mapping, setMapping] = useState<FieldMapping>({});
   const [progress, setProgress] = useState<ProgressState | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [fileName, setFileName] = useState("");
+  const [listName, setListName] = useState("");
+  const [assignees, setAssignees] = useState<Set<string>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   function handleFile(file: File) {
+    // Filnamnet blir förslag på mappnamn — "leads-stockholm.csv" → "leads-stockholm"
+    setFileName(file.name);
+    setListName((prev) => prev || file.name.replace(/\.(csv|xlsx|xls)$/i, ""));
+
     const ext = file.name.split(".").pop()?.toLowerCase();
     if (ext === "xlsx" || ext === "xls") {
       file.arrayBuffer().then((buf) => {
@@ -58,6 +69,15 @@ export function DbImportView() {
         setStep("mapping");
       });
     }
+  }
+
+  function toggleAssignee(id: string) {
+    setAssignees((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   function handleDrop(e: React.DragEvent) {
@@ -101,7 +121,12 @@ export function DbImportView() {
       const res = await fetch("/api/import-stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows }),
+        body: JSON.stringify({
+          rows,
+          listName: listName.trim() || fileName || "Ny lista",
+          sourceFile: fileName || undefined,
+          assigneeIds: Array.from(assignees),
+        }),
         signal: abortRef.current.signal,
       });
 
@@ -316,6 +341,74 @@ export function DbImportView() {
                 )}
               </div>
 
+              {/* ── Mapp + tilldelning ── */}
+              <div
+                className="rounded-[16px] p-5 mb-6"
+                style={{ background: "var(--surface)", border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}
+              >
+                <div className="flex items-center gap-2 mb-4">
+                  <FolderOpen size={15} style={{ color: "var(--accent)" }} />
+                  <h3 className="text-[14px] font-semibold" style={{ color: "var(--text)" }}>
+                    Mapp och tilldelning
+                  </h3>
+                </div>
+
+                <label className="block text-[12px] mb-1.5" style={{ color: "var(--text-muted)" }}>
+                  Mappens namn
+                </label>
+                <input
+                  value={listName}
+                  onChange={(e) => setListName(e.target.value)}
+                  placeholder="T.ex. Stockholm bygg — augusti"
+                  className="w-full px-3 py-2 text-[13px] rounded-[10px] focus:outline-none mb-5"
+                  style={{
+                    background: "var(--surface-inset)",
+                    border: "1px solid var(--border-strong)",
+                    color: "var(--text)",
+                  }}
+                />
+
+                <div className="flex items-center gap-2 mb-2">
+                  <Users size={13} style={{ color: "var(--text-muted)" }} />
+                  <label className="text-[12px]" style={{ color: "var(--text-muted)" }}>
+                    Vem ska jobba på listan?
+                  </label>
+                </div>
+
+                {users.length === 0 ? (
+                  <p className="text-[12px]" style={{ color: "var(--text-dim)" }}>
+                    Inga användare att tilldela
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {users.map((u) => {
+                      const on = assignees.has(u.id);
+                      return (
+                        <button
+                          key={u.id}
+                          type="button"
+                          onClick={() => toggleAssignee(u.id)}
+                          className="flex items-center gap-2 px-3 py-1.5 rounded-[10px] text-[12px] font-medium transition-all"
+                          style={{
+                            background: on ? "var(--accent-muted)" : "var(--surface-inset)",
+                            border: `1px solid ${on ? "var(--accent)" : "var(--border-strong)"}`,
+                            color: on ? "var(--accent)" : "var(--text-muted)",
+                          }}
+                        >
+                          {on && <Check size={11} strokeWidth={3} />}
+                          {u.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <p className="text-[11px] mt-3" style={{ color: "var(--text-dim)" }}>
+                  Leadsen ligger fria i mappen — den som ringer först låser leadet till sig.
+                  Admin ser alla mappar oavsett tilldelning.
+                </p>
+              </div>
+
               <button
                 onClick={handleImport}
                 disabled={totalRows === 0}
@@ -403,18 +496,32 @@ export function DbImportView() {
 
               <div className="flex gap-3 justify-center">
                 <button
-                  onClick={() => { setCsvData(null); setMapping({}); setProgress(null); setStep("upload"); }}
+                  onClick={() => {
+                    setCsvData(null); setMapping({}); setProgress(null);
+                    setFileName(""); setListName(""); setAssignees(new Set());
+                    setStep("upload");
+                  }}
                   className="px-5 py-2 text-[13px] font-medium rounded-[10px]"
                   style={{ background: "var(--surface-inset)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)" }}
                 >
                   Importera fler
                 </button>
+                {progress.listId && (
+                  <button
+                    onClick={() => router.push(`/cockpit?listId=${progress.listId}`)}
+                    className="flex items-center gap-1.5 px-5 py-2 text-[13px] font-medium rounded-[10px]"
+                    style={{ background: "var(--surface-inset)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)" }}
+                  >
+                    <Play size={12} fill="currentColor" />
+                    Starta dialer
+                  </button>
+                )}
                 <button
-                  onClick={() => router.push("/leads")}
+                  onClick={() => router.push(progress.listId ? `/lists/${progress.listId}` : "/lists")}
                   className="px-5 py-2 text-[13px] font-medium rounded-[10px]"
                   style={{ background: "var(--accent)", color: "var(--bg)" }}
                 >
-                  Visa leads →
+                  Öppna mappen →
                 </button>
               </div>
             </motion.div>

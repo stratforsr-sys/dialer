@@ -31,8 +31,22 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) {
     return new Response("Unauthorized", { status: 401 });
   }
+  // Bara admin laddar upp listor och bestämmer vem som ska jobba på dem
+  if (session.user.role !== "ADMIN") {
+    return new Response("Forbidden", { status: 403 });
+  }
 
-  const { rows }: { rows: ImportRow[] } = await req.json();
+  const {
+    rows,
+    listName,
+    sourceFile,
+    assigneeIds = [],
+  }: {
+    rows: ImportRow[];
+    listName?: string;
+    sourceFile?: string;
+    assigneeIds?: string[];
+  } = await req.json();
 
   const encoder = new TextEncoder();
 
@@ -53,10 +67,42 @@ export async function POST(req: NextRequest) {
         enqueue({ total, created: 0, updated: 0, skipped, done: 0 });
 
         if (total === 0) {
-          enqueue({ complete: true, total, created, updated, skipped, errors });
+          enqueue({ complete: true, total, created, updated, skipped, errors, listId: null });
           controller.close();
           return;
         }
+
+        // ── Skapa mappen som importen hamnar i ───────────────────────────────
+        const list = await db.callList.create({
+          data: {
+            id: randomUUID(),
+            name: (listName?.trim() || sourceFile?.trim() || "Ny lista").slice(0, 120),
+            sourceFile: sourceFile?.trim() || null,
+            createdById: session.user.id,
+            access: {
+              create: Array.from(new Set(assigneeIds)).map((userId) => ({ userId })),
+            },
+          },
+        });
+
+        /**
+         * Länkar leads till mappen. Ett lead kan ligga i flera mappar, så vi
+         * filtrerar bara bort dubbletter inom SAMMA mapp (SQLite stödjer inte
+         * skipDuplicates i createMany).
+         */
+        const linkToList = async (leadIds: string[]) => {
+          if (leadIds.length === 0) return;
+          const already = await db.leadOnList.findMany({
+            where: { listId: list.id, leadId: { in: leadIds } },
+            select: { leadId: true },
+          });
+          const existing = new Set(already.map((a) => a.leadId));
+          const fresh = Array.from(new Set(leadIds)).filter((id) => !existing.has(id));
+          if (fresh.length === 0) return;
+          await db.leadOnList.createMany({
+            data: fresh.map((leadId) => ({ listId: list.id, leadId })),
+          });
+        };
 
         // ── Pre-load ALL existing leads matching any org number in one query ──
         const allOrgNumbers = validRows
@@ -157,6 +203,8 @@ export async function POST(req: NextRequest) {
               })),
             });
 
+            await linkToList(leadData.map((l) => l.id));
+
             created += newRows.length;
           }
 
@@ -237,6 +285,10 @@ export async function POST(req: NextRequest) {
               })),
             });
 
+            // Redan befintliga bolag länkas också in i den nya mappen —
+            // samma lead-rad kan ligga i flera mappar samtidigt.
+            await linkToList(existingRows.map(({ lead }) => lead.id));
+
             updated += existingRows.length;
           }
 
@@ -245,7 +297,10 @@ export async function POST(req: NextRequest) {
           enqueue({ total, created, updated, skipped, done, errors: errors.slice(0, 10) });
         }
 
-        enqueue({ complete: true, total, created, updated, skipped, errors });
+        enqueue({
+          complete: true, total, created, updated, skipped, errors,
+          listId: list.id, listName: list.name,
+        });
       } catch (err) {
         controller.enqueue(
           encoder.encode(

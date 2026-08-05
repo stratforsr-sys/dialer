@@ -3,6 +3,8 @@
 import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
+import { visibleLeadWhere } from "@/lib/lists";
+import type { Prisma } from "@/generated/prisma/client";
 
 export type LeadWithMeta = Awaited<ReturnType<typeof getLeads>>[number];
 export type LeadDetail = Awaited<ReturnType<typeof getLead>>;
@@ -16,28 +18,34 @@ export async function getLeads(filters?: {
 }) {
   const user = await requireAuth();
 
-  const where: Record<string, unknown> = {};
+  // AND-lista i stället för ett platt objekt: både synligheten och sökningen
+  // behöver varsitt OR, och de får inte skriva över varandra.
+  const and: Prisma.LeadWhereInput[] = [
+    // Säljare ser sina egna leads + allt i mappar de har tillgång till.
+    // Admin ser allt (visibleLeadWhere returnerar tomt filter).
+    visibleLeadWhere(user),
+  ];
 
-  if (user.role === "SELLER") {
-    where.ownerId = user.id;
-  } else if (filters?.ownerId) {
-    where.ownerId = filters.ownerId;
+  if (user.role === "ADMIN" && filters?.ownerId) {
+    and.push({ ownerId: filters.ownerId });
   }
 
   // Hide leads that have an active deal (they live in the pipeline now)
   if (!filters?.includeWithDeals) {
-    where.hasActiveDeal = false;
+    and.push({ hasActiveDeal: false });
   }
 
   if (filters?.search) {
-    where.OR = [
-      { companyName: { contains: filters.search } },
-      { orgNumber: { contains: filters.search } },
-    ];
+    and.push({
+      OR: [
+        { companyName: { contains: filters.search } },
+        { orgNumber: { contains: filters.search } },
+      ],
+    });
   }
 
   return db.lead.findMany({
-    where,
+    where: { AND: and },
     orderBy: { updatedAt: "desc" },
     include: {
       owner: { select: { id: true, name: true } },
@@ -54,8 +62,9 @@ export async function getLeads(filters?: {
 export async function getLead(id: string) {
   const user = await requireAuth();
 
-  const lead = await db.lead.findUnique({
-    where: { id },
+  const lead = await db.lead.findFirst({
+    // Åtkomst: eget lead eller lead i en mapp man är tilldelad
+    where: { AND: [{ id }, visibleLeadWhere(user)] },
     include: {
       owner: { select: { id: true, name: true, email: true } },
       contacts: { orderBy: { createdAt: "asc" } },
@@ -81,9 +90,6 @@ export async function getLead(id: string) {
       tags: { include: { tag: true } },
     },
   });
-
-  if (!lead) return null;
-  if (user.role === "SELLER" && lead.ownerId !== user.id) return null;
 
   return lead;
 }

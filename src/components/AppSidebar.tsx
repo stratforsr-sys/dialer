@@ -5,9 +5,11 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   Users, LayoutGrid, Phone, Upload, BarChart2, ShieldCheck, LogOut, Zap, Search,
+  FolderOpen,
 } from "lucide-react";
 
 const NAV = [
+  { href: "/lists",    label: "Ringlistor", icon: FolderOpen },
   { href: "/leads",    label: "Leads",     icon: Users },
   { href: "/pipeline", label: "Pipeline",  icon: LayoutGrid },
   { href: "/cockpit",  label: "Cockpit",   icon: Phone },

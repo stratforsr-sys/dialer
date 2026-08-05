@@ -24,6 +24,8 @@ model User {
   callSessions CallSession[]
   meetings     Meeting[]      @relation("MeetingBookedBy")
   dealsCreated Deal[]         @relation("DealCreatedBy")
+  listsCreated CallList[]     @relation("ListCreatedBy")
+  listAccess   ListAccess[]
 }
 
 enum Role {
@@ -43,6 +45,11 @@ model Lead {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  // Claim-lås: ownerId pekar på den som just nu jobbar leadet.
+  // claimedAt = null → leadet är fritt (ownerId är bara importören).
+  // claimedAt äldre än CLAIM_TTL_DAYS → låset har löpt ut, leadet är fritt igen.
+  claimedAt DateTime?
+
   ownerId String
   owner   User   @relation("LeadOwner", fields: [ownerId], references: [id])
 
@@ -51,6 +58,9 @@ model Lead {
   meetings   Meeting[]
   deals      Deal[]
   tags       TagOnLead[]
+  lists      LeadOnList[]
+
+  @@index([claimedAt])
 }
 
 model Contact {
@@ -69,6 +79,57 @@ model Contact {
   lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
   activities Activity[]
+}
+
+// ==================== RINGLISTOR (mappar) ====================
+
+/// En mapp med leads — skapas normalt av en import, men kan också vara manuell.
+/// Åtkomst styrs av ListAccess; admin ser alla.
+model CallList {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  sourceFile  String?
+  /// Systemmappar (t.ex. "Tidigare importer") kan inte tas bort
+  isSystem    Boolean  @default(false)
+  archived    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdById String
+  createdBy   User   @relation("ListCreatedBy", fields: [createdById], references: [id])
+
+  leads  LeadOnList[]
+  access ListAccess[]
+
+  @@index([archived, createdAt])
+}
+
+/// Ett lead kan ligga i flera mappar samtidigt — samma bolag som dyker upp i
+/// två importer blir EN lead-rad som länkas in i båda mapparna.
+model LeadOnList {
+  listId  String
+  leadId  String
+  addedAt DateTime @default(now())
+
+  list CallList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  lead Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@id([listId, leadId])
+  @@index([leadId])
+}
+
+/// Ger en användare tillgång till en mapp. Admin behöver ingen rad — ser allt.
+model ListAccess {
+  listId    String
+  userId    String
+  grantedAt DateTime @default(now())
+
+  list CallList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([listId, userId])
+  @@index([userId])
 }
 
 // ==================== PIPELINE ====================
@@ -186,6 +247,8 @@ enum ActivityType {
   LEAD_CREATED
   LEAD_ASSIGNED
   LEAD_IMPORTED
+  LEAD_CLAIMED
+  LEAD_RELEASED
   CONTACT_ADDED
   STATUS_CHANGE
   DEAL_CREATED
