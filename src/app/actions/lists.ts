@@ -4,12 +4,10 @@ import { db } from "@/lib/db";
 import { requireAuth, requireAdmin } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import {
-  accessibleListIds,
-  canAccessList,
   claimCutoff,
+  claimedByWhere,
   freeLeadWhere,
   isAdminUser,
-  isLeadFree,
   visibleLeadWhere,
 } from "@/lib/lists";
 
@@ -24,10 +22,15 @@ export type ListDetail = NonNullable<Awaited<ReturnType<typeof getList>>>;
  */
 export async function getLists() {
   const user = await requireAuth();
-  const ids = await accessibleListIds(user);
 
+  // Åtkomstfiltret som villkor i stället för en separat id-hämtning: sparar
+  // en round-trip, och databasen är ändå snabbare på joinen än vi är på att
+  // skicka en lista med id:n fram och tillbaka.
   const lists = await db.callList.findMany({
-    where: { id: { in: ids }, archived: false },
+    where: {
+      archived: false,
+      ...(isAdminUser(user) ? {} : { access: { some: { userId: user.id } } }),
+    },
     orderBy: { createdAt: "desc" },
     include: {
       createdBy: { select: { id: true, name: true } },
@@ -39,27 +42,26 @@ export async function getLists() {
   if (lists.length === 0) return [];
 
   const cutoff = claimCutoff();
+  const listIds = lists.map((l) => l.id);
 
-  // Antal claimade (= påbörjade) leads per mapp, i en query
-  const claimed = await db.leadOnList.groupBy({
-    by: ["listId"],
-    where: {
-      listId: { in: lists.map((l) => l.id) },
-      lead: { claimedAt: { not: null } },
-    },
-    _count: { leadId: true },
-  });
+  // De två aggregaten är oberoende av varandra — kör dem samtidigt
+  const [claimed, free] = await Promise.all([
+    db.leadOnList.groupBy({
+      by: ["listId"],
+      where: { listId: { in: listIds }, lead: { claimedAt: { not: null } } },
+      _count: { leadId: true },
+    }),
+    db.leadOnList.groupBy({
+      by: ["listId"],
+      where: {
+        listId: { in: listIds },
+        lead: { OR: [{ claimedAt: null }, { claimedAt: { lt: cutoff } }] },
+      },
+      _count: { leadId: true },
+    }),
+  ]);
+
   const claimedByList = new Map(claimed.map((c) => [c.listId, c._count.leadId]));
-
-  // Antal lediga leads per mapp — det som faktiskt går att ringa just nu
-  const free = await db.leadOnList.groupBy({
-    by: ["listId"],
-    where: {
-      listId: { in: lists.map((l) => l.id) },
-      lead: { OR: [{ claimedAt: null }, { claimedAt: { lt: cutoff } }] },
-    },
-    _count: { leadId: true },
-  });
   const freeByList = new Map(free.map((f) => [f.listId, f._count.leadId]));
 
   return lists.map((l) => ({
@@ -80,36 +82,43 @@ export async function getLists() {
 /** En mapp med sina leads. Returnerar null om användaren saknar åtkomst. */
 export async function getList(listId: string) {
   const user = await requireAuth();
-  if (!(await canAccessList(user, listId))) return null;
 
-  const list = await db.callList.findUnique({
-    where: { id: listId },
-    include: {
-      createdBy: { select: { id: true, name: true } },
-      access: { include: { user: { select: { id: true, name: true, email: true } } } },
-    },
-  });
-  if (!list) return null;
-
-  const rows = await db.leadOnList.findMany({
-    where: { listId },
-    orderBy: { addedAt: "asc" },
-    include: {
-      lead: {
-        include: {
-          owner: { select: { id: true, name: true } },
-          contacts: { orderBy: { createdAt: "asc" }, take: 1 },
-          _count: { select: { contacts: true } },
-          activities: {
-            where: { type: { in: ["CALL", "CALL_NO_ANSWER"] } },
-            orderBy: { timestamp: "desc" },
-            take: 1,
-            select: { timestamp: true, type: true },
+  // Åtkomstkollen bakas in i mappfrågan (en round-trip i stället för två),
+  // och leadsen hämtas samtidigt. Saknar användaren åtkomst blir list null
+  // och vi kastar leadsen — de har ändå aldrig lämnat servern.
+  const [list, rows] = await Promise.all([
+    db.callList.findFirst({
+      where: {
+        id: listId,
+        ...(isAdminUser(user) ? {} : { access: { some: { userId: user.id } } }),
+      },
+      include: {
+        createdBy: { select: { id: true, name: true } },
+        access: { include: { user: { select: { id: true, name: true, email: true } } } },
+      },
+    }),
+    db.leadOnList.findMany({
+      where: { listId },
+      orderBy: { addedAt: "asc" },
+      include: {
+        lead: {
+          include: {
+            owner: { select: { id: true, name: true } },
+            contacts: { orderBy: { createdAt: "asc" }, take: 1 },
+            _count: { select: { contacts: true } },
+            activities: {
+              where: { type: { in: ["CALL", "CALL_NO_ANSWER"] } },
+              orderBy: { timestamp: "desc" },
+              take: 1,
+              select: { timestamp: true, type: true },
+            },
           },
         },
       },
-    },
-  });
+    }),
+  ]);
+
+  if (!list) return null;
 
   return {
     id: list.id,
@@ -228,7 +237,7 @@ export async function revokeAccess(listId: string, userId: string) {
 // ── Mutations: claim-lås ───────────────────────────────────────────────────
 
 export type ClaimResult =
-  | { ok: true; alreadyMine: boolean }
+  | { ok: true }
   | { ok: false; reason: "taken"; by: string }
   | { ok: false; reason: "forbidden" };
 
@@ -241,51 +250,49 @@ export type ClaimResult =
  */
 export async function claimLead(leadId: string): Promise<ClaimResult> {
   const user = await requireAuth();
-
-  const lead = await db.lead.findFirst({
-    where: { id: leadId, ...visibleLeadWhere(user) },
-    include: { owner: { select: { id: true, name: true } } },
-  });
-  if (!lead) return { ok: false, reason: "forbidden" };
-
   const now = new Date();
 
-  // Redan mitt och fortfarande giltigt → förnya låset
-  if (lead.ownerId === user.id && !isLeadFree(lead, now)) {
-    await db.lead.update({ where: { id: leadId }, data: { claimedAt: now } });
-    return { ok: true, alreadyMine: true };
-  }
-
-  if (!isLeadFree(lead, now)) {
-    return { ok: false, reason: "taken", by: lead.owner?.name ?? "annan säljare" };
-  }
-
-  // Villkorad uppdatering: leadet måste fortfarande vara ledigt när vi skriver
-  const res = await db.lead.updateMany({
-    where: { id: leadId, ...freeLeadWhere(now) },
+  // Detta är dialerns varmaste väg — den körs på varje loggat samtal. Därför
+  // går vi rakt på den villkorade skrivningen i stället för att läsa först:
+  // WHERE-satsen släpper bara igenom leads som är synliga för användaren OCH
+  // lediga (eller redan hens). Lyckas den är vi klara på en round-trip.
+  const claimed = await db.lead.updateMany({
+    where: {
+      AND: [
+        { id: leadId },
+        visibleLeadWhere(user),
+        { OR: [freeLeadWhere(now), claimedByWhere(user.id, now)] },
+      ],
+    },
     data: { ownerId: user.id, claimedAt: now },
   });
 
-  if (res.count === 0) {
-    const fresh = await db.lead.findUnique({
-      where: { id: leadId },
-      include: { owner: { select: { name: true } } },
-    });
-    return { ok: false, reason: "taken", by: fresh?.owner?.name ?? "annan säljare" };
+  if (claimed.count > 0) {
+    // Loggen behöver inte blockera svaret — säljaren ska vidare till nästa samtal
+    void db.activity
+      .create({
+        data: {
+          type: "LEAD_CLAIMED",
+          actorId: user.id,
+          leadId,
+          metadata: JSON.stringify({ claimedAt: now.toISOString() }),
+        },
+      })
+      .catch(() => {});
+
+    revalidatePath("/lists");
+    revalidatePath("/leads");
+    return { ok: true };
   }
 
-  await db.activity.create({
-    data: {
-      type: "LEAD_CLAIMED",
-      actorId: user.id,
-      leadId,
-      metadata: JSON.stringify({ previousOwnerId: lead.ownerId }),
-    },
+  // Skrivningen tog inte — ta reda på varför först nu, i det ovanliga fallet
+  const lead = await db.lead.findFirst({
+    where: { AND: [{ id: leadId }, visibleLeadWhere(user)] },
+    select: { ownerId: true, claimedAt: true, owner: { select: { name: true } } },
   });
 
-  revalidatePath("/lists");
-  revalidatePath("/leads");
-  return { ok: true, alreadyMine: false };
+  if (!lead) return { ok: false, reason: "forbidden" };
+  return { ok: false, reason: "taken", by: lead.owner?.name ?? "annan säljare" };
 }
 
 /** Släpper ett lead tillbaka till poolen. Ägaren själv eller admin. */

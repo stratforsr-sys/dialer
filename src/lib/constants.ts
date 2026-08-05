@@ -67,3 +67,11 @@ export const DEMO_CONTACTS = [
   { id:"demo-007", name:"Emil Grönvall", company:"byBrick Development AB", role:"Upphandlare", direct_phone:"+46704445566", switchboard:"", email:"emil@bybrick.se", website:"https://bybrick.se", linkedin:"", org_number:"5564445566", status:"ej_ringd" as ContactStatus, notes:"", tags:[], lastContact:null },
   { id:"demo-008", name:"Mirza Muhic", company:"Prog-it AB", role:"VD", direct_phone:"+46765556677", switchboard:"+46876543210", email:"mirza@prog-it.se", website:"https://prog-it.se", linkedin:"https://linkedin.com/in/mirza-muhic", org_number:"5565556677", status:"ej_ringd" as ContactStatus, notes:"", tags:[], lastContact:null },
 ];
+
+/**
+ * Tak på hur många leads /leads skickar till klienten. Utan gräns blir
+ * payloaden flera megabyte vid några tusen leads, och varje rad renderas
+ * dessutom i webbläsaren. Sökningen går mot databasen, så man kommer åt
+ * allt — men aldrig allt på en gång.
+ */
+export const LEADS_PAGE_SIZE = 250;

@@ -36,7 +36,17 @@ const ACTIVITY_LABELS: Record<string, string> = {
   DEAL_CREATED: "Deal skapad",
 };
 
-export function LeadsTable({ leads, stages }: { leads: LeadWithMeta[]; stages: Stage[] }) {
+export function LeadsTable({
+  leads,
+  stages,
+  total,
+  pageSize,
+}: {
+  leads: LeadWithMeta[];
+  stages: Stage[];
+  total?: number;
+  pageSize?: number;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -69,8 +79,16 @@ export function LeadsTable({ leads, stages }: { leads: LeadWithMeta[]; stages: S
           <h1 className="text-[15px] font-semibold" style={{ color: "var(--text)" }}>Leads</h1>
           <span className="text-[12px] px-2 py-[2px] rounded-full font-medium"
             style={{ background: "var(--accent-muted)", color: "var(--accent)" }}>
-            {leads.length}
+            {(total ?? leads.length).toLocaleString("sv-SE")}
           </span>
+          {/* Träfflistan är kapad — säg det rakt ut i stället för att låtsas
+              att det är alla leads som finns */}
+          {total !== undefined && leads.length < total && (
+            <span className="text-[12px]" style={{ color: "var(--text-dim)" }}>
+              visar {leads.length.toLocaleString("sv-SE")} senast ändrade
+              {pageSize ? "" : ""} — sök för att hitta resten
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -130,14 +148,16 @@ export function LeadsTable({ leads, stages }: { leads: LeadWithMeta[]; stages: S
               </tr>
             </thead>
             <tbody>
-              <AnimatePresence mode="popLayout">
+              {/* popLayout mätte om varje rads position vid varje render —
+                  dyrt när tabellen är lång. Entrén behålls, layoutspårningen
+                  och den staplade fördröjningen bortom de första raderna slopas. */}
+              <>
                 {leads.map((lead, i) => (
                   <motion.tr
                     key={lead.id}
                     initial={{ opacity: 0, y: 4 }}
                     animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.15, delay: Math.min(i * 0.02, 0.3) }}
+                    transition={{ duration: 0.15, delay: Math.min(i * 0.02, 0.2) }}
                     className="group cursor-pointer transition-colors duration-100"
                     style={{ borderBottom: "1px solid var(--border-subtle)" }}
                     onClick={() => router.push(`/leads/${lead.id}`)}
@@ -211,7 +231,7 @@ export function LeadsTable({ leads, stages }: { leads: LeadWithMeta[]; stages: S
                     </td>
                   </motion.tr>
                 ))}
-              </AnimatePresence>
+              </>
             </tbody>
           </table>
         )}

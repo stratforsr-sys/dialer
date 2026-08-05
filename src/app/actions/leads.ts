@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import { visibleLeadWhere } from "@/lib/lists";
+import { LEADS_PAGE_SIZE } from "@/lib/constants";
 import type { Prisma } from "@/generated/prisma/client";
 
 export type LeadWithMeta = Awaited<ReturnType<typeof getLeads>>[number];
@@ -15,6 +16,7 @@ export async function getLeads(filters?: {
   search?: string;
   ownerId?: string;
   includeWithDeals?: boolean; // default false — hides leads with active deals
+  take?: number;
 }) {
   const user = await requireAuth();
 
@@ -47,6 +49,7 @@ export async function getLeads(filters?: {
   return db.lead.findMany({
     where: { AND: and },
     orderBy: { updatedAt: "desc" },
+    take: filters?.take ?? LEADS_PAGE_SIZE,
     include: {
       owner: { select: { id: true, name: true } },
       _count: { select: { contacts: true, deals: true } },
@@ -57,6 +60,34 @@ export async function getLeads(filters?: {
       },
     },
   });
+}
+
+/** Hur många leads som matchar filtret totalt — driver "visar X av Y". */
+export async function countLeads(filters?: {
+  search?: string;
+  ownerId?: string;
+  includeWithDeals?: boolean;
+}) {
+  const user = await requireAuth();
+
+  const and: Prisma.LeadWhereInput[] = [visibleLeadWhere(user)];
+
+  if (user.role === "ADMIN" && filters?.ownerId) {
+    and.push({ ownerId: filters.ownerId });
+  }
+  if (!filters?.includeWithDeals) {
+    and.push({ hasActiveDeal: false });
+  }
+  if (filters?.search) {
+    and.push({
+      OR: [
+        { companyName: { contains: filters.search } },
+        { orgNumber: { contains: filters.search } },
+      ],
+    });
+  }
+
+  return db.lead.count({ where: { AND: and } });
 }
 
 export async function getLead(id: string) {

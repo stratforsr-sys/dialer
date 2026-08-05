@@ -61,6 +61,8 @@ model Lead {
   lists      LeadOnList[]
 
   @@index([claimedAt])
+  @@index([ownerId])
+  @@index([hasActiveDeal, updatedAt])
 }
 
 model Contact {
@@ -79,6 +81,8 @@ model Contact {
   lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
   activities Activity[]
+
+  @@index([leadId])
 }
 
 // ==================== RINGLISTOR (mappar) ====================
@@ -103,6 +107,7 @@ model CallList {
   access ListAccess[]
 
   @@index([archived, createdAt])
+  @@index([createdById])
 }
 
 /// Ett lead kan ligga i flera mappar samtidigt — samma bolag som dyker upp i
@@ -172,6 +177,10 @@ model Deal {
   createdBy   User          @relation("DealCreatedBy", fields: [createdById], references: [id])
 
   products    DealProduct[]
+
+  @@index([leadId])
+  @@index([stageId, status])
+  @@index([createdById])
 }
 
 enum DealStatus {
@@ -213,6 +222,9 @@ model DealProduct {
 
   productId String?
   product   Product? @relation(fields: [productId], references: [id])
+
+  @@index([dealId])
+  @@index([productId])
 }
 
 // ==================== ACTIVITY LOG ====================
@@ -234,6 +246,7 @@ model Activity {
 
   @@index([leadId, timestamp])
   @@index([actorId, timestamp])
+  @@index([contactId])
 }
 
 enum ActivityType {
@@ -276,6 +289,8 @@ model Meeting {
 
   @@index([scheduledAt])
   @@index([outcome, scheduledAt])
+  @@index([leadId])
+  @@index([bookedById])
 }
 
 enum MeetingOutcome {
@@ -332,4 +347,5 @@ model TagOnLead {
   tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@id([leadId, tagId])
+  @@index([tagId])
 }
