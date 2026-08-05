@@ -20,10 +20,104 @@ type ImportRow = {
   linkedin?: string;
 };
 
-const BATCH_SIZE = 200;
+type ContactDraft = {
+  name: string;
+  role: string | null;
+  directPhone: string | null;
+  switchboard: string | null;
+  email: string | null;
+  linkedin: string | null;
+};
+
+/** Ett bolag = ett lead, oavsett hur många rader i filen som pekar på det. */
+type CompanyGroup = {
+  orgNumber: string | null;
+  companyName: string;
+  website: string | null;
+  contacts: ContactDraft[];
+};
+
+const BATCH_SIZE = 500;
 
 function sse(data: object) {
   return `data: ${JSON.stringify(data)}\n\n`;
+}
+
+const clean = (v?: string) => v?.trim() || null;
+
+/**
+ * Slår ihop rader som hör till samma bolag.
+ *
+ * Företagsexporter har typiskt en rad per beslutsfattare, så samma
+ * organisationsnummer återkommer flera gånger. Lead.orgNumber är UNIQUE —
+ * skickas dubbletterna vidare kraschar hela importen på en UNIQUE-krock.
+ * Här blir de i stället ett lead med flera kontakter.
+ *
+ * Rader utan org-nummer kan inte slås ihop säkert (två bolag kan heta lika)
+ * och får därför varsin grupp.
+ */
+function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
+  const byOrg = new Map<string, CompanyGroup>();
+  const withoutOrg: CompanyGroup[] = [];
+
+  for (const row of rows) {
+    const companyName = row.companyName?.trim();
+    if (!companyName) continue;
+
+    const orgNumber = clean(row.orgNumber);
+    const contactName = clean(row.contactName);
+
+    const contact: ContactDraft | null = contactName
+      ? {
+          name: contactName,
+          role: clean(row.contactRole),
+          directPhone: clean(row.directPhone),
+          switchboard: clean(row.switchboard),
+          email: clean(row.email),
+          linkedin: clean(row.linkedin),
+        }
+      : null;
+
+    if (!orgNumber) {
+      withoutOrg.push({
+        orgNumber: null,
+        companyName,
+        website: clean(row.website),
+        contacts: contact ? [contact] : [],
+      });
+      continue;
+    }
+
+    const existing = byOrg.get(orgNumber);
+    if (existing) {
+      // Senare rader fyller i luckor men skriver inte över det vi redan har
+      existing.website ??= clean(row.website);
+      if (contact && !hasContact(existing.contacts, contact)) {
+        existing.contacts.push(contact);
+      }
+    } else {
+      byOrg.set(orgNumber, {
+        orgNumber,
+        companyName,
+        website: clean(row.website),
+        contacts: contact ? [contact] : [],
+      });
+    }
+  }
+
+  // Array.from i stället för spread — tsconfig siktar på ES5 och kan inte
+  // iterera en Map direkt
+  return [...Array.from(byOrg.values()), ...withoutOrg];
+}
+
+/** Samma person två gånger i filen ska inte bli två kontakter. */
+function hasContact(list: ContactDraft[], c: ContactDraft): boolean {
+  return list.some(
+    (x) =>
+      (c.email && x.email === c.email) ||
+      (c.directPhone && x.directPhone === c.directPhone) ||
+      (!c.email && !c.directPhone && x.name === c.name)
+  );
 }
 
 export async function POST(req: NextRequest) {
@@ -49,6 +143,7 @@ export async function POST(req: NextRequest) {
   } = await req.json();
 
   const encoder = new TextEncoder();
+  const userId = session.user.id;
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -56,18 +151,26 @@ export async function POST(req: NextRequest) {
         controller.enqueue(encoder.encode(sse(data)));
 
       try {
-        // Filter out blank rows up front
-        const validRows = rows.filter((r) => r.companyName?.trim());
-        const skipped = rows.length - validRows.length;
-        const total = validRows.length;
+        // ── Slå ihop rader per bolag ─────────────────────────────────────────
+        const groups = groupByCompany(rows);
+
+        // Rader utan bolagsnamn hoppas över; rader som delar org-nummer med en
+        // tidigare rad slås ihop. Två olika saker — håll dem isär i statistiken.
+        const skipped = rows.filter((r) => !r.companyName?.trim()).length;
+        const merged = rows.length - skipped - groups.length;
+
+        const total = groups.length;
         let created = 0;
         let updated = 0;
         const errors: string[] = [];
 
-        enqueue({ total, created: 0, updated: 0, skipped, done: 0 });
+        enqueue({ total, created: 0, updated: 0, skipped, merged, done: 0 });
 
         if (total === 0) {
-          enqueue({ complete: true, total, created, updated, skipped, errors, listId: null });
+          enqueue({
+            complete: true, total, created, updated, skipped, merged,
+            errors: ["Filen innehöll inga rader med bolagsnamn"], listId: null,
+          });
           controller.close();
           return;
         }
@@ -78,9 +181,9 @@ export async function POST(req: NextRequest) {
             id: randomUUID(),
             name: (listName?.trim() || sourceFile?.trim() || "Ny lista").slice(0, 120),
             sourceFile: sourceFile?.trim() || null,
-            createdById: session.user.id,
+            createdById: userId,
             access: {
-              create: Array.from(new Set(assigneeIds)).map((userId) => ({ userId })),
+              create: Array.from(new Set(assigneeIds)).map((uid) => ({ userId: uid })),
             },
           },
         });
@@ -104,10 +207,10 @@ export async function POST(req: NextRequest) {
           });
         };
 
-        // ── Pre-load ALL existing leads matching any org number in one query ──
-        const allOrgNumbers = validRows
-          .map((r) => r.orgNumber?.trim())
-          .filter(Boolean) as string[];
+        // ── Hämta befintliga leads för alla org-nummer i ett svep ────────────
+        const allOrgNumbers = groups
+          .map((g) => g.orgNumber)
+          .filter((o): o is string => o !== null);
 
         const existingLeads =
           allOrgNumbers.length > 0
@@ -117,188 +220,172 @@ export async function POST(req: NextRequest) {
                   id: true,
                   orgNumber: true,
                   website: true,
-                  contacts: {
-                    select: {
-                      id: true,
-                      email: true,
-                      directPhone: true,
-                    },
-                  },
+                  contacts: { select: { id: true, name: true, email: true, directPhone: true } },
                 },
               })
             : [];
 
-        // O(1) lookup map: orgNumber → existing lead
-        const existingByOrg = new Map(
-          existingLeads.map((l) => [l.orgNumber!, l])
-        );
+        type ExistingLead = (typeof existingLeads)[number];
+        const existingByOrg = new Map(existingLeads.map((l) => [l.orgNumber!, l]));
 
-        // ── Process in batches ───────────────────────────────────────────────
-        for (let i = 0; i < validRows.length; i += BATCH_SIZE) {
-          const batch = validRows.slice(i, i + BATCH_SIZE);
+        // ── Batchvis bearbetning ─────────────────────────────────────────────
+        for (let i = 0; i < groups.length; i += BATCH_SIZE) {
+          const batch = groups.slice(i, i + BATCH_SIZE);
 
-          type ExistingLead = (typeof existingLeads)[number];
-          const newRows: ImportRow[] = [];
-          const existingRows: { row: ImportRow; lead: ExistingLead }[] = [];
+          const newGroups: CompanyGroup[] = [];
+          const existingGroups: { group: CompanyGroup; lead: ExistingLead }[] = [];
 
-          for (const row of batch) {
-            const orgNum = row.orgNumber?.trim() || null;
-            const existing = orgNum ? existingByOrg.get(orgNum) : null;
-            if (existing) {
-              existingRows.push({ row, lead: existing });
-            } else {
-              newRows.push(row);
-            }
+          for (const group of batch) {
+            const found = group.orgNumber ? existingByOrg.get(group.orgNumber) : undefined;
+            if (found) existingGroups.push({ group, lead: found });
+            else newGroups.push(group);
           }
 
-          // ── NEW LEADS: createMany in 3 queries ──────────────────────────
-          if (newRows.length > 0) {
-            const now = new Date();
+          try {
+            // ── NYA LEADS ───────────────────────────────────────────────────
+            if (newGroups.length > 0) {
+              const now = new Date();
 
-            // Pre-generate IDs so we can link contacts + activities
-            const leadData = newRows.map((row) => ({
-              id: randomUUID(),
-              companyName: row.companyName.trim(),
-              orgNumber: row.orgNumber?.trim() || null,
-              website: row.website?.trim() || null,
-              ownerId: session.user.id,
-              createdAt: now,
-              updatedAt: now,
-            }));
-
-            await db.lead.createMany({ data: leadData });
-
-            // Contacts
-            const contactData = newRows
-              .map((row, idx) =>
-                row.contactName?.trim()
-                  ? {
-                      id: randomUUID(),
-                      leadId: leadData[idx].id,
-                      name: row.contactName.trim(),
-                      role: row.contactRole?.trim() || null,
-                      directPhone: row.directPhone?.trim() || null,
-                      switchboard: row.switchboard?.trim() || null,
-                      email: row.email?.trim() || null,
-                      linkedin: row.linkedin?.trim() || null,
-                      createdAt: now,
-                      updatedAt: now,
-                    }
-                  : null
-              )
-              .filter(Boolean) as Prisma.ContactCreateManyInput[];
-
-            if (contactData.length > 0) {
-              await db.contact.createMany({ data: contactData });
-            }
-
-            // Activities
-            await db.activity.createMany({
-              data: leadData.map((l) => ({
+              const leadData = newGroups.map((g) => ({
                 id: randomUUID(),
-                type: "LEAD_IMPORTED" as const,
-                actorId: session.user.id,
-                leadId: l.id,
-                metadata: JSON.stringify({ action: "created" }),
-              })),
-            });
+                companyName: g.companyName,
+                orgNumber: g.orgNumber,
+                website: g.website,
+                ownerId: userId,
+                createdAt: now,
+                updatedAt: now,
+              }));
 
-            await linkToList(leadData.map((l) => l.id));
+              await db.lead.createMany({ data: leadData });
 
-            created += newRows.length;
-          }
+              const contactData: Prisma.ContactCreateManyInput[] = [];
+              newGroups.forEach((g, idx) => {
+                for (const c of g.contacts) {
+                  contactData.push({
+                    id: randomUUID(),
+                    leadId: leadData[idx].id,
+                    name: c.name,
+                    role: c.role,
+                    directPhone: c.directPhone,
+                    switchboard: c.switchboard,
+                    email: c.email,
+                    linkedin: c.linkedin,
+                    createdAt: now,
+                    updatedAt: now,
+                  });
+                }
+              });
 
-          // ── EXISTING LEADS: parallel updates ────────────────────────────
-          if (existingRows.length > 0) {
-            // Update lead data in parallel
-            await Promise.all(
-              existingRows.map(({ row, lead }) =>
-                db.lead.update({
-                  where: { id: lead.id },
-                  data: {
-                    companyName: row.companyName.trim(),
-                    website: row.website?.trim() || lead.website,
-                  },
-                })
-              )
-            );
+              if (contactData.length > 0) {
+                await db.contact.createMany({ data: contactData });
+              }
 
-            // Handle contacts: update existing match, create new ones
-            const contactCreates: Prisma.ContactCreateManyInput[] = [];
-            const contactUpdates: Promise<unknown>[] = [];
-            const now = new Date();
+              await db.activity.createMany({
+                data: leadData.map((l) => ({
+                  id: randomUUID(),
+                  type: "LEAD_IMPORTED" as const,
+                  actorId: userId,
+                  leadId: l.id,
+                  metadata: JSON.stringify({ action: "created" }),
+                })),
+              });
 
-            for (const { row, lead } of existingRows) {
-              if (!row.contactName?.trim()) continue;
+              await linkToList(leadData.map((l) => l.id));
 
-              const match = lead.contacts.find(
-                (c) =>
-                  (row.email && c.email === row.email.trim()) ||
-                  (row.directPhone && c.directPhone === row.directPhone.trim())
-              );
+              // Kommande batchar måste se de här som befintliga, annars
+              // försöker vi skapa samma org-nummer igen
+              newGroups.forEach((g, idx) => {
+                if (!g.orgNumber) return;
+                existingByOrg.set(g.orgNumber, {
+                  id: leadData[idx].id,
+                  orgNumber: g.orgNumber,
+                  website: g.website,
+                  contacts: g.contacts.map((c) => ({
+                    id: "",
+                    name: c.name,
+                    email: c.email,
+                    directPhone: c.directPhone,
+                  })),
+                });
+              });
 
-              if (match) {
-                contactUpdates.push(
-                  db.contact.update({
-                    where: { id: match.id },
+              created += newGroups.length;
+            }
+
+            // ── BEFINTLIGA LEADS ────────────────────────────────────────────
+            if (existingGroups.length > 0) {
+              const now = new Date();
+
+              await Promise.all(
+                existingGroups.map(({ group, lead }) =>
+                  db.lead.update({
+                    where: { id: lead.id },
                     data: {
-                      name: row.contactName.trim(),
-                      role: row.contactRole?.trim() || null,
-                      directPhone: row.directPhone?.trim() || null,
-                      switchboard: row.switchboard?.trim() || null,
-                      email: row.email?.trim() || null,
-                      linkedin: row.linkedin?.trim() || null,
+                      companyName: group.companyName,
+                      website: group.website ?? lead.website,
                     },
                   })
-                );
-              } else {
-                contactCreates.push({
-                  id: randomUUID(),
-                  leadId: lead.id,
-                  name: row.contactName.trim(),
-                  role: row.contactRole?.trim() || null,
-                  directPhone: row.directPhone?.trim() || null,
-                  switchboard: row.switchboard?.trim() || null,
-                  email: row.email?.trim() || null,
-                  linkedin: row.linkedin?.trim() || null,
-                  createdAt: now,
-                  updatedAt: now,
-                });
+                )
+              );
+
+              // Bara kontakter som inte redan finns på leadet
+              const contactCreates: Prisma.ContactCreateManyInput[] = [];
+              for (const { group, lead } of existingGroups) {
+                for (const c of group.contacts) {
+                  const match = lead.contacts.find(
+                    (x) =>
+                      (c.email && x.email === c.email) ||
+                      (c.directPhone && x.directPhone === c.directPhone)
+                  );
+                  if (match) continue;
+                  contactCreates.push({
+                    id: randomUUID(),
+                    leadId: lead.id,
+                    name: c.name,
+                    role: c.role,
+                    directPhone: c.directPhone,
+                    switchboard: c.switchboard,
+                    email: c.email,
+                    linkedin: c.linkedin,
+                    createdAt: now,
+                    updatedAt: now,
+                  });
+                }
               }
+
+              if (contactCreates.length > 0) {
+                await db.contact.createMany({ data: contactCreates });
+              }
+
+              await db.activity.createMany({
+                data: existingGroups.map(({ lead }) => ({
+                  id: randomUUID(),
+                  type: "LEAD_IMPORTED" as const,
+                  actorId: userId,
+                  leadId: lead.id,
+                  metadata: JSON.stringify({ action: "updated" }),
+                })),
+              });
+
+              await linkToList(existingGroups.map(({ lead }) => lead.id));
+
+              updated += existingGroups.length;
             }
-
-            await Promise.all([
-              ...contactUpdates,
-              contactCreates.length > 0
-                ? db.contact.createMany({ data: contactCreates })
-                : Promise.resolve(),
-            ]);
-
-            // Activities in bulk
-            await db.activity.createMany({
-              data: existingRows.map(({ lead }) => ({
-                id: randomUUID(),
-                type: "LEAD_IMPORTED" as const,
-                actorId: session.user.id,
-                leadId: lead.id,
-                metadata: JSON.stringify({ action: "updated" }),
-              })),
-            });
-
-            // Redan befintliga bolag länkas också in i den nya mappen —
-            // samma lead-rad kan ligga i flera mappar samtidigt.
-            await linkToList(existingRows.map(({ lead }) => lead.id));
-
-            updated += existingRows.length;
+          } catch (batchErr) {
+            // En trasig batch ska inte döda hela importen — logga och fortsätt
+            errors.push(
+              `Rad ${i + 1}–${i + batch.length}: ${
+                batchErr instanceof Error ? batchErr.message : "okänt fel"
+              }`
+            );
           }
 
-          // Stream progress after each batch
           const done = Math.min(i + BATCH_SIZE, total);
-          enqueue({ total, created, updated, skipped, done, errors: errors.slice(0, 10) });
+          enqueue({ total, created, updated, skipped, merged, done, errors: errors.slice(0, 10) });
         }
 
         enqueue({
-          complete: true, total, created, updated, skipped, errors,
+          complete: true, total, created, updated, skipped, merged, errors,
           listId: list.id, listName: list.name,
         });
       } catch (err) {

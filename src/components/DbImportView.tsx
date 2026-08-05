@@ -17,6 +17,8 @@ type ProgressState = {
   created: number;
   updated: number;
   skipped: number;
+  /** Rader som slogs ihop med en tidigare rad för samma org-nummer */
+  merged?: number;
   errors: string[];
   listId?: string | null;
   listName?: string;
@@ -135,6 +137,7 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let finished = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -146,23 +149,44 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
 
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
+
+          // Parsningen får misslyckas tyst (halva chunkar är normalt) — men
+          // ett serverfel MÅSTE ta sig ut. Tidigare kastades det inuti det
+          // här try-blocket och sväljdes som "malformed chunk".
+          let data: ProgressState & { complete?: boolean; error?: string };
           try {
-            const data = JSON.parse(line.slice(6));
-            if (data.complete) {
-              setProgress(data);
-              setStep("done");
-              return;
-            }
-            if (data.error) throw new Error(data.error);
-            setProgress(data);
+            data = JSON.parse(line.slice(6));
           } catch {
-            // malformed chunk — ignore
+            continue; // ofullständig chunk — nästa läsning kompletterar den
           }
+
+          if (data.error) throw new Error(data.error);
+
+          if (data.complete) {
+            setProgress(data);
+            setStep("done");
+            finished = true;
+            return;
+          }
+
+          setProgress(data);
         }
+      }
+
+      // Strömmen tog slut utan klart-signal — servern dog, timade ut eller
+      // kapades av proxyn. Utan det här blev UI:t stående på "Importerar…".
+      if (!finished) {
+        throw new Error(
+          "Servern avbröt importen innan den blev klar. Kolla om några leads kom in i mappen och kör resten igen."
+        );
       }
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
-        setProgress((p) => p ? { ...p, errors: [(err as Error).message] } : null);
+        setProgress((p) =>
+          p
+            ? { ...p, errors: [...(p.errors ?? []), (err as Error).message] }
+            : { total: 0, done: 0, created: 0, updated: 0, skipped: 0, errors: [(err as Error).message] }
+        );
         setStep("done");
       }
     }
@@ -468,7 +492,21 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                 style={{ background: "var(--success-bg)", border: "1px solid var(--success-border)" }}>
                 <Check size={28} style={{ color: "var(--success)" }} />
               </div>
-              <h2 className="text-[26px] mb-6" style={{ color: "var(--text)" }}>Import klar</h2>
+              <h2 className="text-[26px] mb-2" style={{ color: "var(--text)" }}>
+                {progress.errors.length > 0 && progress.created === 0 && progress.updated === 0
+                  ? "Importen misslyckades"
+                  : "Import klar"}
+              </h2>
+
+              {/* Sammanslagning är inte databortfall — förklara den */}
+              {(progress.merged ?? 0) > 0 && (
+                <p className="text-[13px] mb-6" style={{ color: "var(--text-muted)" }}>
+                  {progress.merged!.toLocaleString("sv-SE")} rader delade org-nummer med en
+                  annan rad och slogs ihop till samma bolag, med kontaktpersonerna samlade
+                  på ett lead.
+                </p>
+              )}
+              {!(progress.merged ?? 0) && <div className="mb-6" />}
 
               <div className="grid grid-cols-3 gap-3 mb-6">
                 {[
