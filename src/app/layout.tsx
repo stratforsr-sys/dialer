@@ -27,7 +27,7 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Sales Hub — Techgruppen",
+  title: "Sales Dialer - Clicknet",
   description: "Engineering-grade sales intelligence platform",
 };
 
