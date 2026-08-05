@@ -4,15 +4,16 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
-  Users, LayoutGrid, Phone, Upload, BarChart2, ShieldCheck, LogOut, Zap, Search,
+  Users, LayoutGrid, Upload, BarChart2, ShieldCheck, LogOut, Zap, Search,
   FolderOpen,
 } from "lucide-react";
 
+// Dialern har medvetet ingen egen meny-ingång: man ringer alltid inifrån en
+// ringlista, via "Starta dialer". /cockpit utan listId skickar till /lists.
 const NAV = [
   { href: "/lists",    label: "Ringlistor", icon: FolderOpen },
   { href: "/leads",    label: "Leads",     icon: Users },
   { href: "/pipeline", label: "Pipeline",  icon: LayoutGrid },
-  { href: "/cockpit",  label: "Cockpit",   icon: Phone },
   { href: "/research", label: "Research",  icon: Search },
   { href: "/import",   label: "Importera", icon: Upload },
   { href: "/stats",    label: "Statistik", icon: BarChart2 },

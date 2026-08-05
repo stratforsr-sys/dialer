@@ -22,6 +22,10 @@ export default async function CockpitPage({
   const { listId, leadId } = await searchParams;
   const user = await requireAuth();
 
+  // Dialern körs alltid mot en ringlista. Utan listId finns ingen kö att ringa,
+  // så skicka användaren till listvyn för att välja mapp först.
+  if (!listId) redirect("/lists");
+
   // Man ringer bara leads som är LEDIGA eller redan låsta till en själv —
   // andras aktiva claims dyker aldrig upp i dialern.
   const dialable = { OR: [freeLeadWhere(), { ownerId: user.id }] };
@@ -41,22 +45,20 @@ export default async function CockpitPage({
   // Åtkomstkontrollen ligger i mappfrågan: hittas ingen mapp har användaren
   // antingen fel id eller saknar behörighet, och vi skickar dem till /lists.
   const [list, leads, stages, focusLead] = await Promise.all([
-    listId
-      ? db.callList.findFirst({
-          where: {
-            id: listId,
-            ...(user.role === "ADMIN" ? {} : { access: { some: { userId: user.id } } }),
-          },
-          select: { name: true },
-        })
-      : Promise.resolve(null),
+    db.callList.findFirst({
+      where: {
+        id: listId,
+        ...(user.role === "ADMIN" ? {} : { access: { some: { userId: user.id } } }),
+      },
+      select: { name: true },
+    }),
 
     db.lead.findMany({
       where: {
         AND: [
           visibleLeadWhere(user),
           dialable,
-          listId ? { lists: { some: { listId } } } : {},
+          { lists: { some: { listId } } },
           { contacts: { some: {} }, hasActiveDeal: false },
         ],
       },
@@ -80,8 +82,9 @@ export default async function CockpitPage({
       : Promise.resolve(null),
   ]);
 
-  if (listId && !list) redirect("/lists");
-  const listName = list?.name ?? null;
+  // Ingen mapp hittad = fel id eller ingen behörighet. Samma svar i båda fallen,
+  // så vi inte avslöjar att mappen existerar.
+  if (!list) redirect("/lists");
 
   // Startade man från en specifik rad ska den ligga först i kön
   const ordered = focusLead
@@ -93,8 +96,8 @@ export default async function CockpitPage({
       leads={ordered}
       userId={user.id}
       stages={stages}
-      listId={listId ?? null}
-      listName={listName}
+      listId={listId}
+      listName={list.name}
     />
   );
 }
