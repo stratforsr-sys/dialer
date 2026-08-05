@@ -1,101 +1,53 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useTransition } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Phone, Globe, Linkedin, ChevronLeft, ChevronRight,
-  ExternalLink, Mail, ArrowLeft, SkipForward, Clock,
-  Building2, Zap, X, AlertTriangle, Copy, Check, TrendingUp,
+  Phone, Globe, Linkedin, ChevronLeft, ChevronRight, ExternalLink, Mail,
+  ArrowLeft, SkipForward, Clock, Building2, Zap, X, AlertTriangle, Copy,
+  Check, TrendingUp, Loader2, CalendarClock,
 } from "lucide-react";
-import { logCall, createNote } from "@/app/actions/activities";
-import { startSession, endSession, logCallEvent } from "@/app/actions/sessions";
-import { claimLead } from "@/app/actions/lists";
+import { startSession, endSession } from "@/app/actions/sessions";
+import { leaseNextLeads, releaseLeases } from "@/app/actions/dialer";
+import { heartbeat, goOffline } from "@/app/actions/presence";
 import { CreateDealModal } from "@/components/deals/CreateDealModal";
+import { DispositionBar } from "@/components/cockpit/DispositionBar";
+import { GatekeeperPanel, EMPTY_GATEKEEPER, type GatekeeperDraft } from "@/components/cockpit/GatekeeperPanel";
+import { FrameworkGuide, FrameworkTap } from "@/components/cockpit/FrameworkPanel";
+import { ScriptPanel } from "@/components/cockpit/ScriptPanel";
+import { useDispositionQueue } from "@/hooks/useDispositionQueue";
+import { formatSwedish } from "@/lib/phone";
+import {
+  RESULT_OPTIONS, GATEKEEPER_OPTIONS, OUTCOME_OPTIONS, REASON_OPTIONS,
+  INITIAL_FLOW, stageAfterResult, stageAfterOutcome, shouldAskFramework,
+  type FlowState,
+} from "@/lib/cockpit-flow";
+import type {
+  CallResult, ConversationOutcome, NoReason, FrameworkStep,
+} from "@/generated/prisma/client";
 
-type Contact = {
-  id: string;
-  name: string;
-  role: string | null;
-  directPhone: string | null;
-  switchboard: string | null;
-  email: string | null;
-  linkedin: string | null;
-};
-
-type Lead = {
-  id: string;
-  companyName: string;
-  website: string | null;
-  contacts: Contact[];
-  activities: { timestamp: Date }[];
-};
-
+type LeasedLead = Awaited<ReturnType<typeof leaseNextLeads>>[number];
 type Stage = { id: string; name: string; color: string };
-
+type Slot = { id: string; name: string; startMinute: number; endMinute: number };
 type DrawerTab = "website" | "linkedin" | null;
 
-const STATUS_BUTTONS = [
-  { key: "1", label: "Svarar ej",      status: "svarar_ej",  color: "#6B7280", shortcut: "1" },
-  { key: "2", label: "Upptagett",      status: "upptagett",  color: "#F59E0B", shortcut: "2" },
-  { key: "3", label: "Återsamtal",     status: "atersam",    color: "#3B82F6", shortcut: "3" },
-  { key: "4", label: "Ej intresserad", status: "nej_tack",   color: "#EF4444", shortcut: "4" },
-  { key: "5", label: "Möte bokat",     status: "bokat_mote", color: "#10B981", shortcut: "5" },
-] as const;
-
-// ─── Best-time indicator ──────────────────────────────────────────────────────
-function getBestTime(role: string | undefined): { color: string; tip: string } {
-  const h = new Date().getHours();
-  const r = (role ?? "").toLowerCase();
-  if (r.includes("vd") || r.includes("ceo") || r.includes("grundare") || r.includes("founder")) {
-    if ((h >= 8 && h < 9) || (h >= 16 && h < 17)) return { color: "#22c55e", tip: "VD:ar nås bäst kl 08–09 & 16–17" };
-    if (h >= 12 && h < 14) return { color: "#ef4444", tip: "Lunchtid — troligen otillgänglig" };
-    return { color: "#f59e0b", tip: "Kan vara i möte" };
-  }
-  if (r.includes("sales") || r.includes("säljare") || r.includes("account")) {
-    if (h >= 14 && h < 16) return { color: "#22c55e", tip: "Säljare nås bäst kl 14–16" };
-    if (h >= 9 && h < 12) return { color: "#ef4444", tip: "Ofta ute på kundmöten" };
-    return { color: "#f59e0b", tip: "Kan vara på kundmöte" };
-  }
-  if ((h >= 10 && h < 12) || (h >= 14 && h < 16)) return { color: "#22c55e", tip: "Generellt bra tid att ringa" };
-  if (h >= 12 && h < 13) return { color: "#ef4444", tip: "Lunchtid" };
-  return { color: "#f59e0b", tip: "Okänd tid" };
-}
-
-function BestTimeIndicator({ role }: { role: string | null }) {
-  const [show, setShow] = useState(false);
-  const { color, tip } = getBestTime(role ?? undefined);
-  return (
-    <div className="relative inline-flex items-center" onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
-      <span className="w-[7px] h-[7px] rounded-full cursor-default" style={{ background: color, boxShadow: `0 0 0 2px ${color}28` }} />
-      <AnimatePresence>
-        {show && (
-          <motion.div
-            initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}
-            transition={{ duration: 0.12 }}
-            className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-[11px] font-medium rounded-[6px] whitespace-nowrap z-20 pointer-events-none"
-            style={{ background: "var(--text)", color: "var(--bg)", boxShadow: "var(--shadow-md)" }}
-          >
-            {tip}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-// ─── Iframe with X-Frame fallback ─────────────────────────────────────────────
+// ─── Iframe med fallback ──────────────────────────────────────────────────────
 function IframePanel({ src, label, fallbackHref }: { src: string; label: string; fallbackHref: string }) {
   const [failed, setFailed] = useState(false);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const handleLoad = useCallback(() => {
-    setTimeout(() => {
-      try {
-        const doc = iframeRef.current?.contentDocument;
-        if (!doc || doc.body.innerHTML === "") setFailed(true);
-      } catch { setFailed(true); }
-    }, 600);
-  }, []);
+  const loadedRef = useRef(false);
+
+  // Cross-origin går contentDocument aldrig att läsa — den gamla koden försökte
+  // och fick alltid ett kast, vilket gjorde att fallbacken visades för varje
+  // sajt. Enda signal vi faktiskt har är om load fyrar: en sida som blockeras
+  // av X-Frame-Options eller CSP fyrar aldrig.
+  useEffect(() => {
+    loadedRef.current = false;
+    setFailed(false);
+    const t = setTimeout(() => { if (!loadedRef.current) setFailed(true); }, 4000);
+    return () => clearTimeout(t);
+  }, [src]);
+
   if (failed) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4" style={{ background: "var(--surface-inset)" }}>
@@ -115,9 +67,19 @@ function IframePanel({ src, label, fallbackHref }: { src: string; label: string;
     );
   }
   return (
-    <iframe ref={iframeRef} src={src} className="w-full h-full border-0" title={label}
-      onLoad={handleLoad} onError={() => setFailed(true)}
-      sandbox="allow-scripts allow-same-origin allow-forms allow-popups" />
+    <iframe
+      src={src}
+      className="w-full h-full border-0"
+      title={label}
+      onLoad={() => { loadedRef.current = true; }}
+      onError={() => setFailed(true)}
+      // allow-same-origin borttaget: prospektets sajt behöver ingen tillgång
+      // till sitt eget origin här, och kombinationen med allow-scripts är ren
+      // attackyta. no-referrer hindrar att lead-id:t läcker till dem.
+      sandbox="allow-scripts allow-forms allow-popups"
+      referrerPolicy="no-referrer"
+      allow=""
+    />
   );
 }
 
@@ -144,9 +106,7 @@ function EmailRow({ email }: { email: string }) {
       <button onClick={copy} title="Kopiera e-post"
         className="w-7 h-7 flex items-center justify-center rounded-[7px] transition-all shrink-0"
         style={{ background: copied ? "var(--success-bg)" : "var(--surface)", border: `1px solid ${copied ? "var(--success-border)" : "var(--border-strong)"}` }}>
-        {copied
-          ? <Check size={12} style={{ color: "var(--success)" }} />
-          : <Copy size={12} style={{ color: "var(--text-muted)" }} />}
+        {copied ? <Check size={12} style={{ color: "var(--success)" }} /> : <Copy size={12} style={{ color: "var(--text-muted)" }} />}
       </button>
     </div>
   );
@@ -157,26 +117,155 @@ function formatIdle(s: number) {
   return `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
+/** Pitch-underlaget. Renderas bara för påståenden som faktiskt finns. */
+function PitchPanel({ dossier }: { dossier: LeasedLead["dossier"] }) {
+  if (!dossier || dossier.claims.length === 0) return null;
+
+  // Två grindar, inte en.
+  //
+  // Konfidens: ett osäkert påstående på ett skarpt samtal är värre än inget
+  // påstående alls — en säljare som har fel en gång slutar lita på verktyget.
+  //
+  // Säljstyrka: en körning mot riktiga leads visade att de vanligaste
+  // bristerna också är de tråkigaste. Utan den här filtreringen läser
+  // säljaren upp "ni saknar schema.org-markup" till en rörmokare.
+  //
+  // Högst tre punkter. Fler läser ingen medan telefonen ringer.
+  const shown = dossier.claims
+    .filter((c) => c.weakness && c.confidence >= 60 && c.strength >= 3)
+    .slice(0, 3);
+  if (shown.length === 0) return null;
+
+  const age = dossier.fetchedAt
+    ? Math.floor((Date.now() - new Date(dossier.fetchedAt).getTime()) / 86_400_000)
+    : null;
+
+  return (
+    <div className="rounded-[14px] p-3.5 mb-3"
+      style={{ background: "var(--warning-bg)", border: "1px solid var(--warning-border)" }}>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--warning)" }}>
+          Underlag
+        </p>
+        {age !== null && age > 14 && (
+          <span className="text-[10px]" style={{ color: "var(--text-dim)" }}>
+            mätt {age} dagar sedan
+          </span>
+        )}
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {shown.map((c) => (
+          <div key={c.key} className="flex items-start gap-2">
+            <span className="text-[13px] leading-tight shrink-0" style={{ color: "var(--warning)" }}>❗</span>
+            <p className="text-[12.5px] leading-snug" style={{ color: "var(--text)" }}>
+              {claimSentence(c)}
+              {c.sourceUrl && (
+                <a href={c.sourceUrl} target="_blank" rel="noopener noreferrer"
+                  className="ml-1.5 inline-flex" title="Öppna källan">
+                  <ExternalLink size={10} style={{ color: "var(--text-dim)" }} />
+                </a>
+              )}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Formulering per uppgiftstyp. Säljaren ska aldrig läsa en rå nyckel. */
+function claimSentence(c: LeasedLead["dossier"] extends { claims: (infer C)[] } | null ? C : never): string {
+  const v = c.valueStr ?? (c.valueNum !== null ? String(c.valueNum) : c.valueBool === false ? "nej" : "ja");
+  const sec = (ms: number) => (ms / 1000).toFixed(1).replace(".", ",");
+
+  switch (c.key) {
+    // ── Starkast ────────────────────────────────────────────────────────
+    case "tech.hasWebsite":
+      return "Bolaget har ingen hemsida alls";
+    case "tech.siteReachable":
+      // Formulerat som iakttagelse, inte som fastslaget faktum. Servern kan
+      // ha varit nere just när vi mätte, och en säljare som påstår att en
+      // fungerande sajt är död har förlorat samtalet.
+      return v === "svarar inte"
+        ? "Hemsidan svarade inte när vi kollade — verkar ligga nere"
+        : `Hemsidan svarar med felkod (${v})`;
+    case "tech.hasSSL":
+      return "Sajten saknar HTTPS — Chrome visar besökarna “Inte säker”";
+    case "tech.mobileFriendly":
+      return "Sajten är inte byggd för mobil";
+    case "tech.title":
+      return v && v !== "ja"
+        ? `Rubriken Google visar för dem är “${v}”`
+        : "Sidan saknar rubrik helt — Google har inget att visa";
+
+    // ── Stödjande ───────────────────────────────────────────────────────
+    case "tech.hasMetaDescription":
+      return "Ingen beskrivningstext under Google-träffen";
+    case "tech.wordpressVersion":
+      return `Sajten skyltar publikt med WordPress ${v} — en säkerhetsrisk`;
+    case "tech.copyrightYear":
+      return `Sidfoten säger fortfarande ${v}`;
+    case "tech.hasAnalytics":
+      return "Ingen besöksmätning — de vet inte hur många som hittar dem";
+    case "tech.hasLocalBusinessSchema":
+      return "Saknar företagsdata som Google läser för lokala sökningar";
+    case "tech.ttfbMs":
+      return `Servern svarar på ${sec(Number(c.valueNum))}s`;
+    case "tech.pageBytes":
+      return `Startsidan väger ${(Number(c.valueNum) / 1_000_000).toFixed(1)} MB`;
+
+    // ── Hastighet ───────────────────────────────────────────────────────
+    case "pagespeed.fieldLcp":
+      return `Riktiga besökare väntar ${sec(Number(c.valueNum))}s innan sidan syns`;
+    case "pagespeed.mobileLcp":
+      return `Googles eget hastighetstest ger sidan ${sec(Number(c.valueNum))}s i mobilen`;
+    case "pagespeed.mobileScore":
+      return `Googles hastighetsbetyg är ${v} av 100`;
+
+    // ── Google-profil och rank (kräver betald data) ─────────────────────
+    case "gmb.reviewCount":
+      return `${v} recensioner på Google`;
+    case "gmb.newestReview":
+      return `Senaste recensionen är från ${v}`;
+    case "seo.rank":
+      return `Plats ${v} på sökningen`;
+    case "seo.keyword":
+      return `Sökord: ${v}`;
+    case "seo.competitor":
+      return `${v} ligger före dem i sökresultatet`;
+
+    default:
+      return `${c.key}: ${v}`;
+  }
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export function CockpitDb({
-  leads,
+  initialLeads,
   userId,
   stages,
-  listId = null,
-  listName = null,
+  listId,
+  listName,
+  leaseMinutes,
+  slots,
 }: {
-  leads: Lead[];
+  initialLeads: LeasedLead[];
   userId: string;
   stages: Stage[];
-  listId?: string | null;
-  listName?: string | null;
+  listId: string;
+  listName: string;
+  leaseMinutes: number;
+  slots: Slot[];
 }) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const queue = useDispositionQueue();
+
+  const [leads, setLeads] = useState<LeasedLead[]>(initialLeads);
   const [index, setIndex] = useState(0);
   const [contactIndex, setContactIndex] = useState(0);
-  const [skipped, setSkipped] = useState<Set<string>>(new Set());
-  const [claimWarning, setClaimWarning] = useState<string | null>(null);
+  const [refilling, setRefilling] = useState(false);
+  const [exhausted, setExhausted] = useState(false);
+
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [totalCalls, setTotalCalls] = useState(0);
   const [idleSeconds, setIdleSeconds] = useState(0);
@@ -185,197 +274,388 @@ export function CockpitDb({
   const [notes, setNotes] = useState("");
   const [showDealModal, setShowDealModal] = useState(false);
 
-  const activeLeads = leads.filter((l) => !skipped.has(l.id));
-  const lead = activeLeads[index] ?? null;
+  const [flow, setFlow] = useState<FlowState>(INITIAL_FLOW);
+  const [gk, setGk] = useState<GatekeeperDraft>(EMPTY_GATEKEEPER);
+  const [callbackAt, setCallbackAt] = useState<string>("");
+  const [askCallback, setAskCallback] = useState(false);
+  const [endedAtStep, setEndedAtStep] = useState<FrameworkStep | null>(null);
+  const [closeAttempts, setCloseAttempts] = useState(0);
+  const [objections, setObjections] = useState<string[]>([]);
+
+  const lead = leads[index] ?? null;
   const contact = lead?.contacts[contactIndex] ?? null;
+  const remaining = leads.length - index;
 
-  // Clear notes when lead changes
-  const leadId = lead?.id;
-  useEffect(() => { setNotes(""); }, [leadId]);
+  // ── Refs för värden som cleanup och tangentbord behöver färska ──────────
+  const sessionIdRef = useRef<string | null>(null);
+  const totalCallsRef = useRef(0);
+  const totalIdleRef = useRef(0);
+  const leadsRef = useRef<LeasedLead[]>(initialLeads);
+  const indexRef = useRef(0);
+  sessionIdRef.current = sessionId;
+  totalCallsRef.current = totalCalls;
+  totalIdleRef.current = totalIdleSeconds;
+  leadsRef.current = leads;
+  indexRef.current = index;
 
-  // Always-fresh ref for handleStatus (avoids stale closure in keyboard handler)
-  const handleStatusRef = useRef<(status: string, label: string) => void>(() => {});
-
-  // Session
+  // ── Session ────────────────────────────────────────────────────────────
+  // Den gamla koden hade cleanupen stängd över sessionId från FÖRSTA
+  // renderingen, då det fortfarande var null — så endSession anropades aldrig
+  // och varje CallSession i databasen saknade endedAt.
   useEffect(() => {
-    startSession().then((s) => setSessionId(s.id));
-    return () => { if (sessionId) endSession(sessionId, totalCalls, totalIdleSeconds); };
+    let cancelled = false;
+    startSession().then((s) => {
+      if (cancelled) { void endSession(s.id, 0, 0); return; }
+      setSessionId(s.id);
+    });
+
+    function flush() {
+      const id = sessionIdRef.current;
+      if (id) void endSession(id, totalCallsRef.current, totalIdleRef.current);
+      void goOffline();
+      // Leads vi inte hann med lämnas tillbaka direkt i stället för att ligga
+      // låsta tills leasen går ut.
+      const rest = leadsRef.current.slice(indexRef.current).map((l) => l.id);
+      if (rest.length > 0) void releaseLeases(rest);
+    }
+
+    window.addEventListener("pagehide", flush);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("pagehide", flush);
+      flush();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Idle timer
+  // ── Idle-timer ─────────────────────────────────────────────────────────
   useEffect(() => {
     const t = setInterval(() => setIdleSeconds((s) => s + 1), 1000);
     return () => clearInterval(t);
   }, []);
 
-  // Claim-varningen försvinner av sig själv
+  // ── Närvaro ────────────────────────────────────────────────────────────
+  const pendingCallsRef = useRef(0);
+  const pendingMeetingsRef = useRef(0);
+
   useEffect(() => {
-    if (!claimWarning) return;
-    const t = setTimeout(() => setClaimWarning(null), 5000);
-    return () => clearTimeout(t);
-  }, [claimWarning]);
+    function beat() {
+      const calls = pendingCallsRef.current;
+      const meetings = pendingMeetingsRef.current;
+      pendingCallsRef.current = 0;
+      pendingMeetingsRef.current = 0;
+      const current = leadsRef.current[indexRef.current];
+      void heartbeat({
+        status: "DIALING",
+        leadId: current?.id ?? null,
+        companyName: current?.companyName ?? null,
+        listId,
+        listName,
+        sessionId: sessionIdRef.current,
+        callsDelta: calls,
+        meetingsDelta: meetings,
+      });
+    }
+    beat();
+    const t = setInterval(beat, 15_000);
+    return () => clearInterval(t);
+  }, [listId, listName]);
 
-  const exitHref = listId ? `/lists/${listId}` : "/leads";
+  // ── Påfyllning ─────────────────────────────────────────────────────────
+  const refill = useCallback(async () => {
+    if (refilling || exhausted) return;
+    setRefilling(true);
+    try {
+      const more = await leaseNextLeads(listId);
+      if (more.length === 0) {
+        setExhausted(true);
+      } else {
+        setLeads((prev) => {
+          const seen = new Set(prev.map((l) => l.id));
+          return [...prev, ...more.filter((m) => !seen.has(m.id))];
+        });
+      }
+    } finally {
+      setRefilling(false);
+    }
+  }, [listId, refilling, exhausted]);
 
-  // Stable nav callbacks — FIX for stale closure navigation bug
-  const nextLead = useCallback(() => {
-    setIndex((i) => Math.min(i + 1, activeLeads.length - 1));
+  useEffect(() => {
+    if (remaining <= 5 && !exhausted) void refill();
+  }, [remaining, exhausted, refill]);
+
+  // Leasen går ut efter en stund — förnya innan den gör det, annars kan någon
+  // annan ta leads som ligger kvar i kön här.
+  useEffect(() => {
+    const t = setInterval(() => { void refill(); }, Math.max(60_000, (leaseMinutes - 3) * 60_000));
+    return () => clearInterval(t);
+  }, [refill, leaseMinutes]);
+
+  // ── Navigering ─────────────────────────────────────────────────────────
+  const resetFlow = useCallback(() => {
+    setFlow(INITIAL_FLOW);
+    setGk(EMPTY_GATEKEEPER);
+    setCallbackAt("");
+    setAskCallback(false);
+    setEndedAtStep(null);
+    setCloseAttempts(0);
+    setObjections([]);
+    setNotes("");
+  }, []);
+
+  const advance = useCallback(() => {
+    setIndex((i) => i + 1);
     setContactIndex(0);
     setIdleSeconds(0);
-  }, [activeLeads.length]);
+    resetFlow();
+  }, [resetFlow]);
 
   const prevLead = useCallback(() => {
     setIndex((i) => Math.max(i - 1, 0));
     setContactIndex(0);
-  }, []);
+    resetFlow();
+  }, [resetFlow]);
 
   const skipLead = useCallback(() => {
-    setSkipped((s) => new Set(Array.from(s).concat(activeLeads[index]?.id ?? "")));
-    setContactIndex(0);
-  }, [activeLeads, index]);
+    const target = leadsRef.current[indexRef.current];
+    if (target) void releaseLeases([target.id]);
+    advance();
+  }, [advance]);
 
-  // Keyboard shortcuts — stable dep array, fresh handleStatus via ref
+  // ── Skrivning ──────────────────────────────────────────────────────────
+  const commit = useCallback(
+    (opts: {
+      result: CallResult;
+      outcome?: ConversationOutcome | null;
+      noReason?: NoReason | null;
+      withGatekeeper?: boolean;
+      withFramework?: boolean;
+    }) => {
+      const target = leadsRef.current[indexRef.current];
+      if (!target) return;
+
+      const idle = idleSeconds;
+      setTotalCalls((n) => n + 1);
+      setTotalIdleSeconds((n) => n + idle);
+      pendingCallsRef.current += 1;
+      if (opts.outcome === "MEETING_BOOKED" || opts.outcome === "SOLD") {
+        pendingMeetingsRef.current += 1;
+      }
+
+      queue.enqueue({
+        idempotencyKey: crypto.randomUUID(),
+        leadId: target.id,
+        companyName: target.companyName,
+        contactId: target.contacts[contactIndex]?.id ?? null,
+        listId,
+        sessionId: sessionIdRef.current,
+        result: opts.result,
+        outcome: opts.outcome ?? null,
+        noReason: opts.noReason ?? null,
+        note: notes.trim() || null,
+        idleBeforeSec: idle,
+        dialedE164: target.contacts[contactIndex]?.directPhoneE164 ?? null,
+        // Vilken manusversion som faktiskt låg på skärmen. Utan den går det
+        // inte att jämföra två formuleringar mot bokningsfrekvens.
+        scriptVersionId:
+          target.scripts.find((s) => s.step === "INTRO" && !s.resolved.empty)?.versionId ??
+          target.scripts.find((s) => !s.resolved.empty)?.versionId ??
+          null,
+        callbackAt: callbackAt ? new Date(callbackAt).toISOString() : null,
+        gatekeeper: opts.withGatekeeper
+          ? {
+              name: gk.name.trim() || null,
+              said: gk.said.trim() || null,
+              dmName: gk.dmName.trim() || null,
+              dmAvailability: gk.dmAvailability.trim() || null,
+              passed: opts.outcome === "GATEKEEPER_TRANSFERRED",
+            }
+          : null,
+        framework: opts.withFramework && endedAtStep
+          ? {
+              furthestStep: endedAtStep,
+              endedAtStep,
+              closeAttempts,
+              objections: objections.map((tag) => ({ tag, atStep: endedAtStep, handled: false })),
+            }
+          : null,
+      });
+
+      // Navigeringen sker synkront — hela poängen med skriv-bakom-kön.
+      advance();
+    },
+    [advance, callbackAt, closeAttempts, contactIndex, endedAtStep, gk, idleSeconds, listId, notes, objections, queue]
+  );
+
+  // ── Flödessteg ─────────────────────────────────────────────────────────
+  const pickResult = useCallback((result: CallResult) => {
+    const next = stageAfterResult(result);
+    if (!next) { commit({ result }); return; }
+    setFlow({ stage: next, result, outcome: null, noReason: null });
+  }, [commit]);
+
+  const pickOutcome = useCallback((outcome: ConversationOutcome) => {
+    const result = flow.result;
+    if (!result) return;
+
+    if (outcome === "CALLBACK_BOOKED") {
+      setFlow((f) => ({ ...f, outcome }));
+      setAskCallback(true);
+      return;
+    }
+
+    const next = stageAfterOutcome(outcome);
+    if (next === "reason") {
+      setFlow((f) => ({ ...f, outcome, stage: "reason" }));
+      return;
+    }
+    commit({ result, outcome, withGatekeeper: flow.stage === "gatekeeper" });
+  }, [commit, flow.result, flow.stage]);
+
+  const pickReason = useCallback((noReason: NoReason) => {
+    const { result, outcome } = flow;
+    if (!result) return;
+    if (shouldAskFramework(result, outcome)) {
+      setFlow((f) => ({ ...f, noReason, stage: "framework" }));
+      setEndedAtStep("AVSLUT");
+      return;
+    }
+    commit({ result, outcome, noReason });
+  }, [commit, flow]);
+
+  const goBack = useCallback(() => {
+    setAskCallback(false);
+    setFlow((f) => {
+      if (f.stage === "reason") return { ...f, stage: "outcome", noReason: null };
+      if (f.stage === "outcome" || f.stage === "gatekeeper") return INITIAL_FLOW;
+      if (f.stage === "framework") return { ...f, stage: "reason" };
+      return f;
+    });
+  }, []);
+
+  // ── Tangentbord ────────────────────────────────────────────────────────
+  const flowRef = useRef(flow);
+  flowRef.current = flow;
+  const handlersRef = useRef({ pickResult, pickOutcome, pickReason, goBack, advance, prevLead, skipLead, commit });
+  handlersRef.current = { pickResult, pickOutcome, pickReason, goBack, advance, prevLead, skipLead, commit };
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      const btn = STATUS_BUTTONS.find((b) => b.shortcut === e.key);
-      if (btn) handleStatusRef.current(btn.status, btn.label);
-      if (e.key === "ArrowRight" || e.key === "n") nextLead();
-      if (e.key === "ArrowLeft"  || e.key === "p") prevLead();
-      if (e.key === "s") skipLead();
-      if (e.key === "Escape") setDrawerTab(null);
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        if (e.key === "Escape") (e.target as HTMLElement).blur();
+        return;
+      }
+      const h = handlersRef.current;
+      const f = flowRef.current;
+
+      if (e.key === "Backspace") { e.preventDefault(); h.goBack(); return; }
+      if (e.key === "Escape") { setDrawerTab(null); return; }
+
+      if (f.stage === "result") {
+        const opt = RESULT_OPTIONS.find((o) => o.key === e.key);
+        if (opt) { e.preventDefault(); h.pickResult(opt.value); return; }
+        if (e.key === "ArrowRight") h.advance();
+        if (e.key === "ArrowLeft") h.prevLead();
+        if (e.key === "s") h.skipLead();
+        return;
+      }
+      if (f.stage === "gatekeeper") {
+        const opt = GATEKEEPER_OPTIONS.find((o) => o.key === e.key);
+        if (opt) { e.preventDefault(); h.pickOutcome(opt.value); }
+        return;
+      }
+      if (f.stage === "outcome") {
+        const opt = OUTCOME_OPTIONS.find((o) => o.key === e.key);
+        if (opt) { e.preventDefault(); h.pickOutcome(opt.value); }
+        return;
+      }
+      if (f.stage === "reason") {
+        const opt = REASON_OPTIONS.find((o) => o.key === e.key);
+        if (opt) { e.preventDefault(); h.pickReason(opt.value); }
+        return;
+      }
+      if (f.stage === "framework" && e.key === "Enter") {
+        e.preventDefault();
+        if (f.result) h.commit({ result: f.result, outcome: f.outcome, noReason: f.noReason, withFramework: true });
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [nextLead, prevLead, skipLead]);
+  }, []);
 
-  function handleStatus(status: string, label: string) {
-    if (!lead || !sessionId) return;
-    const target = lead;
-    const targetContactId = contact?.id ?? null;
-    const idle = idleSeconds;
-    const noteText = notes.trim();
-    setIdleSeconds(0);
-    setTotalCalls((n) => n + 1);
-    setTotalIdleSeconds((n) => n + idle);
-    setNotes("");
+  // ── Härledda värden ────────────────────────────────────────────────────
+  const websiteUrl = useMemo(() => {
+    if (!lead?.website) return null;
+    return lead.website.startsWith("http") ? lead.website : `https://${lead.website}`;
+  }, [lead?.website]);
 
-    startTransition(async () => {
-      // Först till kvarn: låset måste tas innan samtalet loggas. Misslyckas
-      // det har någon annan hunnit före — då loggas ingenting.
-      const claim = await claimLead(target.id);
-      if (!claim.ok) {
-        setTotalCalls((n) => Math.max(0, n - 1));
-        setTotalIdleSeconds((n) => Math.max(0, n - idle));
-        setClaimWarning(
-          claim.reason === "taken"
-            ? `${target.companyName} togs precis av ${claim.by} — samtalet loggades inte.`
-            : `Du har inte längre åtkomst till ${target.companyName}.`
-        );
-        return;
-      }
-      await Promise.all([
-        logCall(target.id, targetContactId, status, noteText || undefined),
-        logCallEvent(sessionId, idle),
-      ]);
-    });
-    setTimeout(() => nextLead(), 300);
-  }
-
-  function handleSaveNote() {
-    if (!lead || !notes.trim()) return;
-    const text = notes.trim();
-    setNotes("");
-    startTransition(async () => {
-      await createNote(lead.id, text, contact?.id ?? undefined);
-    });
-  }
-
-  // Keep ref in sync every render
-  handleStatusRef.current = handleStatus;
-
-  const websiteUrl = lead?.website
-    ? (lead.website.startsWith("http") ? lead.website : `https://${lead.website}`)
-    : null;
   const linkedinUrl = contact?.linkedin
     ? (contact.linkedin.startsWith("http") ? contact.linkedin : `https://${contact.linkedin}`)
     : `https://www.linkedin.com/search/results/all/?keywords=${encodeURIComponent(`${contact?.name ?? ""} ${lead?.companyName ?? ""}`)}`;
 
-  // Empty state
-  if (activeLeads.length === 0) {
+  const currentSlotName = useMemo(() => {
+    const m = new Date().getHours() * 60 + new Date().getMinutes();
+    return slots.find((s) => m >= s.startMinute && m < s.endMinute)?.name ?? null;
+  }, [slots]);
+
+  // ── Tomt läge ──────────────────────────────────────────────────────────
+  if (!lead) {
     return (
       <div className="flex flex-col items-center justify-center h-screen gap-4" style={{ background: "var(--bg)" }}>
         <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: "var(--success-bg)", border: "1px solid var(--success-border)" }}>
-          <Zap size={28} style={{ color: "var(--success)" }} />
+          {refilling ? <Loader2 size={28} className="animate-spin" style={{ color: "var(--success)" }} /> : <Zap size={28} style={{ color: "var(--success)" }} />}
         </div>
         <h2 className="text-[20px] font-semibold" style={{ color: "var(--text)" }}>
-          {listName ? `${listName} är slut!` : "Listan är klar!"}
+          {refilling ? "Hämtar fler..." : `${listName} är slut`}
         </h2>
-        <p className="text-[14px]" style={{ color: "var(--text-muted)" }}>
-          {totalCalls} samtal gjorda denna session
-          {listName ? " — inga lediga leads kvar i mappen" : ""}
+        <p className="text-[14px] text-center max-w-[380px]" style={{ color: "var(--text-muted)" }}>
+          {totalCalls} samtal denna session.
+          {exhausted && " Inga fler leads är ringbara just nu — resten väntar på sin tur i uppföljningen."}
         </p>
-        <button onClick={() => router.push(exitHref)} className="px-5 py-2 text-[13px] font-medium rounded-[10px] mt-2" style={{ background: "var(--accent)", color: "var(--bg)" }}>
-          {listId ? "Tillbaka till listan" : "Tillbaka till leads"}
+        <button onClick={() => router.push(`/lists/${listId}`)} className="px-5 py-2 text-[13px] font-medium rounded-[10px] mt-2" style={{ background: "var(--accent)", color: "var(--bg)" }}>
+          Tillbaka till listan
         </button>
       </div>
     );
   }
 
-  if (!lead || !contact) return null;
-
-  const progress = (index / Math.max(activeLeads.length - 1, 1)) * 100;
+  const knownGk = lead.gatekeepers[0] ?? null;
 
   return (
     <div className="relative flex flex-col h-screen overflow-hidden" style={{ background: "var(--bg)" }}>
 
-      {/* Claim-varning — någon annan hann före */}
+      {/* Misslyckade skrivningar — diskret, avbryter aldrig */}
       <AnimatePresence>
-        {claimWarning && (
+        {queue.failed.length > 0 && (
           <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
+            initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
             className="absolute top-[62px] left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 rounded-[12px]"
-            style={{
-              background: "var(--danger-bg)",
-              border: "1px solid var(--danger-border)",
-              boxShadow: "var(--shadow-md)",
-            }}
+            style={{ background: "var(--danger-bg)", border: "1px solid var(--danger-border)", boxShadow: "var(--shadow-md)" }}
           >
             <AlertTriangle size={14} style={{ color: "var(--danger)" }} />
             <span className="text-[12px] font-medium" style={{ color: "var(--danger)" }}>
-              {claimWarning}
+              {queue.failed.length} samtal kunde inte sparas ({queue.failed[0].companyName})
             </span>
+            <button onClick={queue.dismissFailed} style={{ color: "var(--danger)" }}><X size={12} /></button>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Top bar */}
+      {/* Toppfält */}
       <div className="flex items-center justify-between px-5 h-[52px] border-b shrink-0" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
         <div className="flex items-center gap-2.5 min-w-0">
-          <button onClick={() => router.push(exitHref)} className="flex items-center gap-1 text-[13px] shrink-0" style={{ color: "var(--text-muted)" }}>
+          <button onClick={() => router.push(`/lists/${listId}`)} className="flex items-center gap-1 text-[13px] shrink-0" style={{ color: "var(--text-muted)" }}>
             <ArrowLeft size={14} /> Avsluta
           </button>
-          {listName && (
-            <>
-              <span className="text-[13px]" style={{ color: "var(--border-strong)" }}>/</span>
-              <span className="text-[13px] font-medium truncate" style={{ color: "var(--text)" }}>
-                {listName}
-              </span>
-            </>
+          <span className="text-[13px]" style={{ color: "var(--border-strong)" }}>/</span>
+          <span className="text-[13px] font-medium truncate" style={{ color: "var(--text)" }}>{listName}</span>
+          {currentSlotName && (
+            <span className="text-[11px] px-2 py-[2px] rounded-full shrink-0" style={{ background: "var(--surface-inset)", color: "var(--text-dim)", border: "1px solid var(--border)" }}>
+              {currentSlotName}
+            </span>
           )}
         </div>
-        <div className="flex items-center gap-3">
-          <div className="w-[160px] h-[3px] rounded-full overflow-hidden" style={{ background: "var(--surface-inset)" }}>
-            <motion.div className="h-full rounded-full" style={{ background: "var(--accent)" }}
-              animate={{ width: `${progress}%` }} transition={{ duration: 0.4, ease: "easeOut" }} />
-          </div>
-          <span className="text-[12px] tabular-nums" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-            {index + 1} / {activeLeads.length}
-          </span>
-        </div>
+
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1 text-[12px]" style={{ color: "var(--text-muted)" }}>
             <Phone size={11} /> <span style={{ fontFamily: "var(--font-mono)" }}>{totalCalls}</span>
@@ -383,285 +663,295 @@ export function CockpitDb({
           <div className="flex items-center gap-1 text-[12px]" style={{ color: idleSeconds > 120 ? "var(--warning)" : "var(--text-dim)" }}>
             <Clock size={11} /> <span style={{ fontFamily: "var(--font-mono)" }}>{formatIdle(idleSeconds)}</span>
           </div>
+          <span className="text-[12px] tabular-nums" style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
+            {remaining} kvar
+          </span>
+          {queue.pending > 0 && (
+            <span className="flex items-center gap-1 text-[11px]" style={{ color: "var(--text-dim)" }} title="Sparas i bakgrunden">
+              <Loader2 size={10} className="animate-spin" /> {queue.pending}
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Main — always centered, never changes layout */}
-      <div className="flex-1 flex items-center justify-center px-4 overflow-y-auto">
-        <AnimatePresence mode="popLayout">
-          <motion.div
-            key={lead.id + contactIndex}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.1, ease: "easeOut" }}
-            className="w-full max-w-[560px] py-6"
-          >
-            {/* Company header */}
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-[12px] flex items-center justify-center text-[15px] font-bold shrink-0"
-                style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text-secondary)", fontFamily: "var(--font-serif)" }}>
-                {lead.companyName.charAt(0).toUpperCase()}
-              </div>
-              <div className="min-w-0 flex-1">
-                <h1 className="text-[20px] leading-tight truncate" style={{ color: "var(--text)", fontFamily: "var(--font-serif)" }}>
-                  {lead.companyName}
-                </h1>
-                {lead.contacts.length > 1 && (
-                  <div className="flex items-center gap-1 mt-[3px]">
-                    {lead.contacts.map((c, i) => (
-                      <button key={c.id} onClick={() => setContactIndex(i)}
-                        className="w-5 h-5 rounded-full text-[9px] font-bold transition-all"
-                        style={{ background: i === contactIndex ? "var(--accent)" : "var(--surface-inset)", color: i === contactIndex ? "var(--bg)" : "var(--text-dim)", border: `1px solid ${i === contactIndex ? "var(--accent)" : "var(--border)"}` }}>
-                        {c.name.charAt(0)}
-                      </button>
-                    ))}
+      {/* Innehåll */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Ramverket som passiv panel */}
+        <div className="hidden lg:block w-[170px] shrink-0 border-r px-3 py-5 overflow-y-auto" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+          <FrameworkGuide activeStep={flow.stage === "framework" ? endedAtStep : null} />
+        </div>
+
+        <div className="flex-1 flex items-start justify-center px-4 overflow-y-auto">
+          <AnimatePresence mode="popLayout">
+            <motion.div
+              key={lead.id + contactIndex}
+              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.09, ease: "easeOut" }}
+              className="w-full max-w-[560px] py-5"
+            >
+              {/* Bolagsrubrik */}
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-[12px] flex items-center justify-center text-[15px] font-bold shrink-0"
+                  style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text-secondary)", fontFamily: "var(--font-serif)" }}>
+                  {lead.companyName.charAt(0).toUpperCase()}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h1 className="text-[20px] leading-tight truncate" style={{ color: "var(--text)", fontFamily: "var(--font-serif)" }}>
+                    {lead.companyName}
+                  </h1>
+                  <div className="flex items-center gap-2 mt-[2px]">
+                    {lead.attemptCount > 0 && (
+                      <span className="text-[11px]" style={{ color: "var(--text-dim)" }}>
+                        Försök {lead.attemptCount + 1}
+                      </span>
+                    )}
+                    {lead.callbackAt && (
+                      <span className="flex items-center gap-1 text-[11px]" style={{ color: "var(--accent)" }}>
+                        <CalendarClock size={10} /> Lovad återuppringning
+                      </span>
+                    )}
+                    {lead.contacts.length > 1 && (
+                      <div className="flex items-center gap-1">
+                        {lead.contacts.map((c, i) => (
+                          <button key={c.id} onClick={() => setContactIndex(i)}
+                            className="w-5 h-5 rounded-full text-[9px] font-bold transition-all"
+                            style={{ background: i === contactIndex ? "var(--accent)" : "var(--surface-inset)", color: i === contactIndex ? "var(--bg)" : "var(--text-dim)", border: `1px solid ${i === contactIndex ? "var(--accent)" : "var(--border)"}` }}>
+                            {c.name.charAt(0)}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-              {/* Skapa deal */}
-              <button
-                onClick={() => setShowDealModal(true)}
-                className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-[9px] shrink-0 transition-all"
-                style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text-muted)" }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "var(--accent)"; e.currentTarget.style.color = "var(--bg)"; e.currentTarget.style.borderColor = "var(--accent)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "var(--surface)"; e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.borderColor = "var(--border-strong)"; }}
-                title="Skapa deal för detta lead"
-              >
-                <TrendingUp size={11} />
-                Deal
-              </button>
-            </div>
-
-            {/* Contact card */}
-            <div className="rounded-[18px] p-5 mb-4"
-              style={{ background: "var(--glass-bg)", backdropFilter: "var(--glass-blur)", WebkitBackdropFilter: "var(--glass-blur)", border: "1px solid var(--glass-border)", boxShadow: "var(--glass-shadow)" }}>
-              <div className="flex items-start justify-between mb-4">
-                <div>
-                  <p className="text-[18px] font-semibold" style={{ color: "var(--text)" }}>{contact.name}</p>
-                  {contact.role && (
-                    <div className="flex items-center gap-2 mt-[3px]">
-                      <p className="text-[13px]" style={{ color: "var(--text-muted)" }}>{contact.role}</p>
-                      <BestTimeIndicator role={contact.role} />
-                    </div>
-                  )}
                 </div>
-                {/* Quick-open buttons for drawer */}
-                <div className="flex items-center gap-1">
-                  {websiteUrl && (
-                    <button onClick={() => setDrawerTab("website")}
-                      className="w-7 h-7 flex items-center justify-center rounded-[7px] transition-colors"
-                      style={{ background: drawerTab === "website" ? "var(--accent-muted)" : "var(--surface-inset)", border: `1px solid ${drawerTab === "website" ? "var(--border-strong)" : "var(--border)"}` }}
-                      title="Öppna hemsida">
-                      <Globe size={12} style={{ color: drawerTab === "website" ? "var(--accent)" : "var(--text-muted)" }} />
-                    </button>
-                  )}
-                  <button onClick={() => setDrawerTab("linkedin")}
-                    className="w-7 h-7 flex items-center justify-center rounded-[7px] transition-colors"
-                    style={{ background: drawerTab === "linkedin" ? "var(--accent-muted)" : "var(--surface-inset)", border: `1px solid ${drawerTab === "linkedin" ? "var(--border-strong)" : "var(--border)"}` }}
-                    title="Öppna LinkedIn">
-                    <Linkedin size={12} style={{ color: drawerTab === "linkedin" ? "var(--accent)" : "var(--text-muted)" }} />
-                  </button>
+                <button onClick={() => setShowDealModal(true)}
+                  className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-[9px] shrink-0"
+                  style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text-muted)" }}
+                  title="Skapa deal">
+                  <TrendingUp size={11} /> Deal
+                </button>
+              </div>
+
+              <PitchPanel dossier={lead.dossier} />
+              <ScriptPanel scripts={lead.scripts} />
+
+              {/* Kontaktkort */}
+              {contact && (
+                <div className="rounded-[18px] p-5 mb-3"
+                  style={{ background: "var(--glass-bg)", backdropFilter: "var(--glass-blur)", WebkitBackdropFilter: "var(--glass-blur)", border: "1px solid var(--glass-border)", boxShadow: "var(--glass-shadow)" }}>
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <p className="text-[18px] font-semibold" style={{ color: "var(--text)" }}>{contact.name}</p>
+                      {contact.role && <p className="text-[13px] mt-[2px]" style={{ color: "var(--text-muted)" }}>{contact.role}</p>}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {websiteUrl && (
+                        <button onClick={() => setDrawerTab("website")}
+                          className="w-7 h-7 flex items-center justify-center rounded-[7px]"
+                          style={{ background: drawerTab === "website" ? "var(--accent-muted)" : "var(--surface-inset)", border: `1px solid ${drawerTab === "website" ? "var(--border-strong)" : "var(--border)"}` }}
+                          title="Öppna hemsida">
+                          <Globe size={12} style={{ color: drawerTab === "website" ? "var(--accent)" : "var(--text-muted)" }} />
+                        </button>
+                      )}
+                      <button onClick={() => setDrawerTab("linkedin")}
+                        className="w-7 h-7 flex items-center justify-center rounded-[7px]"
+                        style={{ background: drawerTab === "linkedin" ? "var(--accent-muted)" : "var(--surface-inset)", border: `1px solid ${drawerTab === "linkedin" ? "var(--border-strong)" : "var(--border)"}` }}
+                        title="Öppna LinkedIn">
+                        <Linkedin size={12} style={{ color: drawerTab === "linkedin" ? "var(--accent)" : "var(--text-muted)" }} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    {contact.directPhoneE164 && (
+                      <a href={`tel:${contact.directPhoneE164}`} className="flex items-center gap-3 px-4 py-3 rounded-[12px]"
+                        style={{ background: "var(--accent-muted)", border: "1px solid var(--border-strong)" }}>
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--accent)" }}>
+                          <Phone size={13} color="var(--bg)" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>Direkttelefon</p>
+                          <p className="text-[16px] font-medium" style={{ color: "var(--text)", fontFamily: "var(--font-mono)" }}>
+                            {formatSwedish(contact.directPhoneE164)}
+                          </p>
+                        </div>
+                        <ExternalLink size={13} className="ml-auto" style={{ color: "var(--text-dim)" }} />
+                      </a>
+                    )}
+                    {contact.switchboardE164 && (
+                      <a href={`tel:${contact.switchboardE164}`} className="flex items-center gap-3 px-4 py-3 rounded-[12px]"
+                        style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--surface)", border: "1px solid var(--border-strong)" }}>
+                          <Building2 size={12} style={{ color: "var(--text-muted)" }} />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>Växel</p>
+                          <p className="text-[15px] font-medium" style={{ color: "var(--text)", fontFamily: "var(--font-mono)" }}>
+                            {formatSwedish(contact.switchboardE164)}
+                          </p>
+                        </div>
+                      </a>
+                    )}
+                    {contact.email && <EmailRow email={contact.email} />}
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {/* Phone numbers + email */}
-              <div className="flex flex-col gap-2">
-                {contact.directPhone && (
-                  <a href={`tel:${contact.directPhone}`} className="flex items-center gap-3 px-4 py-3 rounded-[12px] transition-all"
-                    style={{ background: "var(--accent-muted)", border: "1px solid var(--border-strong)" }}>
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--accent)" }}>
-                      <Phone size={13} color="var(--bg)" />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>Direkttelefon</p>
-                      <p className="text-[16px] font-medium" style={{ color: "var(--text)", fontFamily: "var(--font-mono)", letterSpacing: "0.02em" }}>{contact.directPhone}</p>
-                    </div>
-                    <ExternalLink size={13} className="ml-auto" style={{ color: "var(--text-dim)" }} />
-                  </a>
-                )}
-                {contact.switchboard && (
-                  <a href={`tel:${contact.switchboard}`} className="flex items-center gap-3 px-4 py-3 rounded-[12px]"
-                    style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--surface)", border: "1px solid var(--border-strong)" }}>
-                      <Building2 size={12} style={{ color: "var(--text-muted)" }} />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>Växel</p>
-                      <p className="text-[15px] font-medium" style={{ color: "var(--text)", fontFamily: "var(--font-mono)", letterSpacing: "0.02em" }}>{contact.switchboard}</p>
-                    </div>
-                  </a>
-                )}
-                {contact.email && <EmailRow email={contact.email} />}
-              </div>
-            </div>
+              {/* Anteckning */}
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Anteckning — sparas med samtalet"
+                rows={2}
+                className="w-full resize-none text-[13px] px-4 py-3 rounded-[12px] outline-none mb-3"
+                style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)", lineHeight: 1.5 }}
+              />
 
-            {/* Notes */}
-            <div className="mb-3">
-              <div className="relative">
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                      e.preventDefault();
-                      handleSaveNote();
-                    }
-                  }}
-                  placeholder="Anteckningar... (Cmd+Enter för att spara utan samtal)"
-                  rows={2}
-                  className="w-full resize-none text-[13px] px-4 py-3 rounded-[12px] outline-none transition-all"
-                  style={{
-                    background: "var(--surface)",
-                    border: "1px solid var(--border-strong)",
-                    color: "var(--text)",
-                    fontFamily: "var(--font-sans)",
-                    lineHeight: 1.5,
-                  }}
-                  onFocus={(e) => (e.currentTarget.style.borderColor = "var(--border-focus)")}
-                  onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border-strong)")}
+              {/* Växelpanel */}
+              {flow.stage === "gatekeeper" && (
+                <GatekeeperPanel
+                  known={knownGk}
+                  draft={gk}
+                  onChange={setGk}
+                  onSubmit={() => pickOutcome("GATEKEEPER_BLOCKED")}
                 />
-                {notes.trim() && (
-                  <button
-                    onClick={handleSaveNote}
-                    disabled={isPending}
-                    className="absolute bottom-2.5 right-2.5 flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-[7px] transition-all"
-                    style={{ background: "var(--accent)", color: "var(--bg)" }}
-                    title="Spara anteckning (Cmd+Enter)"
-                  >
-                    Spara
+              )}
+
+              {/* Återuppringningsdatum */}
+              {askCallback && (
+                <div className="rounded-[14px] p-4 mb-3" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+                  <p className="text-[11px] font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--text-dim)" }}>
+                    När ska du ringa?
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="datetime-local"
+                      value={callbackAt}
+                      onChange={(e) => setCallbackAt(e.target.value)}
+                      autoFocus
+                      className="flex-1 px-3 py-2 text-[13px] rounded-[9px] outline-none"
+                      style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)" }}
+                    />
+                    <button
+                      onClick={() => flow.result && commit({ result: flow.result, outcome: "CALLBACK_BOOKED", withGatekeeper: false })}
+                      disabled={!callbackAt}
+                      className="px-4 py-2 text-[12px] font-semibold rounded-[9px]"
+                      style={{ background: callbackAt ? "var(--accent)" : "var(--surface)", color: callbackAt ? "var(--bg)" : "var(--text-dim)", border: "1px solid var(--border)" }}
+                    >
+                      Spara
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Ramverksfrågan */}
+              {flow.stage === "framework" && (
+                <FrameworkTap
+                  endedAtStep={endedAtStep}
+                  closeAttempts={closeAttempts}
+                  objections={objections}
+                  onStep={setEndedAtStep}
+                  onCloseAttempts={setCloseAttempts}
+                  onToggleObjection={(tag) =>
+                    setObjections((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag])
+                  }
+                  onSubmit={() => flow.result && commit({ result: flow.result, outcome: flow.outcome, noReason: flow.noReason, withFramework: true })}
+                  onSkip={() => flow.result && commit({ result: flow.result, outcome: flow.outcome, noReason: flow.noReason })}
+                />
+              )}
+
+              {/* Dispositionstrappan */}
+              {!askCallback && flow.stage !== "framework" && (
+                <>
+                  {flow.stage === "result" && (
+                    <DispositionBar stage="result" options={RESULT_OPTIONS} onPick={pickResult} onBack={goBack} canGoBack={false} />
+                  )}
+                  {flow.stage === "gatekeeper" && (
+                    <DispositionBar stage="gatekeeper" options={GATEKEEPER_OPTIONS} onPick={pickOutcome} onBack={goBack} canGoBack />
+                  )}
+                  {flow.stage === "outcome" && (
+                    <DispositionBar stage="outcome" options={OUTCOME_OPTIONS} onPick={pickOutcome} onBack={goBack} canGoBack />
+                  )}
+                  {flow.stage === "reason" && (
+                    <DispositionBar stage="reason" options={REASON_OPTIONS} onPick={pickReason} onBack={goBack} canGoBack />
+                  )}
+                </>
+              )}
+
+              {/* Navigering */}
+              {flow.stage === "result" && (
+                <div className="flex items-center justify-between gap-2 mt-3">
+                  <button onClick={prevLead} disabled={index === 0}
+                    className="flex items-center gap-1 text-[12px] px-3 py-2 rounded-[8px]"
+                    style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)", opacity: index === 0 ? 0.4 : 1 }}>
+                    <ChevronLeft size={13} /> Föregående
                   </button>
-                )}
-              </div>
-            </div>
+                  <button onClick={skipLead}
+                    className="flex items-center gap-1 text-[11px] px-3 py-2 rounded-[8px]"
+                    style={{ color: "var(--text-dim)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+                    <SkipForward size={12} /> Skippa (S)
+                  </button>
+                  <button onClick={advance}
+                    className="flex items-center gap-1 text-[12px] px-3 py-2 rounded-[8px]"
+                    style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+                    Nästa <ChevronRight size={13} />
+                  </button>
+                </div>
+              )}
 
-            {/* Status buttons */}
-            <div className="grid grid-cols-5 gap-2 mb-3">
-              {STATUS_BUTTONS.map((btn) => (
-                <motion.button key={btn.key} whileTap={{ scale: 0.96 }}
-                  onClick={() => handleStatus(btn.status, btn.label)}
-                  disabled={isPending}
-                  className="flex items-center justify-between px-3 py-[9px] text-[12px] font-medium transition-all"
-                  style={{ background: btn.color + "10", border: `1px solid ${btn.color}28`, color: btn.color, borderRadius: "10px" }}>
-                  <span>{btn.label}</span>
-                  <span className="text-[10px] px-[5px] py-[1px] rounded font-bold" style={{ background: btn.color + "20" }}>{btn.shortcut}</span>
-                </motion.button>
-              ))}
-            </div>
-
-            {/* Navigation */}
-            <div className="flex items-center justify-between gap-2">
-              <button onClick={prevLead} disabled={index === 0}
-                className="flex items-center gap-1 text-[12px] px-3 py-2 rounded-[8px]"
-                style={{ color: index === 0 ? "var(--text-dim)" : "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)", opacity: index === 0 ? 0.4 : 1 }}>
-                <ChevronLeft size={13} /> Föregående
-              </button>
-              <button onClick={skipLead}
-                className="flex items-center gap-1 text-[11px] px-3 py-2 rounded-[8px]"
-                style={{ color: "var(--text-dim)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
-                <SkipForward size={12} /> Skippa (S)
-              </button>
-              <button onClick={nextLead} disabled={index >= activeLeads.length - 1}
-                className="flex items-center gap-1 text-[12px] px-3 py-2 rounded-[8px]"
-                style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)", opacity: index >= activeLeads.length - 1 ? 0.4 : 1 }}>
-                Nästa <ChevronRight size={13} />
-              </button>
-            </div>
-
-            <p className="text-center text-[10px] mt-3" style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-              1–5 status · ← → navigera · S skippa · ESC stäng panel
-            </p>
-          </motion.div>
-        </AnimatePresence>
+              <p className="text-center text-[10px] mt-3" style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
+                siffror = välj · backsteg = ångra · S skippa · ESC stäng panel
+              </p>
+            </motion.div>
+          </AnimatePresence>
+        </div>
       </div>
 
-      {/* ── Right drawer (Hemsida / LinkedIn) ──────────────────────────────── */}
+      {/* Höger panel */}
       <AnimatePresence>
         {drawerTab !== null && (
           <>
-            {/* Backdrop */}
-            <motion.div
-              key="backdrop"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="fixed inset-0 z-30 cursor-pointer"
+            <motion.div key="backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }} className="fixed inset-0 z-30 cursor-pointer"
               style={{ background: "rgba(0,0,0,0.28)", backdropFilter: "blur(2px)", top: "52px" }}
-              onClick={() => setDrawerTab(null)}
-            />
-
-            {/* Drawer panel */}
-            <motion.div
-              key="drawer"
-              initial={{ x: "100%" }}
-              animate={{ x: 0 }}
-              exit={{ x: "100%" }}
-              transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+              onClick={() => setDrawerTab(null)} />
+            <motion.div key="drawer" initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
+              transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
               className="fixed right-0 bottom-0 z-40 flex flex-col"
-              style={{ top: "52px", width: "62%", background: "var(--surface)", borderLeft: "1px solid var(--border)", boxShadow: "var(--shadow-xl)" }}
-            >
-              {/* Drawer header */}
+              style={{ top: "52px", width: "62%", background: "var(--surface)", borderLeft: "1px solid var(--border)", boxShadow: "var(--shadow-xl)" }}>
               <div className="flex items-center justify-between px-4 h-[44px] border-b shrink-0" style={{ borderColor: "var(--border)" }}>
-                <div className="flex items-center gap-2">
-                  {/* Tab switcher inside drawer */}
-                  <div className="flex items-center gap-[2px] p-[2px] rounded-[8px]" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
-                    {websiteUrl && (
-                      <button onClick={() => setDrawerTab("website")}
-                        className="flex items-center gap-1 px-2 py-[4px] text-[11px] font-medium rounded-[6px] transition-all"
-                        style={{ background: drawerTab === "website" ? "var(--surface)" : "transparent", color: drawerTab === "website" ? "var(--text)" : "var(--text-dim)", border: drawerTab === "website" ? "1px solid var(--border)" : "1px solid transparent" }}>
-                        <Globe size={11} /> Hemsida
-                      </button>
-                    )}
-                    <button onClick={() => setDrawerTab("linkedin")}
-                      className="flex items-center gap-1 px-2 py-[4px] text-[11px] font-medium rounded-[6px] transition-all"
-                      style={{ background: drawerTab === "linkedin" ? "var(--surface)" : "transparent", color: drawerTab === "linkedin" ? "var(--text)" : "var(--text-dim)", border: drawerTab === "linkedin" ? "1px solid var(--border)" : "1px solid transparent" }}>
-                      <Linkedin size={11} /> LinkedIn
+                <div className="flex items-center gap-[2px] p-[2px] rounded-[8px]" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+                  {websiteUrl && (
+                    <button onClick={() => setDrawerTab("website")}
+                      className="flex items-center gap-1 px-2 py-[4px] text-[11px] font-medium rounded-[6px]"
+                      style={{ background: drawerTab === "website" ? "var(--surface)" : "transparent", color: drawerTab === "website" ? "var(--text)" : "var(--text-dim)" }}>
+                      <Globe size={11} /> Hemsida
                     </button>
-                  </div>
-                  {drawerTab === "website" && websiteUrl && (
-                    <span className="text-[11px]" style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-                      {new URL(websiteUrl).hostname}
-                    </span>
                   )}
+                  <button onClick={() => setDrawerTab("linkedin")}
+                    className="flex items-center gap-1 px-2 py-[4px] text-[11px] font-medium rounded-[6px]"
+                    style={{ background: drawerTab === "linkedin" ? "var(--surface)" : "transparent", color: drawerTab === "linkedin" ? "var(--text)" : "var(--text-dim)" }}>
+                    <Linkedin size={11} /> LinkedIn
+                  </button>
                 </div>
                 <div className="flex items-center gap-2">
-                  {drawerTab === "website" && websiteUrl && (
-                    <a href={websiteUrl} target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-[6px]"
-                      style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
-                      <ExternalLink size={11} /> Öppna
-                    </a>
-                  )}
-                  {drawerTab === "linkedin" && (
-                    <a href={linkedinUrl} target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-[6px]"
-                      style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
-                      <ExternalLink size={11} /> Öppna
-                    </a>
-                  )}
+                  <a href={drawerTab === "website" ? websiteUrl ?? "#" : linkedinUrl} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-[6px]"
+                    style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+                    <ExternalLink size={11} /> Öppna
+                  </a>
                   <button onClick={() => setDrawerTab(null)}
-                    className="w-7 h-7 flex items-center justify-center rounded-[7px] transition-colors"
+                    className="w-7 h-7 flex items-center justify-center rounded-[7px]"
                     style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
                     <X size={13} />
                   </button>
                 </div>
               </div>
-
-              {/* Drawer content */}
               <div className="flex-1 overflow-hidden">
-                {drawerTab === "website" && (
-                  websiteUrl
-                    ? <IframePanel key={`website-${lead.id}`} src={websiteUrl} label={new URL(websiteUrl).hostname} fallbackHref={websiteUrl} />
-                    : (
-                      <div className="flex flex-col items-center justify-center h-full gap-3" style={{ background: "var(--surface-inset)" }}>
-                        <Globe size={32} style={{ color: "var(--text-dim)" }} />
-                        <p className="text-[14px]" style={{ color: "var(--text-muted)" }}>Ingen hemsida angiven</p>
-                      </div>
-                    )
+                {drawerTab === "website" && websiteUrl && (
+                  <IframePanel key={`w-${lead.id}`} src={websiteUrl} label="Hemsida" fallbackHref={websiteUrl} />
                 )}
                 {drawerTab === "linkedin" && (
-                  <IframePanel key={`linkedin-${contact.id}`} src={linkedinUrl} label="LinkedIn" fallbackHref={linkedinUrl} />
+                  <IframePanel key={`l-${contact?.id}`} src={linkedinUrl} label="LinkedIn" fallbackHref={linkedinUrl} />
                 )}
               </div>
             </motion.div>
@@ -669,15 +959,14 @@ export function CockpitDb({
         )}
       </AnimatePresence>
 
-      {/* CreateDeal modal */}
-      {showDealModal && lead && (
+      {showDealModal && (
         <CreateDealModal
           leadId={lead.id}
           companyName={lead.companyName}
           stages={stages}
           defaultStageId={stages.find((s) => s.name.toLowerCase().includes("möte"))?.id ?? stages[0]?.id ?? ""}
           onClose={() => setShowDealModal(false)}
-          onCreated={() => { setShowDealModal(false); nextLead(); }}
+          onCreated={() => { setShowDealModal(false); advance(); }}
         />
       )}
     </div>
