@@ -3,65 +3,81 @@
 import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 
+/**
+ * Dagsstatistik ur CallAttempt, inte ur aktivitetsloggen.
+ *
+ * Aktivitetsloggen är en människoläsbar tidslinje med JSON i en textkolumn;
+ * CallAttempt är typad och indexerad. Räkning ska ske mot faktatabellen.
+ */
 export async function getDailyStats(days = 30) {
   const user = await requireAuth();
   const since = new Date();
   since.setDate(since.getDate() - days);
 
-  const actorFilter = user.role === "SELLER" ? { actorId: user.id } : {};
+  const sellerFilter = user.role === "SELLER" ? { sellerId: user.id } : {};
 
-  const activities = await db.activity.findMany({
-    where: {
-      timestamp: { gte: since },
-      type: { in: ["CALL", "CALL_NO_ANSWER", "MEETING_BOOKED", "STAGE_CHANGE"] },
-      ...actorFilter,
-    },
-    select: { type: true, timestamp: true },
-    orderBy: { timestamp: "asc" },
+  const attempts = await db.callAttempt.findMany({
+    where: { startedAt: { gte: since }, ...sellerFilter },
+    select: { startedAt: true, result: true, outcome: true },
+    orderBy: { startedAt: "asc" },
   });
 
-  // Aggregate by day
-  const byDay = new Map<string, { calls: number; meetings: number; stageChanges: number }>();
+  const byDay = new Map<string, { calls: number; connected: number; sold: number }>();
 
-  for (const a of activities) {
-    const day = new Date(a.timestamp).toISOString().slice(0, 10);
-    if (!byDay.has(day)) byDay.set(day, { calls: 0, meetings: 0, stageChanges: 0 });
+  for (const a of attempts) {
+    const day = new Date(a.startedAt).toISOString().slice(0, 10);
+    if (!byDay.has(day)) byDay.set(day, { calls: 0, connected: 0, sold: 0 });
     const d = byDay.get(day)!;
-    if (a.type === "CALL" || a.type === "CALL_NO_ANSWER") d.calls++;
-    if (a.type === "MEETING_BOOKED") d.meetings++;
-    if (a.type === "STAGE_CHANGE") d.stageChanges++;
+    d.calls++;
+    if (a.result === "CONNECTED_DM" || a.result === "CONNECTED_GATEKEEPER") d.connected++;
+    if (a.outcome === "SOLD") d.sold++;
   }
 
-  // Fill in missing days
-  const result: { date: string; calls: number; meetings: number; stageChanges: number }[] = [];
+  const result: { date: string; calls: number; connected: number; sold: number }[] = [];
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const key = d.toISOString().slice(0, 10);
-    result.push({ date: key, ...(byDay.get(key) ?? { calls: 0, meetings: 0, stageChanges: 0 }) });
+    result.push({ date: key, ...(byDay.get(key) ?? { calls: 0, connected: 0, sold: 0 }) });
   }
 
   return result;
 }
 
+/**
+ * Nyckeltalen för one call close.
+ *
+ * Svarsfrekvensen räknas mot samtal där någon faktiskt svarade — röstbrevlåda
+ * räknas inte som ett svar. Det är hela anledningen till att result och
+ * outcome är två fält: med ett enda hopslaget fält går den här nämnaren inte
+ * att bilda.
+ */
 export async function getConversionRates() {
   const user = await requireAuth();
-  const actorFilter = user.role === "SELLER" ? { actorId: user.id } : {};
+  const sellerFilter = user.role === "SELLER" ? { sellerId: user.id } : {};
 
-  const [totalCalls, totalMeetings, totalWon, totalLost] = await Promise.all([
-    db.activity.count({ where: { ...actorFilter, type: { in: ["CALL", "CALL_NO_ANSWER"] } } }),
-    db.activity.count({ where: { ...actorFilter, type: "MEETING_BOOKED" } }),
-    db.deal.count({ where: { ...(user.role === "SELLER" ? { lead: { ownerId: user.id } } : {}), status: "WON" } }),
-    db.deal.count({ where: { ...(user.role === "SELLER" ? { lead: { ownerId: user.id } } : {}), status: "LOST" } }),
+  const [totalCalls, connected, reachedDm, totalSold, callbacks] = await Promise.all([
+    db.callAttempt.count({ where: sellerFilter }),
+    db.callAttempt.count({
+      where: { ...sellerFilter, result: { in: ["CONNECTED_DM", "CONNECTED_GATEKEEPER"] } },
+    }),
+    db.callAttempt.count({ where: { ...sellerFilter, result: "CONNECTED_DM" } }),
+    db.callAttempt.count({ where: { ...sellerFilter, outcome: "SOLD" } }),
+    db.callAttempt.count({ where: { ...sellerFilter, outcome: "CALLBACK_BOOKED" } }),
   ]);
+
+  const pct = (a: number, b: number) => (b > 0 ? ((a / b) * 100).toFixed(1) : "0");
 
   return {
     totalCalls,
-    totalMeetings,
-    totalWon,
-    totalLost,
-    callToMeeting: totalCalls > 0 ? ((totalMeetings / totalCalls) * 100).toFixed(1) : "0",
-    meetingToWon: totalMeetings > 0 ? ((totalWon / totalMeetings) * 100).toFixed(1) : "0",
+    connected,
+    reachedDm,
+    totalSold,
+    callbacks,
+    connectRate: pct(connected, totalCalls),
+    dmRate: pct(reachedDm, totalCalls),
+    closeRate: pct(totalSold, totalCalls),
+    dmToClose: pct(totalSold, reachedDm),
   };
 }
 
@@ -107,12 +123,10 @@ export async function getSellerStats(days = 30) {
 
   const results = await Promise.all(
     sellers.map(async (seller) => {
-      const [callCount, meetingCount, sessions] = await Promise.all([
-        db.activity.count({
-          where: { actorId: seller.id, type: { in: ["CALL", "CALL_NO_ANSWER"] }, timestamp: { gte: since } },
-        }),
-        db.activity.count({
-          where: { actorId: seller.id, type: "MEETING_BOOKED", timestamp: { gte: since } },
+      const [callCount, soldCount, sessions] = await Promise.all([
+        db.callAttempt.count({ where: { sellerId: seller.id, startedAt: { gte: since } } }),
+        db.callAttempt.count({
+          where: { sellerId: seller.id, outcome: "SOLD", startedAt: { gte: since } },
         }),
         db.callSession.findMany({
           where: { userId: seller.id, startedAt: { gte: since } },
@@ -123,13 +137,13 @@ export async function getSellerStats(days = 30) {
       const totalIdleSecs = sessions.reduce((s, sess) => s + sess.totalIdle, 0);
       const sessionCalls = sessions.reduce((s, sess) => s + sess.totalCalls, 0);
       const avgIdlePerCall = sessionCalls > 0 ? Math.round(totalIdleSecs / sessionCalls) : 0;
-      const convRate = callCount > 0 ? ((meetingCount / callCount) * 100).toFixed(1) : "0";
+      const convRate = callCount > 0 ? ((soldCount / callCount) * 100).toFixed(1) : "0";
 
       return {
         id: seller.id,
         name: seller.name,
         calls: callCount,
-        meetings: meetingCount,
+        sold: soldCount,
         convRate,
         avgIdlePerCall,
         totalIdleMins: Math.round(totalIdleSecs / 60),

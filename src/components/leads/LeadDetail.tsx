@@ -19,9 +19,6 @@ const ACTIVITY_ICONS: Record<string, string> = {
   CALL_NO_ANSWER: "📵",
   NOTE: "📝",
   STAGE_CHANGE: "🔄",
-  MEETING_BOOKED: "📅",
-  MEETING_COMPLETED: "✅",
-  MEETING_NO_SHOW: "❌",
   LEAD_CREATED: "🌱",
   LEAD_ASSIGNED: "👤",
   LEAD_IMPORTED: "📥",
@@ -355,9 +352,6 @@ export function LeadDetail({
                           {a.type === "LEAD_CREATED" && "Lead skapades"}
                           {a.type === "LEAD_IMPORTED" && "Importerad via CSV"}
                           {a.type === "CONTACT_ADDED" && `${meta.name}${meta.role ? ` (${meta.role})` : ""} lades till`}
-                          {a.type === "MEETING_BOOKED" && "Möte bokat"}
-                          {a.type === "MEETING_COMPLETED" && "Show ✓"}
-                          {a.type === "MEETING_NO_SHOW" && "No-show"}
                         </p>
                       </div>
                     </motion.div>

@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { requireAuth } from "@/lib/auth";
+import { requireLeadAccess, requireContactAccess } from "@/lib/guard";
 import { revalidatePath } from "next/cache";
 
 export async function createContact(
@@ -16,7 +16,7 @@ export async function createContact(
     notes?: string;
   }
 ) {
-  const user = await requireAuth();
+  const user = await requireLeadAccess(leadId);
 
   const contact = await db.contact.create({
     data: { ...data, leadId },
@@ -38,7 +38,7 @@ export async function createContact(
 
 export async function updateContact(
   id: string,
-  leadId: string,
+  _leadId: string,
   data: {
     name?: string;
     role?: string;
@@ -49,14 +49,16 @@ export async function updateContact(
     notes?: string;
   }
 ) {
-  await requireAuth();
+  // leadId från klienten används bara för revalidering — vilket lead kontakten
+  // faktiskt tillhör avgörs av databasen, aldrig av anroparen.
+  const { leadId } = await requireContactAccess(id);
   const contact = await db.contact.update({ where: { id }, data });
   revalidatePath(`/leads/${leadId}`);
   return contact;
 }
 
-export async function deleteContact(id: string, leadId: string) {
-  await requireAuth();
+export async function deleteContact(id: string, _leadId: string) {
+  const { leadId } = await requireContactAccess(id);
   await db.contact.delete({ where: { id } });
   revalidatePath(`/leads/${leadId}`);
 }

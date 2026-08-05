@@ -22,10 +22,14 @@ model User {
   leads        Lead[]         @relation("LeadOwner")
   activities   Activity[]     @relation("ActivityActor")
   callSessions CallSession[]
-  meetings     Meeting[]      @relation("MeetingBookedBy")
   dealsCreated Deal[]         @relation("DealCreatedBy")
   listsCreated CallList[]     @relation("ListCreatedBy")
   listAccess   ListAccess[]
+
+  callAttempts CallAttempt[]    @relation("CallAttemptSeller")
+  scripts      ScriptTemplate[] @relation("ScriptAuthor")
+  dncAdded     DoNotCall[]      @relation("DncAddedBy")
+  presence     SellerPresence?
 }
 
 enum Role {
@@ -50,19 +54,45 @@ model Lead {
   // claimedAt äldre än CLAIM_TTL_DAYS → låset har löpt ut, leadet är fritt igen.
   claimedAt DateTime?
 
+  // ── Uppföljningsmotorn ────────────────────────────────────────────────
+  // Denormaliserat på leadet, inte uträknat vid läsning: "nästa lead att
+  // ringa" måste kunna besvaras med ett indexerat villkor, inte en aggregering.
+  nextActionAt   DateTime? // tidigast ringbar igen (vila mellan försök)
+  nextSlotId     String? // vilket ringpass som står på tur
+  attemptCount   Int       @default(0) // mot taket i DialerConfig
+  noAnswerStreak Int       @default(0) // nollställs så fort någon svarar
+  triedSlotsJson String    @default("[]") // pass som redan prövats detta varv
+  lastAttemptAt  DateTime?
+  lastResult     CallResult?
+  callbackAt     DateTime? // bokad återuppringning — vinner alltid över rotationen
+
+  // Kort arbetslås (minuter), till skillnad från claim-låset (60 dygn).
+  // Hindrar att två säljare får samma lead i cockpit samtidigt.
+  leasedById   String?
+  leasedUntil  DateTime?
+
+  retired       Boolean @default(false) // uttömd, spärrad eller vunnen
+  retiredReason String?
+
   ownerId String
   owner   User   @relation("LeadOwner", fields: [ownerId], references: [id])
 
-  contacts   Contact[]
-  activities Activity[]
-  meetings   Meeting[]
-  deals      Deal[]
-  tags       TagOnLead[]
-  lists      LeadOnList[]
+  contacts     Contact[]
+  activities   Activity[]
+  deals        Deal[]
+  tags         TagOnLead[]
+  lists        LeadOnList[]
+  callAttempts CallAttempt[]
+  dossier      LeadDossier?
+  gatekeepers  GatekeeperContact[]
+  dnc          DoNotCall?
 
   @@index([claimedAt])
   @@index([ownerId])
   @@index([hasActiveDeal, updatedAt])
+  @@index([retired, nextActionAt])
+  @@index([leasedUntil])
+  @@index([callbackAt])
 }
 
 model Contact {
@@ -77,12 +107,21 @@ model Contact {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // Normaliserade nummer. Fälten ovan är fritext från CSV-import och går inte
+  // att matcha mot ett inkommande samtal — utan de här är callback-fångst
+  // (Modul 4) omöjlig, oavsett vilken växel som används.
+  directPhoneE164 String?
+  switchboardE164 String?
+
   leadId String
   lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
-  activities Activity[]
+  activities   Activity[]
+  callAttempts CallAttempt[]
 
   @@index([leadId])
+  @@index([directPhoneE164])
+  @@index([switchboardE164])
 }
 
 // ==================== RINGLISTOR (mappar) ====================
@@ -103,8 +142,9 @@ model CallList {
   createdById String
   createdBy   User   @relation("ListCreatedBy", fields: [createdById], references: [id])
 
-  leads  LeadOnList[]
-  access ListAccess[]
+  leads        LeadOnList[]
+  access       ListAccess[]
+  callAttempts CallAttempt[]
 
   @@index([archived, createdAt])
   @@index([createdById])
@@ -254,9 +294,6 @@ enum ActivityType {
   CALL_NO_ANSWER
   NOTE
   STAGE_CHANGE
-  MEETING_BOOKED
-  MEETING_COMPLETED
-  MEETING_NO_SHOW
   LEAD_CREATED
   LEAD_ASSIGNED
   LEAD_IMPORTED
@@ -268,37 +305,6 @@ enum ActivityType {
   DEAL_STAGE_CHANGE
   DEAL_WON
   DEAL_LOST
-}
-
-// ==================== MEETINGS ====================
-
-model Meeting {
-  id          String         @id @default(cuid())
-  title       String?
-  scheduledAt DateTime
-  outcome     MeetingOutcome @default(PENDING)
-  notes       String?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-
-  leadId     String
-  lead       Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
-
-  bookedById String
-  bookedBy   User   @relation("MeetingBookedBy", fields: [bookedById], references: [id])
-
-  @@index([scheduledAt])
-  @@index([outcome, scheduledAt])
-  @@index([leadId])
-  @@index([bookedById])
-}
-
-enum MeetingOutcome {
-  PENDING
-  SHOW
-  NO_SHOW
-  CANCELLED
-  RESCHEDULED
 }
 
 // ==================== CALL SESSIONS (Fluff-tracking) ====================
@@ -313,7 +319,8 @@ model CallSession {
   userId String
   user   User   @relation(fields: [userId], references: [id])
 
-  events CallEvent[]
+  events   CallEvent[]
+  attempts CallAttempt[]
 
   @@index([userId, startedAt])
 }
@@ -328,6 +335,481 @@ model CallEvent {
   session   CallSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([sessionId])
+}
+
+// ==================== UPPFÖLJNINGSMOTOR (Modul 4) ====================
+
+/// Vad som hände med SAMTALET. Sätts av telefonin där sådan finns, annars av
+/// säljaren. Driver retry-logiken.
+enum CallResult {
+  NO_ANSWER
+  BUSY
+  VOICEMAIL_LEFT
+  VOICEMAIL_NO_MESSAGE
+  WRONG_NUMBER
+  INVALID_NUMBER
+  CONNECTED_GATEKEEPER
+  CONNECTED_DM
+}
+
+/// Vad som hände i SAMTALET. Sätts bara när någon faktiskt svarade.
+/// Två fält i stället för ett är hela poängen: "nådde ej DM" är ett
+/// samtalsresultat, "DM sa nej" är ett samtalsutfall. Slås de ihop går
+/// svarsfrekvensen inte längre att räkna, och "ej intresserad" blir återigen
+/// soptunnan som döljer allt.
+enum ConversationOutcome {
+  GATEKEEPER_BLOCKED
+  GATEKEEPER_TRANSFERRED
+  GATEKEEPER_GAVE_DM_DETAILS
+  DM_NO
+  CALLBACK_BOOKED
+  SOLD
+}
+
+/// Andra nivån, bara på DM_NO. Ett tryck, ingen rullgardin — mer än sex
+/// alternativ och träffsäkerheten kollapsar.
+enum NoReason {
+  PRIS
+  TIMING
+  HAR_BYRA
+  HAR_INHOUSE
+  INGET_BEHOV
+  NOJD_MED_ANNAN
+}
+
+enum CallDirection {
+  OUTBOUND
+  INBOUND
+}
+
+/// Ramverket: Växel → Intro → Presentation → Behovsanalys → ROI → COI →
+/// Avslut ⇄ Invändningshantering. Invändning är ett sidoläge man återvänder
+/// från, inte ett steg framåt — men samtalet kan dö där, så det är ett värde.
+enum FrameworkStep {
+  VAXEL
+  INTRO
+  PRESENTATION
+  BEHOVSANALYS
+  ROI
+  COI
+  AVSLUT
+  INVANDNING
+}
+
+/// Faktatabellen. Append-only — rader uppdateras aldrig, raderas aldrig.
+/// All statistik i chefsvyn läses härifrån.
+model CallAttempt {
+  id String @id @default(cuid())
+
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  sellerId String
+  seller   User   @relation("CallAttemptSeller", fields: [sellerId], references: [id])
+
+  /// Denormaliserat: statistik per ringlista utan join.
+  listId String?
+  list   CallList? @relation(fields: [listId], references: [id], onDelete: SetNull)
+
+  sessionId String?
+  session   CallSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  attemptNo Int // löpnummer per lead
+  slotId    String? // vilket ringpass försöket gjordes i
+  slot      CallSlot? @relation(fields: [slotId], references: [id], onDelete: SetNull)
+  hourOfDay Int // 0–23, sparas separat så statistiken överlever att pass ändras
+  weekday   Int // 1–7, måndag = 1
+
+  direction CallDirection @default(OUTBOUND)
+
+  // De två fälten. outcome är null när ingen svarade — det är korrekt, inte
+  // saknad data, och är exakt vad svarsfrekvensens nämnare bygger på.
+  result   CallResult
+  outcome  ConversationOutcome?
+  noReason NoReason?
+
+  startedAt     DateTime  @default(now())
+  endedAt       DateTime?
+  durationSec   Int       @default(0)
+  idleBeforeSec Int       @default(0)
+
+  note String?
+
+  /// Idempotensnyckel för telefoni-webhooks. Samma händelse levereras om.
+  providerCallId String? @unique
+  recordingUrl   String?
+  dialedE164     String?
+
+  /// Vilken manusversion säljaren faktiskt hade på skärmen. Utan den blir
+  /// A/B-testet meningslöst så fort ett manus redigeras.
+  scriptVersionId String?
+  scriptVersion   ScriptVersion? @relation(fields: [scriptVersionId], references: [id], onDelete: SetNull)
+
+  progress CallFrameworkProgress?
+
+  @@index([leadId, startedAt])
+  @@index([sellerId, startedAt])
+  @@index([startedAt])
+  @@index([result, startedAt])
+  @@index([outcome, startedAt])
+  @@index([listId, startedAt])
+  @@index([attemptNo, result])
+  @@index([scriptVersionId])
+  @@index([contactId])
+  @@index([slotId])
+}
+
+/// Ringpass — konfigurerbara i admin. Egen tabell i stället för hårdkodad enum
+/// eftersom passen ska gå att flytta när egen statistik visar vad som fungerar.
+model CallSlot {
+  id          String  @id @default(cuid())
+  name        String // "Tidigt", "Förmiddag", ...
+  startMinute Int // minuter efter midnatt, 465 = 07:45
+  endMinute   Int
+  order       Int
+  active      Boolean @default(true)
+
+  attempts CallAttempt[]
+
+  @@index([active, order])
+}
+
+/// Singleton. Uppföljningsmotorns reglage, delade av hela teamet — därför i
+/// databasen och inte i localStorage som övriga inställningar.
+model DialerConfig {
+  id String @id @default("singleton")
+
+  maxAttempts   Int @default(8) // taket innan leadet vilar
+  cooldownDays  Int @default(30) // vila efter uttömda försök
+  leaseMinutes  Int @default(15) // hur länge cockpit håller ett lead
+  leaseBlockSize Int @default(25) // antal leads en säljare hämtar åt gången
+
+  // Timmar mellan försök per resultat. Ett upptaget nummer ringer man om
+  // snart; en gatekeeper som blockat är inte mer mottaglig imorgon.
+  retryHoursNoAnswer  Int @default(20)
+  retryHoursBusy      Int @default(2)
+  retryHoursVoicemail Int @default(44)
+  retryHoursGatekeeper Int @default(68)
+
+  /// Antal samtal per timme som räknas som normal takt. Driver insatslarmen
+  /// i chefsvyn — aldrig försäljningssiffror, som är brus på timnivå.
+  targetCallsPerHour Int @default(22)
+  idleAlertMinutes   Int @default(25)
+
+  /// Datum som aldrig ska ringas: röda dagar, klämdagar, mellandagarna.
+  /// JSON-array med "YYYY-MM-DD".
+  blockedDatesJson String @default("[]")
+
+  updatedAt DateTime @updatedAt
+}
+
+/// Spärrlista. Egen tabell och nycklad på NUMRET, inte en flagga på leadet —
+/// spärren måste överleva att leadet raderas eller importeras på nytt.
+model DoNotCall {
+  id        String  @id @default(cuid())
+  phoneE164 String  @unique
+  leadId    String? @unique
+  lead      Lead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  orgNumber String?
+  source    DncSource
+  reason    String?
+
+  addedById String?
+  addedBy   User?   @relation("DncAddedBy", fields: [addedById], references: [id])
+
+  expiresAt DateTime? // null = permanent
+  createdAt DateTime  @default(now())
+
+  @@index([orgNumber])
+  @@index([expiresAt])
+}
+
+enum DncSource {
+  PROSPECT_REQUEST
+  NIX
+  MANUAL
+  IMPORT
+  BOUNCE
+}
+
+// ==================== VÄXELHANTERING ====================
+
+enum GatekeeperType {
+  RECEPTION
+  ASSISTANT
+  IVR
+  COLLEAGUE
+  UNKNOWN
+}
+
+/// Den som svarar i växeln. Egen rad per person i stället för fritext, annars
+/// får man sex stavningar av "Anna i receptionen" och ingen statistik alls.
+model GatekeeperContact {
+  id     String @id @default(cuid())
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  name      String?
+  role      String?
+  type      GatekeeperType @default(RECEPTION)
+  phoneE164 String?
+
+  encounters Int @default(0)
+  passes     Int @default(0)
+
+  lastTacticKey    String? // "namedrop", "kort_arende", "tillbakaring", "fraga_direktnummer"
+  lastTacticWorked Boolean?
+  lastEncounterAt  DateTime?
+  lastSaid         String? // vad som faktiskt sades — nästa säljare läser det
+
+  // Växeln är en gratis schemaläggare: "han är tillbaka på torsdag" ska styra
+  // nästa ringtid, inte bara ligga som en anteckning ingen läser.
+  dmName         String?
+  dmTitle        String?
+  dmDirectE164   String?
+  dmMobileE164   String?
+  dmAvailableAt  DateTime?
+  dmAvailability String?
+
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([leadId])
+  @@index([phoneE164])
+  @@index([dmAvailableAt])
+}
+
+// ==================== SAMTALSRAMVERK (coachningsdata) ====================
+
+/// Fylls av ETT tryck efter samtalet, inte av avbockning under det. Att klicka
+/// mitt i ett samtal stjäl uppmärksamhet i just de sekunder som avgör det, och
+/// blir i praktiken ifyllt efteråt ändå — fast då som gissningar.
+model CallFrameworkProgress {
+  id            String      @id @default(cuid())
+  callAttemptId String      @unique
+  callAttempt   CallAttempt @relation(fields: [callAttemptId], references: [id], onDelete: Cascade)
+
+  /// Denormaliserat så chefsvyn slipper join för sin vanligaste fråga.
+  leadId   String
+  sellerId String
+
+  furthestStep FrameworkStep @default(VAXEL)
+  endedAtStep  FrameworkStep @default(VAXEL)
+
+  /// Hur många gånger säljaren faktiskt BAD om affären. Den här siffran är
+  /// hela poängen: en säljare som frågar en gång och lägger på ser identisk ut
+  /// mot en som frågade tre gånger, om man bara mäter hur långt samtalet kom.
+  closeAttempts Int     @default(0)
+  closedWon     Boolean @default(false)
+
+  objectionCount    Int @default(0)
+  objectionsHandled Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  objections CallObjection[]
+
+  @@index([sellerId, createdAt])
+  @@index([leadId])
+  @@index([furthestStep])
+  @@index([endedAtStep])
+}
+
+/// Egen tabell, inte en JSON-array: invändningstaggar är precis vad chefsvyn
+/// grupperar på, och JSON i en textkolumn går inte att gruppera på i SQLite.
+model CallObjection {
+  id         String                @id @default(cuid())
+  progressId String
+  progress   CallFrameworkProgress @relation(fields: [progressId], references: [id], onDelete: Cascade)
+
+  tag      String // "pris", "har_redan_leverantor", "ingen_tid", "skicka_mail", ...
+  atStep   FrameworkStep
+  handled  Boolean @default(false)
+  quote    String?
+  sequence Int     @default(0)
+
+  @@index([progressId])
+  @@index([tag, handled])
+}
+
+// ==================== MANUS (Modul 3) ====================
+
+/// Ett manus per steg i ramverket. Skrivs av chefen, aldrig av en modell.
+model ScriptTemplate {
+  id     String        @id @default(cuid())
+  name   String
+  step   FrameworkStep
+  active Boolean       @default(true)
+
+  createdById String
+  createdBy   User   @relation("ScriptAuthor", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  versions ScriptVersion[]
+
+  @@index([step, active])
+}
+
+/// Oföränderlig när den publicerats — en redigering skapar en ny version.
+/// Utan det pekar gammal statistik på text som inte längre finns.
+model ScriptVersion {
+  id         String         @id @default(cuid())
+  templateId String
+  template   ScriptTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  version     Int
+  publishedAt DateTime?
+  notes       String?
+  createdAt   DateTime  @default(now())
+
+  variants ScriptVariant[]
+  attempts CallAttempt[]
+
+  @@unique([templateId, version])
+  @@index([templateId, publishedAt])
+}
+
+/// Prioritetsordnad variant. Första vars datakrav är uppfyllda renderas — så
+/// att en säljare aldrig får en mening med ett tomt hål i.
+model ScriptVariant {
+  id        String        @id @default(cuid())
+  versionId String
+  version   ScriptVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  label String
+
+  /// Lägst tal vinner. Sista varianten bör ha tomma krav och fungerar då alltid.
+  priority Int @default(100)
+
+  /// Texten med platshållare: "Ni ligger på plats {seo.rank} på {seo.keyword}."
+  /// Platshållarnamnen är LeadClaim.key.
+  body String
+
+  /// JSON-array med de claim-nycklar som MÅSTE finnas. Tom array = fallback.
+  requiredKeysJson String @default("[]")
+
+  /// Lägsta konfidens på varje krävd nyckel. Under tröskeln hoppas varianten
+  /// över helt — hellre färre påståenden än ett osäkert.
+  minConfidence Int @default(50)
+
+  @@index([versionId, priority])
+}
+
+// ==================== PITCH-MOTORN (Modul 2) ====================
+
+enum DossierStatus {
+  PENDING
+  OK
+  PARTIAL
+  FAILED
+  STALE
+}
+
+/// Ett förberäknat underlag per lead. Läses med EN primärnyckelsökning när
+/// samtalet kopplas — aldrig beräknat vid rendering, aldrig ett API-anrop.
+model LeadDossier {
+  leadId String @id
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  weaknessCount     Int           @default(0)
+  overallConfidence Int           @default(0)
+  status            DossierStatus @default(PENDING)
+
+  fetchedAt    DateTime?
+  staleAfter   DateTime?
+  errorMessage String?
+
+  claims LeadClaim[]
+
+  @@index([status, staleAfter])
+  @@index([weaknessCount])
+}
+
+/// EN uppgift, med egen källa, egen konfidens och egen färskhet.
+/// Saknad rad betyder OKÄNT — vilket är något helt annat än värdet noll.
+/// Därför EAV och inte en bred tabell med nullbara kolumner.
+model LeadClaim {
+  id      String      @id @default(cuid())
+  leadId  String
+  dossier LeadDossier @relation(fields: [leadId], references: [leadId], onDelete: Cascade)
+
+  /// "seo.rank", "seo.keyword", "seo.competitor", "gmb.reviewCount",
+  /// "gmb.newestReview", "pagespeed.mobileLcp", "tech.hasSSL",
+  /// "tech.mobileFriendly", "tech.title", "tech.copyrightYear"
+  key String
+
+  // Typade kolumner så chefsvyn kan sortera och medelvärdesberäkna utan cast.
+  valueNum  Float?
+  valueStr  String?
+  valueBool Boolean?
+  unit      String? // "ms", "position", "st", "score"
+
+  confidence Int      @default(50)
+
+  /// Säljstyrka 1–5 — en annan sak än säkerhet. Att sakna schema.org-markup
+  /// är nästan alltid sant (hög säkerhet) och nästan aldrig intressant för en
+  /// rörmokare (låg styrka). Utan den här skillnaden sorteras panelen på
+  /// förekomst, och då hamnar de tråkigaste punkterna överst på varje samtal.
+  strength   Int      @default(3)
+
+  /// True när uppgiften är en säljbar brist, inte bara ett faktum.
+  weakness   Boolean  @default(false)
+
+  source     String // vilken tjänst uppgiften kom från
+  sourceUrl  String? // belägg säljaren kan öppna mitt i samtalet
+  fetchedAt  DateTime @default(now())
+
+  /// Rådata för felsökning. Får aldrig ingå i cockpitens select.
+  rawJson String?
+
+  @@unique([leadId, key])
+  @@index([key])
+}
+
+// ==================== NÄRVARO (Modul 5) ====================
+
+enum PresenceStatus {
+  OFFLINE
+  IDLE
+  DIALING
+  ON_CALL
+  WRAP_UP
+  BREAK
+}
+
+/// En rad per säljare, alltid upsert. Räknarna hålls här i stället för att
+/// aggregeras fram — chefsvyn ska aldrig scanna faktatabellen för att rita
+/// en siffra som uppdateras varje minut.
+model SellerPresence {
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  status PresenceStatus @default(OFFLINE)
+
+  currentLeadId   String?
+  currentCompany  String? // denormaliserat — inga joins i live-vyn
+  currentListId   String?
+  currentListName String?
+  callStartedAt   DateTime? // klienten räknar upp härifrån
+  sessionId       String?
+
+  todayCalls    Int @default(0)
+  todaySold     Int @default(0)
+  todayTalkSec  Int @default(0)
+
+  /// "2026-08-05" — räknarna nollställs när datumet inte stämmer, så inget
+  /// nattligt cron-jobb behövs.
+  countersDate String @default("")
+
+  lastHeartbeat DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([status])
+  @@index([lastHeartbeat])
 }
 
 // ==================== TAGS ====================
