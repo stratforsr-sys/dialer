@@ -5,19 +5,22 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   Users, LayoutGrid, Upload, BarChart2, ShieldCheck, LogOut, Zap, Search,
-  FolderOpen,
+  FolderOpen, Radio, MessageSquare, SlidersHorizontal,
 } from "lucide-react";
 
 // Dialern har medvetet ingen egen meny-ingång: man ringer alltid inifrån en
 // ringlista, via "Starta dialer". /cockpit utan listId skickar till /lists.
 const NAV = [
-  { href: "/lists",    label: "Ringlistor", icon: FolderOpen },
-  { href: "/leads",    label: "Leads",     icon: Users },
-  { href: "/pipeline", label: "Pipeline",  icon: LayoutGrid },
-  { href: "/research", label: "Research",  icon: Search },
-  { href: "/import",   label: "Importera", icon: Upload },
-  { href: "/stats",    label: "Statistik", icon: BarChart2 },
-  { href: "/admin",    label: "Admin",     icon: ShieldCheck, adminOnly: true },
+  { href: "/lists",         label: "Ringlistor", icon: FolderOpen },
+  { href: "/leads",         label: "Leads",      icon: Users },
+  { href: "/pipeline",      label: "Pipeline",   icon: LayoutGrid },
+  { href: "/research",      label: "Research",   icon: Search },
+  { href: "/import",        label: "Importera",  icon: Upload },
+  { href: "/stats",         label: "Statistik",  icon: BarChart2 },
+  { href: "/admin/floor",   label: "Golvet",     icon: Radio, adminOnly: true },
+  { href: "/admin/scripts", label: "Manus",      icon: MessageSquare, adminOnly: true },
+  { href: "/admin/dialer",  label: "Dialer",     icon: SlidersHorizontal, adminOnly: true },
+  { href: "/admin",         label: "Admin",      icon: ShieldCheck, adminOnly: true },
 ];
 
 export function AppSidebar({
@@ -46,7 +49,12 @@ export function AppSidebar({
       {/* Nav icons */}
       <nav className="flex flex-col items-center gap-[3px] flex-1">
         {navItems.map(({ href, label, icon: Icon }) => {
-          const active = pathname === href || pathname.startsWith(href + "/");
+          // Mest specifika träffen vinner — annars lyser /admin även när man
+          // står på /admin/floor, och två ikoner ser aktiva ut samtidigt.
+          const matches = navItems
+            .filter((n) => pathname === n.href || pathname.startsWith(n.href + "/"))
+            .sort((a, b) => b.href.length - a.href.length);
+          const active = matches[0]?.href === href;
           return (
             <Link
               key={href}
