@@ -4,14 +4,14 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { BarChart3, TrendingUp, AlertTriangle, Phone, Calendar, Target, Clock, Trophy, ArrowUp, ArrowDown, Minus } from "lucide-react";
 
-type DailyRow = { date: string; calls: number; meetings: number; stageChanges: number };
-type Conversion = { totalCalls: number; totalMeetings: number; totalWon: number; totalLost: number; callToMeeting: string; meetingToWon: string };
+type DailyRow = { date: string; calls: number; connected: number; sold: number };
+type Conversion = { totalCalls: number; connected: number; reachedDm: number; totalSold: number; callbacks: number; connectRate: string; dmRate: string; closeRate: string; dmToClose: string };
 type Fluff = { sessions: number; totalCalls: number; totalIdleSeconds: number; avgIdlePerCall: number };
 type PipelineStage = { id: string; name: string; color: string; leadCount: number; totalValue: number };
-type Seller = { id: string; name: string; calls: number; meetings: number; convRate: string; avgIdlePerCall: number; totalIdleMins: number; callsPerDay: number };
+type Seller = { id: string; name: string; calls: number; sold: number; convRate: string; avgIdlePerCall: number; totalIdleMins: number; callsPerDay: number };
 type Tab = "activity" | "forecasting" | "inefficiency";
 
-function BarChart({ data, valueKey, color }: { data: DailyRow[]; valueKey: "calls" | "meetings"; color: string }) {
+function BarChart({ data, valueKey, color }: { data: DailyRow[]; valueKey: "calls" | "sold"; color: string }) {
   const last14 = data.slice(-14);
   const max = Math.max(...last14.map((d) => d[valueKey]), 1);
   return (
@@ -97,7 +97,7 @@ export function StatsView({
   const last7 = daily.slice(-7);
   const totalCallsWeek = last7.reduce((s, d) => s + d.calls, 0);
   const avgCalls = Math.round(totalCallsWeek / 7);
-  const totalMeetingsWeek = last7.reduce((s, d) => s + d.meetings, 0);
+  const totalSoldWeek = last7.reduce((s, d) => s + d.sold, 0);
   const totalPipelineLeads = pipeline.reduce((s, p) => s + p.leadCount, 0);
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
@@ -139,15 +139,15 @@ export function StatsView({
             <motion.div key="activity" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.18 }} className="p-6">
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                 <KpiCard label="Samtal (7d)" value={totalCallsWeek} sub={`Snitt ${avgCalls}/dag`} icon={<Phone size={14} style={{ color: "var(--text-muted)" }} />} />
-                <KpiCard label="Möten (7d)" value={totalMeetingsWeek} icon={<Calendar size={14} style={{ color: "var(--text-muted)" }} />} />
-                <KpiCard label="Samtal → Möte" value={`${conversion.callToMeeting}%`} sub={`${conversion.totalCalls} tot`} icon={<Target size={14} style={{ color: "var(--text-muted)" }} />} />
-                <KpiCard label="Möte → Vunnet" value={`${conversion.meetingToWon}%`} sub={`${conversion.totalMeetings} möten`} icon={<Trophy size={14} style={{ color: "var(--text-muted)" }} />} />
+                <KpiCard label="Sålt (7d)" value={totalSoldWeek} icon={<Calendar size={14} style={{ color: "var(--text-muted)" }} />} />
+                <KpiCard label="Svarsfrekvens" value={`${conversion.connectRate}%`} sub={`${conversion.totalCalls} samtal`} icon={<Target size={14} style={{ color: "var(--text-muted)" }} />} />
+                <KpiCard label="Nådd DM → Såld" value={`${conversion.dmToClose}%`} sub={`${conversion.reachedDm} nådda`} icon={<Trophy size={14} style={{ color: "var(--text-muted)" }} />} />
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                 {[
                   { key: "calls" as const, label: "Samtal senaste 14 dagar", color: "var(--accent)" },
-                  { key: "meetings" as const, label: "Möten bokade senaste 14 dagar", color: "var(--success)" },
+                  { key: "sold" as const, label: "Avslut senaste 14 dagar", color: "var(--success)" },
                 ].map(({ key, label, color }) => (
                   <div key={key} className="p-5 rounded-[18px]" style={{ background: "var(--surface)", border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}>
                     <div className="flex items-center justify-between mb-4">
@@ -166,9 +166,9 @@ export function StatsView({
                 <div className="flex items-center gap-4">
                   {[
                     { label: "Samtal",    value: conversion.totalCalls,    color: "var(--text-muted)" },
-                    { label: "Möten",     value: conversion.totalMeetings, color: "var(--info)" },
-                    { label: "Vunna",     value: conversion.totalWon,      color: "var(--success)" },
-                    { label: "Förlorade", value: conversion.totalLost,     color: "var(--danger)" },
+                    { label: "Nådde DM",  value: conversion.reachedDm, color: "var(--info)" },
+                    { label: "Sålt",      value: conversion.totalSold,     color: "var(--success)" },
+                    { label: "Återkomst", value: conversion.callbacks,     color: "var(--warning)" },
                   ].map(({ label, value, color }, i, arr) => (
                     <div key={label} className="flex items-center gap-4 flex-1">
                       <div className="text-center flex-1">
@@ -194,7 +194,7 @@ export function StatsView({
               <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
                 <KpiCard label="Aktiva leads" value={totalPipelineLeads} sub="I alla stadier" icon={<Target size={14} style={{ color: "var(--text-muted)" }} />} />
                 <KpiCard label="Pipeline value" value={`${pipeline.reduce((s, p) => s + p.totalValue, 0).toLocaleString("sv-SE")} kr`} sub="Vunna deals" icon={<TrendingUp size={14} style={{ color: "var(--text-muted)" }} />} />
-                <KpiCard label="Win rate" value={`${conversion.meetingToWon}%`} sub="Möte → Vunnet" icon={<Trophy size={14} style={{ color: "var(--text-muted)" }} />} />
+                <KpiCard label="Stängningsgrad" value={`${conversion.closeRate}%`} sub="Samtal → Såld" icon={<Trophy size={14} style={{ color: "var(--text-muted)" }} />} />
               </div>
 
               <div className="p-5 rounded-[18px] mb-6" style={{ background: "var(--surface)", border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}>
@@ -282,7 +282,7 @@ export function StatsView({
                                 </div>
                               </td>
                               <td className="px-4 py-3"><span className="text-[13px] font-semibold" style={{ color: "var(--text)", fontFamily: "var(--font-mono)" }}>{seller.calls}</span></td>
-                              <td className="px-4 py-3"><span className="text-[13px]" style={{ color: "var(--text)", fontFamily: "var(--font-mono)" }}>{seller.meetings}</span></td>
+                              <td className="px-4 py-3"><span className="text-[13px]" style={{ color: "var(--text)", fontFamily: "var(--font-mono)" }}>{seller.sold}</span></td>
                               <td className="px-4 py-3">
                                 <div className="flex items-center gap-1">
                                   {trend === "up"   && <ArrowUp   size={11} style={{ color: "var(--success)" }} />}

@@ -62,7 +62,7 @@ export function FloorView({ initial }: { initial: Floor }) {
   const expected = expectedByNow(floor.targetPerHour, now);
   const online = floor.sellers.filter((s) => s.status !== "OFFLINE");
   const totalCalls = floor.sellers.reduce((n, s) => n + s.todayCalls, 0);
-  const totalMeetings = floor.sellers.reduce((n, s) => n + s.todayMeetings, 0);
+  const totalSold = floor.sellers.reduce((n, s) => n + s.todaySold, 0);
 
   return (
     <div className="px-8 py-7 max-w-[1200px]">
@@ -77,7 +77,7 @@ export function FloorView({ initial }: { initial: Floor }) {
         </div>
         <div className="flex items-center gap-6">
           <Tile label="Samtal idag" value={String(totalCalls)} />
-          <Tile label="Möten idag" value={String(totalMeetings)} accent />
+          <Tile label="Sålt idag" value={String(totalSold)} accent />
           <Tile label="Takt/tim" value={String(floor.targetPerHour)} muted />
         </div>
       </div>
@@ -151,7 +151,7 @@ export function FloorView({ initial }: { initial: Floor }) {
 
                 <div className="flex items-center gap-5">
                   <MiniStat label="Samtal" value={String(s.todayCalls)} />
-                  <MiniStat label="Möten" value={String(s.todayMeetings)} />
+                  <MiniStat label="Sålt" value={String(s.todaySold)} />
                   <MiniStat label="Taltid" value={fmtDuration(s.todayTalkSec)} />
                   {expected > 0 && s.status !== "OFFLINE" && (
                     <MiniStat label="Mål nu" value={String(expected)} muted />
@@ -176,8 +176,8 @@ export function FloorView({ initial }: { initial: Floor }) {
       </div>
 
       <p className="text-[11px] mt-6 leading-relaxed max-w-[640px]" style={{ color: "var(--text-dim)" }}>
-        Vyn larmar på insats — samtalstakt och tystnad — och aldrig på försäljning. Vid ett bokat
-        möte per 45–100 samtal är “ingen affär på tre timmar” det vanligaste utfallet även för en
+        Vyn larmar på insats — samtalstakt och tystnad — och aldrig på försäljning. Vid ett avslut
+        per 45–100 samtal är “ingen affär på tre timmar” det vanligaste utfallet även för en
         stark säljare, alltså brus. Larm på utfall saknar dessutom stöd i forskningen, medan
         insatsbaserad återkoppling har visats höja både samtalsvolym och försäljning hos de svagaste
         utan att skada de starkaste. Försäljningssiffror hör hemma i dagsrapporten.

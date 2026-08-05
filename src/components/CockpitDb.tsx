@@ -336,14 +336,14 @@ export function CockpitDb({
 
   // ── Närvaro ────────────────────────────────────────────────────────────
   const pendingCallsRef = useRef(0);
-  const pendingMeetingsRef = useRef(0);
+  const pendingSoldRef = useRef(0);
 
   useEffect(() => {
     function beat() {
       const calls = pendingCallsRef.current;
-      const meetings = pendingMeetingsRef.current;
+      const sold = pendingSoldRef.current;
       pendingCallsRef.current = 0;
-      pendingMeetingsRef.current = 0;
+      pendingSoldRef.current = 0;
       const current = leadsRef.current[indexRef.current];
       void heartbeat({
         status: "DIALING",
@@ -353,7 +353,7 @@ export function CockpitDb({
         listName,
         sessionId: sessionIdRef.current,
         callsDelta: calls,
-        meetingsDelta: meetings,
+        soldDelta: sold,
       });
     }
     beat();
@@ -438,9 +438,7 @@ export function CockpitDb({
       setTotalCalls((n) => n + 1);
       setTotalIdleSeconds((n) => n + idle);
       pendingCallsRef.current += 1;
-      if (opts.outcome === "MEETING_BOOKED" || opts.outcome === "SOLD") {
-        pendingMeetingsRef.current += 1;
-      }
+      if (opts.outcome === "SOLD") pendingSoldRef.current += 1;
 
       queue.enqueue({
         idempotencyKey: crypto.randomUUID(),

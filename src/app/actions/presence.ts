@@ -29,7 +29,7 @@ export async function heartbeat(input: {
   callStartedAt?: Date | null;
   /** Antal samtal sedan förra hjärtslaget. */
   callsDelta?: number;
-  meetingsDelta?: number;
+  soldDelta?: number;
   talkSecDelta?: number;
 }) {
   const user = await requireAuth();
@@ -45,7 +45,7 @@ export async function heartbeat(input: {
   const isNewDay = existing?.countersDate !== date;
 
   const calls = Math.max(0, Math.trunc(input.callsDelta ?? 0));
-  const meetings = Math.max(0, Math.trunc(input.meetingsDelta ?? 0));
+  const sold = Math.max(0, Math.trunc(input.soldDelta ?? 0));
   const talkSec = Math.max(0, Math.trunc(input.talkSecDelta ?? 0));
 
   return db.sellerPresence.upsert({
@@ -60,7 +60,7 @@ export async function heartbeat(input: {
       sessionId: input.sessionId ?? null,
       callStartedAt: input.callStartedAt ?? null,
       todayCalls: calls,
-      todayMeetings: meetings,
+      todaySold: sold,
       todayTalkSec: talkSec,
       countersDate: date,
       lastHeartbeat: now,
@@ -76,7 +76,7 @@ export async function heartbeat(input: {
       lastHeartbeat: now,
       countersDate: date,
       todayCalls: isNewDay ? calls : { increment: calls },
-      todayMeetings: isNewDay ? meetings : { increment: meetings },
+      todaySold: isNewDay ? sold : { increment: sold },
       todayTalkSec: isNewDay ? talkSec : { increment: talkSec },
     },
   });
@@ -134,7 +134,7 @@ export async function getFloor() {
         currentListName: stale ? null : r.currentListName,
         callStartedAt: stale ? null : r.callStartedAt,
         todayCalls: counters ? r.todayCalls : 0,
-        todayMeetings: counters ? r.todayMeetings : 0,
+        todaySold: counters ? r.todaySold : 0,
         todayTalkSec: counters ? r.todayTalkSec : 0,
         lastHeartbeat: r.lastHeartbeat,
         minutesSinceHeartbeat: Math.floor(

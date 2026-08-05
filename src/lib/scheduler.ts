@@ -33,7 +33,6 @@ export type OutcomeLike =
   | "GATEKEEPER_GAVE_DM_DETAILS"
   | "DM_NO"
   | "CALLBACK_BOOKED"
-  | "MEETING_BOOKED"
   | "SOLD"
   | null;
 
@@ -168,7 +167,6 @@ function terminalReason(
   if (result === "WRONG_NUMBER") return "fel_nummer";
   if (result === "INVALID_NUMBER") return "ogiltigt_nummer";
   if (outcome === "SOLD") return "sald";
-  if (outcome === "MEETING_BOOKED") return "mote_bokat";
   return null;
 }
 

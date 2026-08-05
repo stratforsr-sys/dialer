@@ -106,10 +106,6 @@ export async function getLead(id: string) {
           products: { include: { product: true } },
         },
       },
-      meetings: {
-        orderBy: { scheduledAt: "desc" },
-        include: { bookedBy: { select: { id: true, name: true } } },
-      },
       activities: {
         orderBy: { timestamp: "desc" },
         take: 50,

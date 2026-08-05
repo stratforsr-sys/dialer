@@ -68,8 +68,7 @@ export const GATEKEEPER_TACTICS = [
 export const OUTCOME_OPTIONS: FlowOption<ConversationOutcome>[] = [
   { key: "1", label: "Sa nej", value: "DM_NO", color: "#EF4444", hint: "Varför?" },
   { key: "2", label: "Ring igen", value: "CALLBACK_BOOKED", color: "#3B82F6", hint: "När?" },
-  { key: "3", label: "Möte bokat", value: "MEETING_BOOKED", color: "#10B981" },
-  { key: "4", label: "Såld", value: "SOLD", color: "#22C55E" },
+  { key: "3", label: "Såld", value: "SOLD", color: "#22C55E" },
 ];
 
 // ── Steg 3: varför nej ────────────────────────────────────────────────────
@@ -135,8 +134,8 @@ export function stageAfterResult(result: CallResult): FlowStage | null {
 
 export function stageAfterOutcome(outcome: ConversationOutcome): FlowStage | null {
   if (outcome === "DM_NO") return "reason";
-  // Bokat eller sålt: ingen coachningsfråga behövs, samtalet gick ju hela vägen.
-  if (outcome === "MEETING_BOOKED" || outcome === "SOLD") return null;
+  // Sålt: ingen coachningsfråga behövs, samtalet gick ju hela vägen.
+  if (outcome === "SOLD") return null;
   if (outcome === "CALLBACK_BOOKED") return null;
   // Växelutfall är kompletta i sig.
   return null;

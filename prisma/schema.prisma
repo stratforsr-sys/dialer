@@ -22,7 +22,6 @@ model User {
   leads        Lead[]         @relation("LeadOwner")
   activities   Activity[]     @relation("ActivityActor")
   callSessions CallSession[]
-  meetings     Meeting[]      @relation("MeetingBookedBy")
   dealsCreated Deal[]         @relation("DealCreatedBy")
   listsCreated CallList[]     @relation("ListCreatedBy")
   listAccess   ListAccess[]
@@ -80,7 +79,6 @@ model Lead {
 
   contacts     Contact[]
   activities   Activity[]
-  meetings     Meeting[]
   deals        Deal[]
   tags         TagOnLead[]
   lists        LeadOnList[]
@@ -296,9 +294,6 @@ enum ActivityType {
   CALL_NO_ANSWER
   NOTE
   STAGE_CHANGE
-  MEETING_BOOKED
-  MEETING_COMPLETED
-  MEETING_NO_SHOW
   LEAD_CREATED
   LEAD_ASSIGNED
   LEAD_IMPORTED
@@ -310,37 +305,6 @@ enum ActivityType {
   DEAL_STAGE_CHANGE
   DEAL_WON
   DEAL_LOST
-}
-
-// ==================== MEETINGS ====================
-
-model Meeting {
-  id          String         @id @default(cuid())
-  title       String?
-  scheduledAt DateTime
-  outcome     MeetingOutcome @default(PENDING)
-  notes       String?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-
-  leadId     String
-  lead       Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
-
-  bookedById String
-  bookedBy   User   @relation("MeetingBookedBy", fields: [bookedById], references: [id])
-
-  @@index([scheduledAt])
-  @@index([outcome, scheduledAt])
-  @@index([leadId])
-  @@index([bookedById])
-}
-
-enum MeetingOutcome {
-  PENDING
-  SHOW
-  NO_SHOW
-  CANCELLED
-  RESCHEDULED
 }
 
 // ==================== CALL SESSIONS (Fluff-tracking) ====================
@@ -399,7 +363,6 @@ enum ConversationOutcome {
   GATEKEEPER_GAVE_DM_DETAILS
   DM_NO
   CALLBACK_BOOKED
-  MEETING_BOOKED
   SOLD
 }
 
@@ -835,7 +798,7 @@ model SellerPresence {
   sessionId       String?
 
   todayCalls    Int @default(0)
-  todayMeetings Int @default(0)
+  todaySold     Int @default(0)
   todayTalkSec  Int @default(0)
 
   /// "2026-08-05" — räknarna nollställs när datumet inte stämmer, så inget
