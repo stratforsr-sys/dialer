@@ -120,7 +120,7 @@ export async function GET(request: Request) {
               <!-- Footer -->
               <div style="padding:20px 24px;background:#fafafa;border-top:1px solid #f4f4f5;">
                 <p style="margin:0;font-size:12px;color:#a1a1aa;">
-                  Telink Sales Hub · Skickas varje morgon 08:00 mån–fre
+                  Clicknet Sales Hub · Skickas varje morgon 08:00 mån–fre
                 </p>
               </div>
             </div>
@@ -131,7 +131,7 @@ export async function GET(request: Request) {
 
     try {
       await resend.emails.send({
-        from: "Sales Hub <noreply@telink.se>",
+        from: "Sales Hub <noreply@clicknet.se>",
         to: user.email,
         subject: `${userMeetings.length} möte${userMeetings.length > 1 ? "n" : ""} att markera — ${new Date(yesterday).toLocaleDateString("sv-SE", { weekday: "long", day: "numeric", month: "long" })}`,
         html,

@@ -1,9 +1,9 @@
 import { getGeminiClient, GEMINI_MODEL } from "./gemini-client";
 import type { BattleCard, ResearchRequest } from "@/types/research";
 
-const SYSTEM_PROMPT = `Du är en senior B2B-sälj-strateg som skapar battle cards för säljare på Telink.ai.
+const SYSTEM_PROMPT = `Du är en senior B2B-sälj-strateg som skapar battle cards för säljare på Clicknet.
 
-Telink.ai säljer AI-driven säljdokumentation. Tre kärnvärden:
+Clicknet säljer AI-driven säljdokumentation. Tre kärnvärden:
 1. Auto-dokumentation — sparar 5–6h/vecka/rep på samtalsanteckningar
 2. Mönsterigenkänning — AI-insikter från konversationsdata
 3. Just Ask — sökbar intelligens, chefer slutar jaga reps för uppdateringar

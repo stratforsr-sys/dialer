@@ -234,7 +234,7 @@ export function SettingsView({ settings, onUpdateSettings, onExportData, onClear
                 <Zap size={18} />
               </div>
               <div>
-                <span className="font-semibold" style={{ color: "var(--text)" }}>Telink Dialer</span>
+                <span className="font-semibold" style={{ color: "var(--text)" }}>Clicknet Dialer</span>
                 <p className="text-xs" style={{ color: "var(--text-muted)" }}>Version 1.0.0</p>
               </div>
             </div>

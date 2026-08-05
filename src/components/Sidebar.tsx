@@ -40,7 +40,7 @@ export function Sidebar({ view, setView, hasData, activeListName }: SidebarProps
               className="font-semibold text-sm tracking-tight"
               style={{ color: "var(--text)" }}
             >
-              telink
+              clicknet
             </span>
             <span
               className="text-2xs block font-medium tracking-wider uppercase"

@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import type { CallList, Contact, ContactStatus } from "@/types";
 
-const STORAGE_KEY = "telink_call_lists";
-const ACTIVE_LIST_KEY = "telink_active_list_id";
+const STORAGE_KEY = "clicknet_call_lists";
+const ACTIVE_LIST_KEY = "clicknet_active_list_id";
 
 function generateId(): string {
   return crypto.randomUUID();

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { AppSettings } from "@/types";
 
-const STORAGE_KEY = "telink_settings";
+const STORAGE_KEY = "clicknet_settings";
 
 const DEFAULTS: AppSettings = {
   dailyCallGoal: 50,

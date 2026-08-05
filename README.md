@@ -1,6 +1,6 @@
-# Telink Sales Dialer
+# Clicknet Sales Dialer
 
-> AI-powered sales cockpit by Telink AB. Built with Next.js 14, TypeScript, and Tailwind CSS.
+> AI-powered sales cockpit by Clicknet. Built with Next.js 14, TypeScript, and Tailwind CSS.
 
 ## Features
 
@@ -101,10 +101,10 @@ src/
 |-------|-----|-------|
 | `bg` | `#0a0f1a` | Page background |
 | `surface` | `#0f1c2e` | Cards, panels |
-| `green` | `#3DD68C` | Primary accent (Telink green) |
+| `green` | `#3DD68C` | Primary accent (Clicknet green) |
 | `text` | `#e8edf4` | Primary text |
 | `muted` | `#8899aa` | Secondary text |
 
 ---
 
-Built for Telink AB © 2026
+Built for Clicknet © 2026

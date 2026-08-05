@@ -75,20 +75,20 @@ export function ListView({ contacts, callLists, activeListId, onStartDialer, onO
   ];
 
   return (
-    <div className="h-full flex flex-col overflow-hidden bg-telink-bg">
+    <div className="h-full flex flex-col overflow-hidden bg-clicknet-bg">
       {/* Header */}
       <div className="flex-shrink-0 px-8 pt-8 pb-6">
         <div className="flex items-start justify-between mb-6">
           <div className="animate-fade-up">
-            <h1 className="text-2xl font-bold text-telink-text tracking-tight mb-1">Kontakter</h1>
-            <p className="text-sm text-telink-muted">
-              <span className="text-telink-text-secondary font-medium">{filtered.length}</span> av {contacts.length} visas
+            <h1 className="text-2xl font-bold text-clicknet-text tracking-tight mb-1">Kontakter</h1>
+            <p className="text-sm text-clicknet-muted">
+              <span className="text-clicknet-text-secondary font-medium">{filtered.length}</span> av {contacts.length} visas
             </p>
           </div>
           <button
             onClick={() => onStartDialer()}
             disabled={queue === 0}
-            className="flex items-center gap-2.5 px-5 py-2.5 rounded-xl text-sm font-bold bg-gradient-to-r from-telink-accent via-pink-500 to-telink-violet text-telink-bg shadow-glow-sm hover:shadow-glow-md disabled:opacity-40 transition-all cursor-pointer animate-fade-up"
+            className="flex items-center gap-2.5 px-5 py-2.5 rounded-xl text-sm font-bold bg-gradient-to-r from-clicknet-accent via-pink-500 to-clicknet-violet text-clicknet-bg shadow-glow-sm hover:shadow-glow-md disabled:opacity-40 transition-all cursor-pointer animate-fade-up"
           >
             <Play size={14} fill="currentColor" /> Starta Dialer ({queue} kvar)
           </button>
@@ -97,16 +97,16 @@ export function ListView({ contacts, callLists, activeListId, onStartDialer, onO
         {/* Search + filter bar */}
         <div className="flex items-center gap-4 animate-fade-up" style={{ animationDelay: "50ms" }}>
           <div className="relative flex-1">
-            <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-telink-dim" />
+            <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-clicknet-dim" />
             <input
               type="text"
               placeholder="Sök kontakt, företag eller nummer..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full pl-11 pr-4 py-3 rounded-xl bg-telink-surface border border-telink-border text-sm text-telink-text placeholder-telink-dim focus:outline-none focus:border-telink-accent/50 focus:ring-2 focus:ring-telink-accent/20 transition-all"
+              className="w-full pl-11 pr-4 py-3 rounded-xl bg-clicknet-surface border border-clicknet-border text-sm text-clicknet-text placeholder-clicknet-dim focus:outline-none focus:border-clicknet-accent/50 focus:ring-2 focus:ring-clicknet-accent/20 transition-all"
             />
           </div>
-          <div className="flex items-center gap-2 text-telink-dim">
+          <div className="flex items-center gap-2 text-clicknet-dim">
             <Filter size={14} />
             <span className="text-xs font-medium">Filter:</span>
           </div>
@@ -125,13 +125,13 @@ export function ListView({ contacts, callLists, activeListId, onStartDialer, onO
                 className={`
                   flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer
                   ${active
-                    ? "bg-telink-accent-muted text-telink-accent border border-telink-accent/20"
-                    : "text-telink-muted hover:bg-telink-surface-hover hover:text-telink-text border border-transparent"
+                    ? "bg-clicknet-accent-muted text-clicknet-accent border border-clicknet-accent/20"
+                    : "text-clicknet-muted hover:bg-clicknet-surface-hover hover:text-clicknet-text border border-transparent"
                   }
                 `}
               >
                 {s === "alla" ? "Alla" : cfg?.label}
-                <span className={`ml-0.5 font-mono text-[10px] tabular-nums ${active ? "text-telink-accent/70" : "text-telink-dim"}`}>
+                <span className={`ml-0.5 font-mono text-[10px] tabular-nums ${active ? "text-clicknet-accent/70" : "text-clicknet-dim"}`}>
                   {count}
                 </span>
               </button>
@@ -142,10 +142,10 @@ export function ListView({ contacts, callLists, activeListId, onStartDialer, onO
 
       {/* Table */}
       <div className="flex-1 overflow-y-auto px-8 pb-8">
-        <div className="rounded-2xl border border-telink-border overflow-hidden bg-telink-surface animate-fade-up" style={{ animationDelay: "150ms" }}>
+        <div className="rounded-2xl border border-clicknet-border overflow-hidden bg-clicknet-surface animate-fade-up" style={{ animationDelay: "150ms" }}>
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-telink-surface-elevated border-b border-telink-border">
+              <tr className="bg-clicknet-surface-elevated border-b border-clicknet-border">
                 {[
                   { key: "name" as SortField, label: "Kontakt" },
                   { key: "company" as SortField, label: "Företag" },
@@ -156,13 +156,13 @@ export function ListView({ contacts, callLists, activeListId, onStartDialer, onO
                 ].map((col, i) => (
                   <th
                     key={i}
-                    className={`px-5 py-4 text-left text-xs font-semibold text-telink-muted whitespace-nowrap ${col.key ? "cursor-pointer hover:text-telink-text select-none transition-colors" : ""}`}
+                    className={`px-5 py-4 text-left text-xs font-semibold text-clicknet-muted whitespace-nowrap ${col.key ? "cursor-pointer hover:text-clicknet-text select-none transition-colors" : ""}`}
                     onClick={() => col.key && handleSort(col.key)}
                   >
                     <span className="flex items-center gap-1.5">
                       {col.label}
                       {col.key && sortField === col.key && (
-                        <ArrowUpDown size={11} className="text-telink-accent" />
+                        <ArrowUpDown size={11} className="text-clicknet-accent" />
                       )}
                     </span>
                   </th>
@@ -176,38 +176,38 @@ export function ListView({ contacts, callLists, activeListId, onStartDialer, onO
                 return (
                   <tr
                     key={contact.id}
-                    className="border-b border-telink-border/50 hover:bg-telink-surface-hover/50 transition-colors cursor-pointer group"
+                    className="border-b border-clicknet-border/50 hover:bg-clicknet-surface-hover/50 transition-colors cursor-pointer group"
                     onClick={() => onOpenCockpit(globalIndex)}
                     style={{ animationDelay: `${Math.min(idx * 20, 200)}ms` }}
                   >
                     {/* Name + role */}
                     <td className="px-5 py-4">
-                      <div className="font-medium text-telink-text group-hover:text-telink-accent transition-colors">{contact.name || "—"}</div>
+                      <div className="font-medium text-clicknet-text group-hover:text-clicknet-accent transition-colors">{contact.name || "—"}</div>
                       {contact.role && (
-                        <div className="text-xs text-telink-dim mt-0.5">{contact.role}</div>
+                        <div className="text-xs text-clicknet-dim mt-0.5">{contact.role}</div>
                       )}
                     </td>
                     {/* Company */}
-                    <td className="px-5 py-4 text-telink-text-secondary">{contact.company || "—"}</td>
+                    <td className="px-5 py-4 text-clicknet-text-secondary">{contact.company || "—"}</td>
                     {/* Phone */}
                     <td className="px-5 py-4">
                       {contact.direct_phone ? (
                         <a
                           href={`tel:${contact.direct_phone}`}
                           onClick={e => e.stopPropagation()}
-                          className="inline-flex items-center gap-1.5 text-telink-accent font-mono text-xs hover:text-telink-accent-hover transition-colors"
+                          className="inline-flex items-center gap-1.5 text-clicknet-accent font-mono text-xs hover:text-clicknet-accent-hover transition-colors"
                         >
                           <Phone size={11} /> {contact.direct_phone}
                         </a>
                       ) : (
-                        <span className="text-telink-dim">—</span>
+                        <span className="text-clicknet-dim">—</span>
                       )}
                       {contact.switchboard && (
                         <div className="mt-0.5">
                           <a
                             href={`tel:${contact.switchboard}`}
                             onClick={e => e.stopPropagation()}
-                            className="text-xs text-telink-dim font-mono hover:text-telink-muted transition-colors"
+                            className="text-xs text-clicknet-dim font-mono hover:text-clicknet-muted transition-colors"
                           >
                             Växel: {contact.switchboard}
                           </a>
@@ -224,7 +224,7 @@ export function ListView({ contacts, callLists, activeListId, onStartDialer, onO
                       </span>
                     </td>
                     {/* Last contact */}
-                    <td className="px-5 py-4 text-xs text-telink-dim font-mono tabular-nums">
+                    <td className="px-5 py-4 text-xs text-clicknet-dim font-mono tabular-nums">
                       {contact.lastContact
                         ? new Date(contact.lastContact).toLocaleDateString("sv-SE", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
                         : "—"
@@ -235,7 +235,7 @@ export function ListView({ contacts, callLists, activeListId, onStartDialer, onO
                       <div className="relative flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
                           onClick={(e) => { e.stopPropagation(); onOpenCockpit(globalIndex); }}
-                          className="p-1.5 rounded-lg hover:bg-telink-surface transition-colors text-telink-dim hover:text-telink-accent cursor-pointer"
+                          className="p-1.5 rounded-lg hover:bg-clicknet-surface transition-colors text-clicknet-dim hover:text-clicknet-accent cursor-pointer"
                         >
                           <ExternalLink size={14} />
                         </button>
@@ -243,7 +243,7 @@ export function ListView({ contacts, callLists, activeListId, onStartDialer, onO
                         <button
                           onClick={(e) => { e.stopPropagation(); setResearchContact(contact); }}
                           title="Sales Research"
-                          className="p-1.5 rounded-lg hover:bg-blue-50 transition-colors text-telink-dim hover:text-blue-600 cursor-pointer"
+                          className="p-1.5 rounded-lg hover:bg-blue-50 transition-colors text-clicknet-dim hover:text-blue-600 cursor-pointer"
                         >
                           <FlaskConical size={14} />
                         </button>
@@ -254,7 +254,7 @@ export function ListView({ contacts, callLists, activeListId, onStartDialer, onO
                               e.stopPropagation();
                               setMenuOpen(menuOpen === contact.id ? null : contact.id);
                             }}
-                            className="p-1.5 rounded-lg hover:bg-telink-surface transition-colors text-telink-dim hover:text-telink-muted cursor-pointer"
+                            className="p-1.5 rounded-lg hover:bg-clicknet-surface transition-colors text-clicknet-dim hover:text-clicknet-muted cursor-pointer"
                           >
                             <MoreHorizontal size={14} />
                           </button>
@@ -263,21 +263,21 @@ export function ListView({ contacts, callLists, activeListId, onStartDialer, onO
                         {menuOpen === contact.id && (
                           <div
                             ref={menuRef}
-                            className="absolute right-0 top-full mt-1 w-48 py-1.5 bg-telink-surface-elevated border border-telink-border rounded-xl shadow-elevation-3 z-50 animate-fade-down"
+                            className="absolute right-0 top-full mt-1 w-48 py-1.5 bg-clicknet-surface-elevated border border-clicknet-border rounded-xl shadow-elevation-3 z-50 animate-fade-down"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <div className="px-3 py-1.5 text-2xs font-semibold text-telink-dim uppercase tracking-wider">
+                            <div className="px-3 py-1.5 text-2xs font-semibold text-clicknet-dim uppercase tracking-wider">
                               Flytta till
                             </div>
                             {otherLists.map(list => (
                               <button
                                 key={list.id}
                                 onClick={() => handleMoveContact(contact.id, list.id)}
-                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-telink-text hover:bg-telink-surface-hover transition-colors cursor-pointer"
+                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-clicknet-text hover:bg-clicknet-surface-hover transition-colors cursor-pointer"
                               >
-                                <FolderInput size={13} className="text-telink-muted" />
+                                <FolderInput size={13} className="text-clicknet-muted" />
                                 <span className="truncate">{list.name}</span>
-                                <span className="ml-auto text-xs text-telink-dim font-mono">{list.contacts.length}</span>
+                                <span className="ml-auto text-xs text-clicknet-dim font-mono">{list.contacts.length}</span>
                               </button>
                             ))}
                           </div>
@@ -290,10 +290,10 @@ export function ListView({ contacts, callLists, activeListId, onStartDialer, onO
               {filtered.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-5 py-16 text-center">
-                    <div className="text-telink-dim text-sm">Inga kontakter matchar din sökning</div>
+                    <div className="text-clicknet-dim text-sm">Inga kontakter matchar din sökning</div>
                     <button
                       onClick={() => { setSearch(""); setStatusFilter("alla"); }}
-                      className="mt-3 text-xs text-telink-accent hover:text-telink-accent-hover transition-colors cursor-pointer"
+                      className="mt-3 text-xs text-clicknet-accent hover:text-clicknet-accent-hover transition-colors cursor-pointer"
                     >
                       Rensa filter
                     </button>

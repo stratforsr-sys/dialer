@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { DayStats } from "@/types";
 
-const STORAGE_KEY = "telink_daily_stats";
+const STORAGE_KEY = "clicknet_daily_stats";
 const KEEP_DAYS = 30;
 
 function todayKey(): string {

@@ -19,7 +19,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 config({ path: join(__dirname, "../.env.local") });
 
 // ── Change these before running ─────────────────────────────────────────────
-const ADMIN_EMAIL = "admin@telink.se";
+const ADMIN_EMAIL = "admin@clicknet.se";
 const ADMIN_NAME = "Admin";
 const ADMIN_PASSWORD = "Familjen123";
 // ────────────────────────────────────────────────────────────────────────────

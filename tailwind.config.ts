@@ -6,9 +6,9 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // TELINK - Theme-aware using CSS variables
+        // CLICKNET - Theme-aware using CSS variables
         // Legacy naming convention - maps to same CSS variables as cockpit
-        telink: {
+        clicknet: {
           bg: "var(--bg)",
           "bg-subtle": "var(--bg-subtle)",
           "bg-muted": "var(--bg-muted)",

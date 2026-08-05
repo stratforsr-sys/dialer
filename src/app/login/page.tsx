@@ -218,7 +218,7 @@ export default function LoginPage() {
           className="text-center text-[12px] mt-6"
           style={{ color: "var(--text-dim)" }}
         >
-          Telink Sales Hub
+          Clicknet Sales Hub
         </p>
       </motion.div>
     </div>
