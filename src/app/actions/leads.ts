@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, requireAdmin } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import { visibleLeadWhere } from "@/lib/lists";
 import { LEADS_PAGE_SIZE } from "@/lib/constants";
@@ -186,14 +186,20 @@ export async function updateLead(
   return updated;
 }
 
+/**
+ * Endast admin. Raderingen kaskaderar ner i kontakter, aktiviteter, möten och
+ * affärer — aktivitetsloggen ska vara oföränderlig, så det här är den enda
+ * vägen den kan försvinna. Den vägen får inte stå öppen för säljare.
+ */
 export async function deleteLead(id: string) {
-  await requireAuth();
+  await requireAdmin();
   await db.lead.delete({ where: { id } });
   revalidatePath("/leads");
 }
 
+/** Endast admin — annars går claim-låset att kringgå genom att flytta leadet till sig själv. */
 export async function reassignLead(id: string, newOwnerId: string) {
-  const user = await requireAuth();
+  const user = await requireAdmin();
 
   const lead = await db.lead.findUnique({
     where: { id },

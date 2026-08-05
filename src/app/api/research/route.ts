@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createJob, runResearchJob } from "@/lib/research/orchestrator";
+import { getSession } from "@/lib/auth";
 import type { ResearchRequest } from "@/types/research";
 
 export async function POST(req: NextRequest) {
+  // Egen kontroll, inte bara middleware: den här routen startar betalda
+  // scraping- och LLM-anrop, och skyddet får inte hänga på en matcher-rad.
+  const session = await getSession();
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const body = (await req.json()) as ResearchRequest;
 

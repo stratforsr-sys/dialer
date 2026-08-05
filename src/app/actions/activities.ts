@@ -1,11 +1,11 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { requireAuth } from "@/lib/auth";
+import { requireLeadAccess } from "@/lib/guard";
 import { revalidatePath } from "next/cache";
 
 export async function createNote(leadId: string, text: string, contactId?: string) {
-  const user = await requireAuth();
+  const user = await requireLeadAccess(leadId);
 
   await db.activity.create({
     data: {
@@ -26,7 +26,10 @@ export async function logCall(
   status: string,
   notes?: string
 ) {
-  const user = await requireAuth();
+  // Utan grinden kunde vilket leadId som helst skickas in — och grenen för
+  // "bokat_mote" skapar en Deal och sätter hasActiveDeal på leadet, alltså
+  // skrivningar i en annan säljares pipeline.
+  const user = await requireLeadAccess(leadId);
 
   const type = status === "svarar_ej" ? "CALL_NO_ANSWER" : "CALL";
 

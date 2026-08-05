@@ -2,6 +2,8 @@
 
 import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
+import { requireLeadAccess, requireDealAccess } from "@/lib/guard";
+import { visibleLeadWhere } from "@/lib/lists";
 import { revalidatePath } from "next/cache";
 
 export type DealWithRelations = Awaited<ReturnType<typeof getDealsForPipeline>>[number];
@@ -9,9 +11,11 @@ export type DealWithRelations = Awaited<ReturnType<typeof getDealsForPipeline>>[
 // ── Queries ────────────────────────────────────────────────────────────────
 
 export async function getDealsForPipeline() {
-  await requireAuth();
+  const user = await requireAuth();
   return db.deal.findMany({
-    where: { status: "OPEN" },
+    // Säljare ser bara affärer på leads de har tillgång till — pipelinen
+    // visade tidigare hela bolagets affärer för alla.
+    where: { status: "OPEN", lead: visibleLeadWhere(user) },
     orderBy: { updatedAt: "desc" },
     include: {
       stage: true,
@@ -42,7 +46,7 @@ export async function createDeal(data: {
     unit?: string;
   }>;
 }) {
-  const user = await requireAuth();
+  const user = await requireLeadAccess(data.leadId);
 
   const deal = await db.deal.create({
     data: {
@@ -94,7 +98,7 @@ export async function createDeal(data: {
 }
 
 export async function moveDealToStage(dealId: string, stageId: string) {
-  const user = await requireAuth();
+  const { user } = await requireDealAccess(dealId);
 
   const deal = await db.deal.findUnique({ where: { id: dealId }, include: { stage: true } });
   if (!deal) throw new Error("Deal not found");
@@ -117,7 +121,7 @@ export async function moveDealToStage(dealId: string, stageId: string) {
 }
 
 export async function closeDeal(dealId: string, status: "WON" | "LOST", notes?: string) {
-  const user = await requireAuth();
+  const { user } = await requireDealAccess(dealId);
 
   const deal = await db.deal.findUnique({ where: { id: dealId } });
   if (!deal) throw new Error("Deal not found");
@@ -158,7 +162,7 @@ export async function updateDeal(
     stageId?: string;
   }
 ) {
-  await requireAuth();
+  await requireDealAccess(dealId);
   const deal = await db.deal.update({ where: { id: dealId }, data });
   revalidatePath("/pipeline");
   revalidatePath(`/leads/${deal.leadId}`);

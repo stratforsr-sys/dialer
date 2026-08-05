@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { verifyActionToken, escapeHtml } from "@/lib/action-token";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -7,12 +8,16 @@ export async function GET(request: Request) {
   const outcome = searchParams.get("outcome");
   const token = searchParams.get("token");
 
-  if (token !== process.env.CRON_SECRET) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+  // Ordningen spelar roll: validera parametrarna FÖRE token, annars signeras
+  // kontrollen mot värden som ännu inte är kända som giltiga.
   if (!id || !outcome || !["SHOW", "NO_SHOW"].includes(outcome)) {
     return NextResponse.json({ error: "Invalid params" }, { status: 400 });
+  }
+
+  // Token är bundet till både mötet och utfallet — en Show-länk kan inte
+  // återanvändas för No-show, och inte för något annat möte.
+  if (!verifyActionToken(token, id, outcome)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const meeting = await db.meeting.update({
@@ -42,7 +47,7 @@ export async function GET(request: Request) {
     <div style="text-align:center;padding:40px;background:white;border-radius:16px;border:1px solid #e4e4e7;">
       <div style="font-size:48px;margin-bottom:16px;">${outcome === "SHOW" ? "✅" : "❌"}</div>
       <h2 style="color:${color};margin:0 0 8px;">${label}</h2>
-      <p style="color:#71717a;font-size:14px;margin:0;">${meeting.lead.companyName}</p>
+      <p style="color:#71717a;font-size:14px;margin:0;">${escapeHtml(meeting.lead.companyName)}</p>
       <p style="color:#a1a1aa;font-size:12px;margin:16px 0 0;">Omdirigerar till lead...</p>
     </div></body></html>`,
     { headers: { "Content-Type": "text/html" } }

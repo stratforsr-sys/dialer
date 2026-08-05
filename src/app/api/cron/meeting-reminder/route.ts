@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { db } from "@/lib/db";
+import { createActionToken, escapeHtml } from "@/lib/action-token";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -56,17 +57,17 @@ export async function GET(request: Request) {
       return `
         <tr>
           <td style="padding:12px 16px;border-bottom:1px solid #f0f0f0;">
-            <strong style="color:#09090b;">${m.lead.companyName}</strong>
-            ${m.title ? `<br><span style="color:#71717a;font-size:13px;">${m.title}</span>` : ""}
+            <strong style="color:#09090b;">${escapeHtml(m.lead.companyName)}</strong>
+            ${m.title ? `<br><span style="color:#71717a;font-size:13px;">${escapeHtml(m.title)}</span>` : ""}
           </td>
           <td style="padding:12px 16px;border-bottom:1px solid #f0f0f0;color:#71717a;font-size:13px;">${time}</td>
           <td style="padding:12px 16px;border-bottom:1px solid #f0f0f0;">
             <div style="display:flex;gap:8px;">
-              <a href="${baseUrl}/api/meeting-outcome?id=${m.id}&outcome=SHOW&token=${process.env.CRON_SECRET}"
+              <a href="${baseUrl}/api/meeting-outcome?id=${m.id}&outcome=SHOW&token=${createActionToken(m.id, "SHOW")}"
                  style="display:inline-block;padding:6px 14px;background:#16a34a;color:white;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600;">
                 ✓ Show
               </a>
-              <a href="${baseUrl}/api/meeting-outcome?id=${m.id}&outcome=NO_SHOW&token=${process.env.CRON_SECRET}"
+              <a href="${baseUrl}/api/meeting-outcome?id=${m.id}&outcome=NO_SHOW&token=${createActionToken(m.id, "NO_SHOW")}"
                  style="display:inline-block;padding:6px 14px;background:#dc2626;color:white;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600;">
                 ✗ No-show
               </a>

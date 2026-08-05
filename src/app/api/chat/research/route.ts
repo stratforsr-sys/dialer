@@ -4,6 +4,7 @@ import { getPresetById } from "@/lib/research/prompts";
 import { scrapeAllabolag } from "@/lib/research/scrapers/allabolag";
 import { scrapeNews } from "@/lib/research/scrapers/news";
 import { scrapeWebsite } from "@/lib/research/scrapers/website";
+import { getSession } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -22,6 +23,15 @@ export interface ChatRequest {
 }
 
 export async function POST(req: NextRequest) {
+  // Betalda Gemini-anrop — egen kontroll utöver middleware.
+  const session = await getSession();
+  if (!session?.user) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   const body = (await req.json()) as ChatRequest;
   const { messages, presetId, companyName, orgNumber, website } = body;
 
