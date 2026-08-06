@@ -13,6 +13,7 @@ type Config = {
   retryHoursBusy: number;
   retryHoursVoicemail: number;
   retryHoursGatekeeper: number;
+  retryDaysNoSalespeople: number;
   targetCallsPerHour: number;
   idleAlertMinutes: number;
   blockedDatesJson: string;
@@ -162,6 +163,7 @@ export function DialerSettingsView({
           <NumberField label="Upptaget (h)" value={cfg.retryHoursBusy} onChange={(v) => setCfg({ ...cfg, retryHoursBusy: v })} />
           <NumberField label="Röstbrevlåda (h)" value={cfg.retryHoursVoicemail} onChange={(v) => setCfg({ ...cfg, retryHoursVoicemail: v })} />
           <NumberField label="Växelstopp (h)" value={cfg.retryHoursGatekeeper} onChange={(v) => setCfg({ ...cfg, retryHoursGatekeeper: v })} />
+          <NumberField label="Ej säljsamtal (dagar)" value={cfg.retryDaysNoSalespeople} onChange={(v) => setCfg({ ...cfg, retryDaysNoSalespeople: v })} />
         </div>
         <p className="text-[11px] mt-2" style={{ color: "var(--text-dim)" }}>
           Udda tal är avsiktliga: 20 timmar i stället för 24 gör att nästa försök hamnar i ett annat

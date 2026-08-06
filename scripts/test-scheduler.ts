@@ -23,6 +23,7 @@ const SLOTS: Slot[] = [
 const CFG: SchedulerConfig = {
   maxAttempts: 8,
   cooldownDays: 30,
+  retryDaysNoSalespeople: 30,
   retryHoursNoAnswer: 20,
   retryHoursBusy: 2,
   retryHoursVoicemail: 44,
@@ -95,6 +96,31 @@ const now = new Date(2026, 7, 5, 8, 30); // onsdag, tidiga passet
   const d = computeNext({ lead: base, result: "CONNECTED_DM", outcome: "DM_NO", slots: SLOTS, config: CFG, now });
   check("svar → streak nollställs", d.noAnswerStreak === 0);
   check("nej från DM → inte vilande (får ringas igen senare)", !d.retired);
+}
+{
+  const d = computeNext({
+    lead: base, result: "CONNECTED_DM", outcome: "DM_NO",
+    noReason: "VILL_EJ_PRATA_SALJARE", slots: SLOTS, config: CFG, now,
+  });
+  const days = d.nextActionAt
+    ? Math.round((d.nextActionAt.getTime() - now.getTime()) / 86_400_000)
+    : -1;
+  check("vill ej prata med säljare → inte spärrat", !d.retired);
+  check("vill ej prata med säljare → ca 30 dagar fram", days >= 29 && days <= 33, `blev ${days} dagar`);
+  check("vill ej prata med säljare → räknaren nollställs", d.attemptCount === 0);
+  check("vill ej prata med säljare → rotationen börjar om", d.triedSlotIds.length === 0);
+}
+{
+  // Vanligt nej ska INTE få den långa vilan — annars slutar de två att gå att
+  // skilja åt i praktiken, hur olika de än är i databasen.
+  const d = computeNext({
+    lead: base, result: "CONNECTED_DM", outcome: "DM_NO",
+    noReason: "PRIS", slots: SLOTS, config: CFG, now,
+  });
+  const days = d.nextActionAt
+    ? (d.nextActionAt.getTime() - now.getTime()) / 86_400_000
+    : -1;
+  check("nej på pris → kort väntan, inte 30 dagar", days >= 0 && days < 7, `blev ${days.toFixed(1)} dagar`);
 }
 {
   const d = computeNext({ lead: base, result: "WRONG_NUMBER", outcome: null, slots: SLOTS, config: CFG, now });

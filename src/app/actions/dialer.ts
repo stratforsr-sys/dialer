@@ -40,6 +40,7 @@ function toSchedulerConfig(cfg: {
   retryHoursBusy: number;
   retryHoursVoicemail: number;
   retryHoursGatekeeper: number;
+  retryDaysNoSalespeople: number;
   blockedDatesJson: string;
 }): SchedulerConfig {
   let blockedDates: string[] = [];
@@ -57,6 +58,7 @@ function toSchedulerConfig(cfg: {
     retryHoursBusy: cfg.retryHoursBusy,
     retryHoursVoicemail: cfg.retryHoursVoicemail,
     retryHoursGatekeeper: cfg.retryHoursGatekeeper,
+    retryDaysNoSalespeople: cfg.retryDaysNoSalespeople,
     blockedDates,
   };
 }
@@ -364,6 +366,7 @@ export async function recordAttempt(input: RecordAttemptInput) {
     },
     result: input.result,
     outcome: input.outcome ?? null,
+    noReason: input.noReason ?? null,
     callbackAt: input.callbackAt ?? null,
     dmAvailableAt: input.gatekeeper?.dmAvailableAt ?? null,
     slots: slots as Slot[],

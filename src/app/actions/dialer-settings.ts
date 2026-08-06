@@ -22,6 +22,7 @@ export async function updateDialerConfig(input: {
   retryHoursBusy: number;
   retryHoursVoicemail: number;
   retryHoursGatekeeper: number;
+  retryDaysNoSalespeople: number;
   targetCallsPerHour: number;
   idleAlertMinutes: number;
   blockedDates: string[];
@@ -43,6 +44,7 @@ export async function updateDialerConfig(input: {
       retryHoursBusy: clamp(input.retryHoursBusy, 1, 720),
       retryHoursVoicemail: clamp(input.retryHoursVoicemail, 1, 720),
       retryHoursGatekeeper: clamp(input.retryHoursGatekeeper, 1, 720),
+      retryDaysNoSalespeople: clamp(input.retryDaysNoSalespeople, 1, 365),
       targetCallsPerHour: clamp(input.targetCallsPerHour, 1, 200),
       idleAlertMinutes: clamp(input.idleAlertMinutes, 5, 240),
       // Bara giltiga datum sparas — ett trasigt värde här skulle annars tyst

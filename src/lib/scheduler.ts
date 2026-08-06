@@ -27,6 +27,17 @@ export type CallResultLike =
   | "CONNECTED_GATEKEEPER"
   | "CONNECTED_DM";
 
+export type NoReasonLike =
+  | "PRIS"
+  | "TIMING"
+  | "HAR_BYRA"
+  | "HAR_INHOUSE"
+  | "INGET_BEHOV"
+  | "NOJD_MED_ANNAN"
+  | "NEJ_INNAN_PITCH"
+  | "VILL_EJ_PRATA_SALJARE"
+  | null;
+
 export type OutcomeLike =
   | "GATEKEEPER_BLOCKED"
   | "GATEKEEPER_TRANSFERRED"
@@ -44,6 +55,8 @@ export interface SchedulerConfig {
   retryHoursBusy: number;
   retryHoursVoicemail: number;
   retryHoursGatekeeper: number;
+  /** Vila i dagar efter "vill inte prata med säljare". */
+  retryDaysNoSalespeople: number;
   blockedDates: string[]; // "YYYY-MM-DD"
 }
 
@@ -179,6 +192,8 @@ export function computeNext(params: {
   lead: LeadSchedulingState;
   result: CallResultLike;
   outcome: OutcomeLike;
+  /** Andra nivån på ett nej. Styr vilan vid "vill inte prata med säljare". */
+  noReason?: NoReasonLike;
   /** Bokad återuppringning — vinner alltid över rotationen. */
   callbackAt?: Date | null;
   /** Tid växeln uppgav att beslutsfattaren är tillbaka. */
@@ -191,6 +206,7 @@ export function computeNext(params: {
     lead,
     result,
     outcome,
+    noReason = null,
     callbackAt = null,
     dmAvailableAt = null,
     slots,
@@ -254,7 +270,30 @@ export function computeNext(params: {
     };
   }
 
-  // 4. Taket nått → vila. Leadet är inte förbrukat, bara pausat.
+  // 4. "Vill inte prata med säljare" — en hållning, inte en invändning.
+  //    Ligger före taket eftersom den är mer specifik: den säger något om
+  //    mottagaren, inte om hur många gånger vi råkat ringa. Leadet spärras
+  //    inte — bolaget kan ha bytt person, och en permanent spärr på en åsikt
+  //    någon uttryckte en gång kostar mer än den skyddar.
+  if (noReason === "VILL_EJ_PRATA_SALJARE") {
+    const rest = new Date(now);
+    rest.setDate(rest.getDate() + config.retryDaysNoSalespeople);
+    const slot = pickNextSlot(slots, [], rest);
+    return {
+      nextActionAt: alignToSlot(rest, slot, config.blockedDates),
+      nextSlotId: slot?.id ?? null,
+      // Nollställs som efter vilan vid taket: efter en månad är det ett nytt
+      // varv, och leadet ska inte falla direkt i taket på gamla försök.
+      attemptCount: 0,
+      noAnswerStreak: 0,
+      triedSlotIds: [],
+      retired: false,
+      retiredReason: null,
+      callbackAt: null,
+    };
+  }
+
+  // 5. Taket nått → vila. Leadet är inte förbrukat, bara pausat.
   if (attemptCount >= config.maxAttempts) {
     const rest = new Date(now);
     rest.setDate(rest.getDate() + config.cooldownDays);
@@ -271,7 +310,7 @@ export function computeNext(params: {
     };
   }
 
-  // 5. Normalfallet: vänta enligt resultatet, prova ett annat pass.
+  // 6. Normalfallet: vänta enligt resultatet, prova ett annat pass.
   const wait = new Date(now.getTime() + retryHours(result, config) * 3600_000);
   const slot = pickNextSlot(slots, triedSlotIds, wait);
 

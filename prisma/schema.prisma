@@ -539,6 +539,13 @@ model DialerConfig {
   retryHoursVoicemail Int @default(44)
   retryHoursGatekeeper Int @default(68)
 
+  /// Vila i DAGAR efter "vill inte prata med säljare". I dagar och inte timmar
+  /// eftersom det inte är en rotationspaus utan en helt annan tidsskala: en
+  /// hållning ändras inte till nästa förmiddagspass. Leadet spärras inte —
+  /// bolaget kan ha bytt person, och en permanent spärr på en åsikt någon
+  /// uttryckte en gång kostar mer än den skyddar.
+  retryDaysNoSalespeople Int @default(30)
+
   /// Antal samtal per timme som räknas som normal takt. Driver insatslarmen
   /// i chefsvyn — aldrig försäljningssiffror, som är brus på timnivå.
   targetCallsPerHour Int @default(22)
