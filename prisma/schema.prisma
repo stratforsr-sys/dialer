@@ -404,6 +404,11 @@ enum NoReason {
   HAR_INHOUSE
   INGET_BEHOV
   NOJD_MED_ANNAN
+  /// Nejet kom innan pitchen hann fram — alltså inget svar på erbjudandet,
+  /// utan ett reflexnej på att bli uppringd. Egen kategori eftersom det mäter
+  /// öppningen, inte produkten: en säljare med många av dessa har ett
+  /// intro-problem, inte ett pris- eller behovsproblem.
+  NEJ_INNAN_PITCH
 }
 
 enum CallDirection {

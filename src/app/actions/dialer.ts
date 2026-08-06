@@ -5,7 +5,7 @@ import { requireAuth } from "@/lib/auth";
 import { requireLeadAccess } from "@/lib/guard";
 import { canAccessList, claimCutoff } from "@/lib/lists";
 import { computeNext, slotAt, type Slot, type SchedulerConfig } from "@/lib/scheduler";
-import { resolveScript, type ResolverVariant } from "@/lib/script-resolver";
+import { resolveScript, firstNameOf, type ResolverVariant } from "@/lib/script-resolver";
 import { getActiveScripts } from "@/app/actions/scripts";
 import type {
   CallResult,
@@ -263,12 +263,11 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
         lead.dossier?.claims ?? [],
         {
           företag: lead.companyName,
-          kontakt: lead.contacts[0]?.name ?? null,
-          // {förnamn} och {ort} fanns i redigerarens platshållarlista men
-          // saknades i cockpitens kontext. En variant som använde dem
-          // renderades därför aldrig här — den föll igenom som "saknar värde"
-          // och säljaren fick nästa variant, eller ingen alls.
-          förnamn: lead.contacts[0]?.firstName ?? null,
+          // {kontakt} är tilltalsnamnet, inte hela namnet — se firstNameOf.
+          // {fullnamn} finns kvar för den som uttryckligen vill ha båda delarna.
+          kontakt: firstNameOf(lead.contacts[0]?.firstName, lead.contacts[0]?.name),
+          förnamn: firstNameOf(lead.contacts[0]?.firstName, lead.contacts[0]?.name),
+          fullnamn: lead.contacts[0]?.name ?? null,
           roll: lead.contacts[0]?.role ?? null,
           ort: lead.city ?? lead.address?.split(",").pop()?.trim() ?? null,
           säljare: user.name,

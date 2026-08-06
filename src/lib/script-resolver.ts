@@ -45,6 +45,27 @@ export interface ResolvedScript {
 /** Platshållare: {seo.rank}, {gmb.reviewCount}, {företag} … */
 const PLACEHOLDER = /\{([a-zA-Z0-9_.åäöÅÄÖ]+)\}/g;
 
+/**
+ * Tilltalsnamnet — det {kontakt} ska rendera.
+ *
+ * I ett kallt samtal säger man "Hej Anders", aldrig "Hej Anders Svensson".
+ * Hela namnet låter uppläst och avslöjar att det står ett manus på skärmen,
+ * vilket är precis vad öppningen inte får göra.
+ *
+ * Faller tillbaka på första ordet i visningsnamnet när förnamnet inte
+ * importerats separat. Det är en gissning, men den är rätt i det normala
+ * fallet och kan aldrig bli värre än att läsa upp hela namnet.
+ */
+export function firstNameOf(
+  firstName: string | null | undefined,
+  fullName: string | null | undefined
+): string | null {
+  const f = firstName?.trim();
+  if (f) return f;
+  const n = fullName?.trim();
+  return n ? n.split(/\s+/)[0] : null;
+}
+
 export function parseRequiredKeys(json: string): string[] {
   try {
     const parsed = JSON.parse(json);

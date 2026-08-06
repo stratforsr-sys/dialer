@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import {
   resolveScript,
   lintVariants,
+  firstNameOf,
   type ResolverVariant,
   type ResolverClaim,
 } from "@/lib/script-resolver";
@@ -96,8 +97,10 @@ export async function getScriptsForLead(leadId: string) {
   const claims: ResolverClaim[] = lead.dossier?.claims ?? [];
   const context = {
     företag: lead.companyName,
-    kontakt: lead.contacts[0]?.name ?? null,
-    förnamn: lead.contacts[0]?.firstName ?? null,
+    // Tilltalsnamn, inte hela namnet — se firstNameOf i script-resolver.
+    kontakt: firstNameOf(lead.contacts[0]?.firstName, lead.contacts[0]?.name),
+    förnamn: firstNameOf(lead.contacts[0]?.firstName, lead.contacts[0]?.name),
+    fullnamn: lead.contacts[0]?.name ?? null,
     roll: lead.contacts[0]?.role ?? null,
     // city först — address-splitten är kvar som fallback för leads som
     // importerades innan ortkolumnen fanns.
@@ -315,8 +318,9 @@ export async function previewVariants(
   const claims: ResolverClaim[] = lead?.dossier?.claims ?? [];
   const context = {
     företag: lead?.companyName ?? "Exempelbolaget AB",
-    kontakt: lead?.contacts[0]?.name ?? "Anna Andersson",
-    förnamn: lead?.contacts[0]?.firstName ?? "Anna",
+    kontakt: firstNameOf(lead?.contacts[0]?.firstName, lead?.contacts[0]?.name) ?? "Anna",
+    förnamn: firstNameOf(lead?.contacts[0]?.firstName, lead?.contacts[0]?.name) ?? "Anna",
+    fullnamn: lead?.contacts[0]?.name ?? "Anna Andersson",
     roll: lead?.contacts[0]?.role ?? "VD",
     ort: lead?.city ?? lead?.address?.split(",").pop()?.trim() ?? "Göteborg",
     säljare: user.name,

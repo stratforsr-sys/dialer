@@ -80,6 +80,10 @@ export const REASON_OPTIONS: FlowOption<NoReason>[] = [
   { key: "4", label: "Har inhouse", value: "HAR_INHOUSE", color: "#6366F1" },
   { key: "5", label: "Inget behov", value: "INGET_BEHOV", color: "#6B7280" },
   { key: "6", label: "Nöjd med annan", value: "NOJD_MED_ANNAN", color: "#EC4899" },
+  // Sist och inte först, trots att det är det tidigaste nejet: siffrorna 1–6
+  // sitter i fingrarna på säljarna, och att flytta dem hade gett felregistrerat
+  // utfall i veckor. Mäter öppningen, inte erbjudandet.
+  { key: "7", label: "Sa nej innan pitch", value: "NEJ_INNAN_PITCH", color: "#94A3B8" },
 ];
 
 // ── Steg 4: hur långt kom samtalet ────────────────────────────────────────

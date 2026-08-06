@@ -19,7 +19,9 @@ export interface EditableVariant {
 }
 
 /** Kontextnycklar finns alltid och behöver aldrig anges som krav. */
-const CONTEXT_KEYS = ["företag", "kontakt", "förnamn", "roll", "ort", "säljare"];
+// {kontakt} och {förnamn} ger båda tilltalsnamnet — det är det man säger i ett
+// samtal. {fullnamn} finns för de få ställen där hela namnet faktiskt behövs.
+const CONTEXT_KEYS = ["företag", "kontakt", "förnamn", "fullnamn", "roll", "ort", "säljare"];
 
 export function ScriptEditor({
   versionId,
