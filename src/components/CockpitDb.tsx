@@ -698,6 +698,21 @@ export function CockpitDb({
                     {lead.companyName}
                   </h1>
                   <div className="flex items-center gap-2 mt-[2px]">
+                    {/* Branschen först och som egen bricka, inte i faktaraden
+                        nedanför: den avgör vilken vinkel säljaren tar, och ska
+                        gå att läsa i samma ögonkast som bolagsnamnet. */}
+                    {lead.industry && (
+                      <span
+                        className="text-[11px] font-semibold px-2 py-[2px] rounded-full whitespace-nowrap"
+                        style={{
+                          background: "var(--accent-muted)",
+                          color: "var(--accent)",
+                          border: "1px solid var(--border-strong)",
+                        }}
+                      >
+                        {lead.industry}
+                      </span>
+                    )}
                     {lead.attemptCount > 0 && (
                       <span className="text-[11px]" style={{ color: "var(--text-dim)" }}>
                         Försök {lead.attemptCount + 1}

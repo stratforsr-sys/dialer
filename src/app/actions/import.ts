@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import { toE164 } from "@/lib/phone";
+import { resolveIndustry } from "@/lib/sni";
 
 type ImportRow = {
   companyName: string;
@@ -11,6 +12,8 @@ type ImportRow = {
   website?: string;
   address?: string;
   city?: string;
+  industry?: string;
+  industryCode?: string;
   employees?: number;
   revenue?: number;
   contactName?: string;
@@ -75,6 +78,8 @@ export async function importLeads(rows: ImportRow[]): Promise<ImportResult> {
             website: row.website?.trim() || existing.website,
             address: row.address?.trim() || existing.address,
             city: row.city?.trim() || existing.city,
+            industry: resolveIndustry(row.industry, row.industryCode) ?? existing.industry,
+            industryCode: row.industryCode?.trim() || existing.industryCode,
             employees: int(row.employees) ?? existing.employees,
             revenue: num(row.revenue) ?? existing.revenue,
           },
@@ -130,6 +135,8 @@ export async function importLeads(rows: ImportRow[]): Promise<ImportResult> {
             website: row.website?.trim() || null,
             address: row.address?.trim() || null,
             city: row.city?.trim() || null,
+            industry: resolveIndustry(row.industry, row.industryCode),
+            industryCode: row.industryCode?.trim() || null,
             employees: int(row.employees),
             revenue: num(row.revenue),
             ownerId: user.id,

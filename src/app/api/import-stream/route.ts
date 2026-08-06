@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { authOptions } from "@/lib/auth-options";
 import { db } from "@/lib/db";
 import { toE164 } from "@/lib/phone";
+import { resolveIndustry } from "@/lib/sni";
 import type { Prisma } from "@/generated/prisma/client";
 
 export const runtime = "nodejs";
@@ -15,6 +16,8 @@ type ImportRow = {
   website?: string;
   address?: string;
   city?: string;
+  industry?: string;
+  industryCode?: string;
   employees?: number;
   revenue?: number;
   contactName?: string;
@@ -50,6 +53,8 @@ type CompanyGroup = {
   website: string | null;
   address: string | null;
   city: string | null;
+  industry: string | null;
+  industryCode: string | null;
   employees: number | null;
   revenue: number | null;
   contacts: ContactDraft[];
@@ -130,6 +135,8 @@ function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
         website: clean(row.website),
         address: clean(row.address),
         city: clean(row.city),
+        industry: resolveIndustry(row.industry, row.industryCode),
+        industryCode: clean(row.industryCode),
         employees: int(row.employees),
         revenue: num(row.revenue),
         contacts: contact ? [contact] : [],
@@ -143,6 +150,8 @@ function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
       existing.website ??= clean(row.website);
       existing.address ??= clean(row.address);
       existing.city ??= clean(row.city);
+      existing.industry ??= resolveIndustry(row.industry, row.industryCode);
+      existing.industryCode ??= clean(row.industryCode);
       existing.employees ??= int(row.employees);
       existing.revenue ??= num(row.revenue);
       if (contact && !hasContact(existing.contacts, contact)) {
@@ -155,6 +164,8 @@ function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
         website: clean(row.website),
         address: clean(row.address),
         city: clean(row.city),
+        industry: resolveIndustry(row.industry, row.industryCode),
+        industryCode: clean(row.industryCode),
         employees: int(row.employees),
         revenue: num(row.revenue),
         contacts: contact ? [contact] : [],
@@ -285,6 +296,8 @@ export async function POST(req: NextRequest) {
                   website: true,
                   address: true,
                   city: true,
+                  industry: true,
+                  industryCode: true,
                   employees: true,
                   revenue: true,
                   contacts: {
@@ -326,6 +339,8 @@ export async function POST(req: NextRequest) {
                 website: g.website,
                 address: g.address,
                 city: g.city,
+                industry: g.industry,
+                industryCode: g.industryCode,
                 employees: g.employees,
                 revenue: g.revenue,
                 ownerId: userId,
@@ -384,6 +399,8 @@ export async function POST(req: NextRequest) {
                   website: g.website,
                   address: g.address,
                   city: g.city,
+                  industry: g.industry,
+                  industryCode: g.industryCode,
                   employees: g.employees,
                   revenue: g.revenue,
                   contacts: g.contacts.map((c) => ({
@@ -422,6 +439,8 @@ export async function POST(req: NextRequest) {
                       website: group.website ?? lead.website,
                       address: group.address ?? lead.address,
                       city: group.city ?? lead.city,
+                      industry: group.industry ?? lead.industry,
+                      industryCode: group.industryCode ?? lead.industryCode,
                       employees: group.employees ?? lead.employees,
                       revenue: group.revenue ?? lead.revenue,
                     },

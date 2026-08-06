@@ -181,6 +181,7 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
       // cockpiten för att se var bolaget ligger eller hur stort det är.
       address: true,
       city: true,
+      industry: true,
       employees: true,
       revenue: true,
       attemptCount: true,

@@ -110,6 +110,19 @@ export function LeadDetail({
                     {lead.orgNumber}
                   </p>
                 )}
+                {lead.industry && (
+                  <span
+                    className="inline-block mt-1 text-[11px] font-semibold px-2 py-[2px] rounded-full"
+                    style={{
+                      background: "var(--accent-muted)",
+                      color: "var(--accent)",
+                      border: "1px solid var(--border-strong)",
+                    }}
+                    title={lead.industryCode ? `SNI ${lead.industryCode}` : undefined}
+                  >
+                    {lead.industry}
+                  </span>
+                )}
               </div>
             </div>
 

@@ -52,6 +52,14 @@ model Lead {
   /// Kvalificeringsdata från importfilen. Båda är nullbara med flit: noll
   /// anställda och "vet ej" är olika saker, och en tom kolumn får aldrig bli
   /// en nolla som sedan sorteras som om den vore mätt.
+  /// Läsbar bransch — det säljaren ser. Antingen filens egen branschtext eller
+  /// en etikett härledd ur SNI-kodens huvudgrupp. Denormaliserad hit och inte
+  /// uträknad vid läsning: cockpiten ska hämta den med samma select som allt
+  /// annat, utan uppslag per lead.
+  industry      String?
+  /// Rå SNI-kod från källan. Sparas separat eftersom etiketten är en tolkning
+  /// och tolkningar ska gå att göra om utan att originalet är borta.
+  industryCode  String?
   employees     Int?
   /// Lagras exakt som talet stod i filen — ingen enhetsomräkning. Exporterna
   /// blandar kronor och tkr och det går inte att gissa vilket utan att fråga.
@@ -104,6 +112,7 @@ model Lead {
   @@index([retired, nextActionAt])
   @@index([leasedUntil])
   @@index([callbackAt])
+  @@index([industry])
 }
 
 model Contact {

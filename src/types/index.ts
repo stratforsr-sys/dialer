@@ -47,6 +47,8 @@ export type SystemFieldKey =
   | "role"
   | "address"
   | "city"
+  | "industry"
+  | "industry_code"
   | "employees"
   | "revenue"
   | "direct_phone"

@@ -166,6 +166,18 @@ export function autoGuessMapping(headers: string[]): FieldMapping {
     ) {
       mapping[h] = "address";
     } else if (
+      // Koden före branschtexten: "SNI-kod" innehåller inte "bransch", men en
+      // kolumn som heter "Branschkod" gör det — och den är en kod, inte text.
+      hl === "sni" || hl.includes("sni-kod") || hl.includes("snikod") ||
+      hl.includes("sni kod") || hl.includes("branschkod") || hl.includes("bransch_kod")
+    ) {
+      mapping[h] = "industry_code";
+    } else if (
+      hl.includes("bransch") || hl.includes("verksamhet") || hl.includes("näringsgren") ||
+      hl === "industry" || hl === "sector"
+    ) {
+      mapping[h] = "industry";
+    } else if (
       hl.includes("anställda") || hl.includes("anstallda") || hl.includes("antal anst") ||
       hl === "employees" || hl === "employee count" || hl === "headcount" || hl === "antal"
     ) {
