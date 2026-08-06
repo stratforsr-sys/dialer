@@ -44,6 +44,11 @@ You are not a passive assistant; you are a Senior Design Engineer with a "Direct
 
 ## Project: Sales Hub (Dialer → CRM)
 
+> **Läs `docs/ARBETSLOGG.md` först.** Den bär beslut, fallgropar och öppna
+> punkter från tidigare sessioner som inte går att läsa sig till ur koden —
+> vad som väntar på omimport, vad som är blockerat av externa kvoter, och vilka
+> val som redan är gjorda och varför. Uppdatera den när du avslutar ett arbete.
+
 ### Stack
 - Next.js 14 App Router + TypeScript + Tailwind CSS
 - Turso (LibSQL/SQLite) — 9 GB free tier
