@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 /** Samtidiga klassificeringar. Håller Gemini-kvoten och sajthämtningen i schack. */
-const CONCURRENCY = 5;
+const CONCURRENCY = 3;
 
 /**
  * Branschklassificering i sats.
@@ -57,30 +57,40 @@ export async function GET(request: Request) {
   let classified = 0;
   let fromWebsite = 0;
   let fromName = 0;
-  let unresolved = 0;
+  const reasons: Record<string, number> = {};
+  const samples: string[] = [];
 
   for (let i = 0; i < leads.length; i += CONCURRENCY) {
     const batch = leads.slice(i, i + CONCURRENCY);
     const results = await Promise.all(
-      batch.map(async (lead) => ({ lead, res: await classifyIndustry(lead) }))
+      batch.map(async (lead) => ({ lead, out: await classifyIndustry(lead) }))
     );
 
-    for (const { lead, res } of results) {
-      if (!res) {
-        unresolved++;
+    for (const { lead, out } of results) {
+      if (!out.ok) {
+        reasons[out.reason] = (reasons[out.reason] ?? 0) + 1;
+        if (samples.length < 8 && out.detail) {
+          samples.push(`${lead.companyName}: ${out.reason} — ${out.detail}`);
+        }
         continue;
       }
       await db.lead.update({
         where: { id: lead.id },
         data: {
-          industry: res.industry,
-          industrySource: res.source,
-          industryConfidence: res.confidence,
+          industry: out.value.industry,
+          industrySource: out.value.source,
+          industryConfidence: out.value.confidence,
         },
       });
       classified++;
-      if (res.source === "website") fromWebsite++;
+      if (out.value.source === "website") fromWebsite++;
       else fromName++;
+    }
+
+    // Kvottaket mäts per minut. En kort paus mellan satserna kostar några
+    // sekunder på ett nattjobb och är skillnaden mot att bli avvisad.
+    if (i + CONCURRENCY < leads.length) {
+      await new Promise((r) => setTimeout(r, 1200));
     }
   }
 
@@ -89,7 +99,9 @@ export async function GET(request: Request) {
     classified,
     fromWebsite,
     fromName,
-    unresolved,
+    unresolved: leads.length - classified,
+    reasons,
+    samples,
     seconds: Math.round((Date.now() - started) / 1000),
   });
 }

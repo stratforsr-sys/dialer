@@ -73,6 +73,25 @@ export interface Classification {
   source: "website" | "name";
 }
 
+/**
+ * Varför ett lead inte gick att klassificera.
+ *
+ * Att bara returnera null var ett misstag: första skarpa körningen lämnade 95
+ * av 100 leads oklassificerade och det gick inte att se om det berodde på
+ * trasiga sajter, kvottak eller att modellen var osäker — tre problem med tre
+ * helt olika åtgärder.
+ */
+export type FailReason =
+  | "api_error"
+  | "rate_limited"
+  | "bad_json"
+  | "bad_label"
+  | "low_confidence";
+
+export type ClassifyOutcome =
+  | { ok: true; value: Classification }
+  | { ok: false; reason: FailReason; detail?: string };
+
 const UA = "Mozilla/5.0 (compatible; SalesHubBot/1.0)";
 const MAX_BYTES = 250_000;
 const TIMEOUT_MS = 10_000;
@@ -147,47 +166,87 @@ Tillåtna etiketter:
 ${INDUSTRIES.join("\n")}`;
 
 /**
- * Klassificerar ett bolag. Returnerar null när underlaget inte räcker — det är
- * ett giltigt och önskat utfall, inte ett fel.
+ * Anropar modellen och backar av vid kvottak.
+ *
+ * Geminis kvot mäts i förfrågningar per minut. Utan backoff blir en sats på
+ * hundra leads till hundra avvisade anrop på några sekunder, och resultatet ser
+ * ut som om modellen inte kunde klassificera — fast den aldrig blev tillfrågad.
+ */
+async function generateWithRetry(userMessage: string, attempts = 3): Promise<string> {
+  const model = getGeminiClient().getGenerativeModel({
+    model: GEMINI_MODEL,
+    systemInstruction: SYSTEM_PROMPT,
+  });
+
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const result = await model.generateContent(userMessage);
+      return result.response.text();
+    } catch (err) {
+      lastErr = err;
+      const message = err instanceof Error ? err.message : String(err);
+      if (!/429|quota|rate|RESOURCE_EXHAUSTED|503|overloaded/i.test(message)) throw err;
+      // 2s, 6s, 18s — plus jitter så att parallella anrop inte återkommer i takt.
+      await new Promise((r) => setTimeout(r, 2000 * 3 ** i + Math.random() * 800));
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
+/**
+ * Klassificerar ett bolag. Ett negativt utfall bär alltid en orsak — se
+ * FailReason. Tomt är ett giltigt svar, men det ska aldrig vara ett tyst svar.
  */
 export async function classifyIndustry(lead: {
   companyName: string;
   website: string | null;
-}): Promise<Classification | null> {
+}): Promise<ClassifyOutcome> {
   const siteText = lead.website ? await fetchSiteText(lead.website) : null;
+  // Misslyckad sajthämtning är inget fel — den faller tillbaka på namnet, och
+  // det utfallet registreras som source: "name".
   const source: "website" | "name" = siteText ? "website" : "name";
 
   const userMessage = siteText
     ? `Bolagsnamn: ${lead.companyName}\n\nText från hemsidan:\n${siteText}`
     : `Bolagsnamn: ${lead.companyName}\n\n(Ingen hemsidetext tillgänglig — bedöm enbart på namnet.)`;
 
+  let text: string;
+  try {
+    text = await generateWithRetry(userMessage);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const limited = /429|quota|rate|RESOURCE_EXHAUSTED/i.test(message);
+    return {
+      ok: false,
+      reason: limited ? "rate_limited" : "api_error",
+      detail: message.slice(0, 160),
+    };
+  }
+
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) return { ok: false, reason: "bad_json", detail: text.slice(0, 120) };
+
   let parsed: { industry?: string; confidence?: number };
   try {
-    const model = getGeminiClient().getGenerativeModel({
-      model: GEMINI_MODEL,
-      systemInstruction: SYSTEM_PROMPT,
-    });
-    const result = await model.generateContent(userMessage);
-    const match = result.response.text().match(/\{[\s\S]*\}/);
-    if (!match) return null;
     parsed = JSON.parse(match[0]);
   } catch {
-    // Kvotfel, timeout, trasig JSON — leadet lämnas oklassificerat och plockas
-    // upp av nästa körning. Ett anrikningssteg får aldrig stoppa ringandet.
-    return null;
+    return { ok: false, reason: "bad_json", detail: match[0].slice(0, 120) };
   }
 
   const industry = INDUSTRIES.find((i) => i === parsed.industry);
   // Etiketter utanför listan kastas. Modellen instrueras att hålla sig till
   // den, men instruktioner är inte garantier — listan är garantin.
-  if (!industry) return null;
+  if (!industry) return { ok: false, reason: "bad_label", detail: String(parsed.industry) };
 
   let confidence = Math.round(Number(parsed.confidence));
-  if (!Number.isFinite(confidence)) return null;
+  if (!Number.isFinite(confidence)) return { ok: false, reason: "bad_json", detail: "confidence saknas" };
   confidence = Math.max(0, Math.min(100, confidence));
   if (source === "name") confidence = Math.min(confidence, NAME_ONLY_CEILING);
 
-  if (confidence < MIN_CONFIDENCE) return null;
+  if (confidence < MIN_CONFIDENCE) {
+    return { ok: false, reason: "low_confidence", detail: `${industry} @ ${confidence}` };
+  }
 
-  return { industry, confidence, source };
+  return { ok: true, value: { industry, confidence, source } };
 }
