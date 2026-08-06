@@ -709,8 +709,20 @@ export function CockpitDb({
                           color: "var(--accent)",
                           border: "1px solid var(--border-strong)",
                         }}
+                        title={
+                          lead.industrySource === "name"
+                            ? "Gissad ur bolagsnamnet — bolaget saknar hemsida. Verifiera i samtalet."
+                            : undefined
+                        }
                       >
                         {lead.industry}
+                        {/* Osäkra gissningar märks ut. En bransch härledd ur
+                            enbart bolagsnamnet ska inte se lika trovärdig ut
+                            som en som lästs av sajten — säljaren ska veta att
+                            den är värd att kolla, inte att påstå. */}
+                        {lead.industrySource === "name" && (
+                          <span style={{ opacity: 0.65 }}> ?</span>
+                        )}
                       </span>
                     )}
                     {lead.attemptCount > 0 && (

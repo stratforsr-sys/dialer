@@ -60,6 +60,14 @@ model Lead {
   /// Rå SNI-kod från källan. Sparas separat eftersom etiketten är en tolkning
   /// och tolkningar ska gå att göra om utan att originalet är borta.
   industryCode  String?
+  /// Var branschen kom ifrån: "import", "website", "name", "manual".
+  /// Avgörande för att kunna köra om klassificeringen selektivt — en gissning
+  /// från bolagsnamnet ska gå att ersätta när sajten dyker upp, medan en
+  /// handsatt bransch aldrig får skrivas över av en modell.
+  industrySource String?
+  /// 0–100. Under tröskeln sparas ingenting alls: fel bransch på skärmen är
+  /// värre än tom, eftersom säljaren öppnar samtalet med den.
+  industryConfidence Int?
   employees     Int?
   /// Lagras exakt som talet stod i filen — ingen enhetsomräkning. Exporterna
   /// blandar kronor och tkr och det går inte att gissa vilket utan att fråga.

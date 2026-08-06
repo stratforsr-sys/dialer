@@ -8,6 +8,10 @@
     {
       "path": "/api/cron/enrich?tier=1&limit=40",
       "schedule": "30 2 * * 1-5"
+    },
+    {
+      "path": "/api/cron/industry?limit=300",
+      "schedule": "0 3 * * *"
     }
   ]
 }

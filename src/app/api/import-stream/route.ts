@@ -341,6 +341,9 @@ export async function POST(req: NextRequest) {
                 city: g.city,
                 industry: g.industry,
                 industryCode: g.industryCode,
+                // Filens egen uppgift. Klassificeraren rör bara leads utan
+                // bransch, så den skriver aldrig över den här.
+                industrySource: g.industry ? "import" : null,
                 employees: g.employees,
                 revenue: g.revenue,
                 ownerId: userId,
@@ -441,6 +444,7 @@ export async function POST(req: NextRequest) {
                       city: group.city ?? lead.city,
                       industry: group.industry ?? lead.industry,
                       industryCode: group.industryCode ?? lead.industryCode,
+                      industrySource: lead.industry ? undefined : (group.industry ? "import" : undefined),
                       employees: group.employees ?? lead.employees,
                       revenue: group.revenue ?? lead.revenue,
                     },

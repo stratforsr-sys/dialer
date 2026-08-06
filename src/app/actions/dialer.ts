@@ -182,6 +182,7 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
       address: true,
       city: true,
       industry: true,
+      industrySource: true,
       employees: true,
       revenue: true,
       attemptCount: true,
