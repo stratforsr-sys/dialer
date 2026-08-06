@@ -8,13 +8,25 @@ type ImportRow = {
   companyName: string;
   orgNumber?: string;
   website?: string;
+  address?: string;
+  city?: string;
   contactName?: string;
+  contactFirstName?: string;
+  contactLastName?: string;
   contactRole?: string;
   directPhone?: string;
   switchboard?: string;
   email?: string;
   linkedin?: string;
 };
+
+/** Samma regel som i /api/import-stream: hel namnkolumn vinner, annars delarna. */
+function contactNameOf(row: ImportRow): string | null {
+  const whole = row.contactName?.trim();
+  if (whole) return whole;
+  const parts = [row.contactFirstName?.trim(), row.contactLastName?.trim()].filter(Boolean);
+  return parts.length > 0 ? parts.join(" ") : null;
+}
 
 export type ImportResult = {
   created: number;
@@ -36,6 +48,7 @@ export async function importLeads(rows: ImportRow[]): Promise<ImportResult> {
 
     try {
       const orgNumber = row.orgNumber?.trim() || null;
+      const contactName = contactNameOf(row);
 
       // Check for existing lead by orgNumber
       const existing = orgNumber
@@ -49,11 +62,13 @@ export async function importLeads(rows: ImportRow[]): Promise<ImportResult> {
           data: {
             companyName: row.companyName.trim(),
             website: row.website?.trim() || existing.website,
+            address: row.address?.trim() || existing.address,
+            city: row.city?.trim() || existing.city,
           },
         });
 
         // Add contact if provided and not duplicate phone/email
-        if (row.contactName?.trim()) {
+        if (contactName) {
           const existingContact = await db.contact.findFirst({
             where: {
               leadId: existing.id,
@@ -68,7 +83,9 @@ export async function importLeads(rows: ImportRow[]): Promise<ImportResult> {
             await db.contact.create({
               data: {
                 leadId: existing.id,
-                name: row.contactName.trim(),
+                name: contactName,
+                firstName: row.contactFirstName?.trim() || null,
+                lastName: row.contactLastName?.trim() || null,
                 role: row.contactRole?.trim() || null,
                 directPhone: row.directPhone?.trim() || null,
                 switchboard: row.switchboard?.trim() || null,
@@ -96,11 +113,15 @@ export async function importLeads(rows: ImportRow[]): Promise<ImportResult> {
             companyName: row.companyName.trim(),
             orgNumber,
             website: row.website?.trim() || null,
+            address: row.address?.trim() || null,
+            city: row.city?.trim() || null,
             ownerId: user.id,
-            contacts: row.contactName?.trim()
+            contacts: contactName
               ? {
                   create: {
-                    name: row.contactName.trim(),
+                    name: contactName,
+                    firstName: row.contactFirstName?.trim() || null,
+                    lastName: row.contactLastName?.trim() || null,
                     role: row.contactRole?.trim() || null,
                     directPhone: row.directPhone?.trim() || null,
                     switchboard: row.switchboard?.trim() || null,

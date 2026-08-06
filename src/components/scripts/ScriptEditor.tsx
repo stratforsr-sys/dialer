@@ -19,7 +19,7 @@ export interface EditableVariant {
 }
 
 /** Kontextnycklar finns alltid och behöver aldrig anges som krav. */
-const CONTEXT_KEYS = ["företag", "kontakt", "roll", "ort", "säljare"];
+const CONTEXT_KEYS = ["företag", "kontakt", "förnamn", "roll", "ort", "säljare"];
 
 export function ScriptEditor({
   versionId,
@@ -216,7 +216,9 @@ export function ScriptEditor({
               </p>
             ) : (
               <>
-                <p className="text-[14px] leading-relaxed" style={{ color: "var(--text)" }}>
+                {/* Samma whitespace-pre-wrap som i cockpit — "så här ser
+                    säljaren det" måste stämma ner på radbrytningsnivå. */}
+                <p className="text-[14px] leading-relaxed whitespace-pre-wrap" style={{ color: "var(--text)" }}>
                   {preview?.resolved.text || "—"}
                 </p>
                 {preview?.resolved.label && (
@@ -341,9 +343,11 @@ function VariantCard({
         value={variant.body}
         onChange={(e) => onChange({ body: e.target.value })}
         disabled={readOnly}
-        rows={3}
-        placeholder="Jag såg att ni ligger på plats {seo.rank} när folk googlar {seo.keyword} — vet ni om det?"
-        className="w-full resize-none text-[13px] px-3 py-2.5 rounded-[10px] outline-none leading-relaxed"
+        rows={6}
+        placeholder={"Jag såg att ni ligger på plats {seo.rank} när folk googlar {seo.keyword} — vet ni om det?\n\nRadbrytningar och blankrader behålls exakt som du skriver dem."}
+        // resize-y i stället för resize-none: ett manus med flera stycken ska
+        // gå att se i sin helhet medan det skrivs.
+        className="w-full resize-y text-[13px] px-3 py-2.5 rounded-[10px] outline-none leading-relaxed"
         style={{ background: "var(--surface-inset)", border: "1px solid var(--border)", color: "var(--text)" }}
       />
 

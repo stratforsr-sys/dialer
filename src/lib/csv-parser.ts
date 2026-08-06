@@ -73,7 +73,17 @@ export function autoGuessMapping(headers: string[]): FieldMapping {
   headers.forEach((h) => {
     const hl = h.toLowerCase().trim();
 
-    if (hl === "name" || hl === "namn" || hl === "kontaktnamn" || hl === "contact name") {
+    if (
+      hl === "förnamn" || hl === "fornamn" || hl === "tilltalsnamn" ||
+      hl === "first name" || hl === "firstname" || hl === "first_name" || hl === "given name"
+    ) {
+      mapping[h] = "first_name";
+    } else if (
+      hl === "efternamn" || hl === "släktnamn" ||
+      hl === "last name" || hl === "lastname" || hl === "last_name" || hl === "surname" || hl === "family name"
+    ) {
+      mapping[h] = "last_name";
+    } else if (hl === "name" || hl === "namn" || hl === "kontaktnamn" || hl === "contact name") {
       mapping[h] = "name";
     } else if (hl.includes("company") || hl.includes("företag") || hl === "company name" || hl === "bolagsnamn") {
       mapping[h] = "company";
@@ -95,6 +105,17 @@ export function autoGuessMapping(headers: string[]): FieldMapping {
       mapping[h] = "website";
     } else if (hl.includes("linkedin")) {
       mapping[h] = "linkedin";
+    } else if (
+      hl === "stad" || hl === "ort" || hl === "postort" || hl === "city" || hl === "town" ||
+      hl.includes("postort") || hl.includes("besöksort")
+    ) {
+      mapping[h] = "city";
+    } else if (
+      // Ligger efter e-post- och hemsidereglerna med flit: "e-postadress" och
+      // "webbadress" innehåller båda "adress" och ska inte hamna här.
+      hl.includes("adress") || hl.includes("address") || hl === "gata" || hl === "street"
+    ) {
+      mapping[h] = "address";
     } else if ((hl.includes("org") && (hl.includes("num") || hl.includes("nr"))) || hl === "organisationsnummer") {
       mapping[h] = "org_number";
     } else {

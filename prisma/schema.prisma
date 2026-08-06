@@ -45,6 +45,10 @@ model Lead {
   orgNumber     String?  @unique
   website       String?
   address       String?
+  /// Ort. Egen kolumn i stället för sista ledet i address — manusets {ort}
+  /// läste tidigare ut den med en split på komma, vilket gav "12345 Göteborg"
+  /// eller hela adressen beroende på hur exportfilen råkade se ut.
+  city          String?
   hasActiveDeal Boolean  @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -97,7 +101,14 @@ model Lead {
 
 model Contact {
   id          String   @id @default(cuid())
+  /// Visningsnamnet — alltid ifyllt. Sätts ihop av firstName + lastName när
+  /// filen har dem i var sin kolumn, annars tas det rakt av från en namnkolumn.
   name        String
+  /// Separata delar när importfilen har dem. Behövs för tilltalsnamn i manus:
+  /// "Hej Anders" kräver förnamnet, och att splitta name på mellanslag ger fel
+  /// så fort någon heter "Anna Maria" eller "von Sydow".
+  firstName   String?
+  lastName    String?
   role        String?
   directPhone String?
   switchboard String?

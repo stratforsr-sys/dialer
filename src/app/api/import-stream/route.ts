@@ -12,7 +12,11 @@ type ImportRow = {
   companyName: string;
   orgNumber?: string;
   website?: string;
+  address?: string;
+  city?: string;
   contactName?: string;
+  contactFirstName?: string;
+  contactLastName?: string;
   contactRole?: string;
   directPhone?: string;
   switchboard?: string;
@@ -22,6 +26,8 @@ type ImportRow = {
 
 type ContactDraft = {
   name: string;
+  firstName: string | null;
+  lastName: string | null;
   role: string | null;
   directPhone: string | null;
   switchboard: string | null;
@@ -34,6 +40,8 @@ type CompanyGroup = {
   orgNumber: string | null;
   companyName: string;
   website: string | null;
+  address: string | null;
+  city: string | null;
   contacts: ContactDraft[];
 };
 
@@ -65,11 +73,19 @@ function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
     if (!companyName) continue;
 
     const orgNumber = clean(row.orgNumber);
-    const contactName = clean(row.contactName);
+    const firstName = clean(row.contactFirstName);
+    const lastName = clean(row.contactLastName);
+    // Klienten sätter normalt ihop namnet, men endpointen tar emot JSON utifrån
+    // och får inte lita på det: utan namn skapas ingen kontakt alls, och då
+    // försvinner radens telefonnummer med den.
+    const contactName =
+      clean(row.contactName) ?? ([firstName, lastName].filter(Boolean).join(" ") || null);
 
     const contact: ContactDraft | null = contactName
       ? {
           name: contactName,
+          firstName,
+          lastName,
           role: clean(row.contactRole),
           directPhone: clean(row.directPhone),
           switchboard: clean(row.switchboard),
@@ -83,6 +99,8 @@ function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
         orgNumber: null,
         companyName,
         website: clean(row.website),
+        address: clean(row.address),
+        city: clean(row.city),
         contacts: contact ? [contact] : [],
       });
       continue;
@@ -92,6 +110,8 @@ function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
     if (existing) {
       // Senare rader fyller i luckor men skriver inte över det vi redan har
       existing.website ??= clean(row.website);
+      existing.address ??= clean(row.address);
+      existing.city ??= clean(row.city);
       if (contact && !hasContact(existing.contacts, contact)) {
         existing.contacts.push(contact);
       }
@@ -100,6 +120,8 @@ function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
         orgNumber,
         companyName,
         website: clean(row.website),
+        address: clean(row.address),
+        city: clean(row.city),
         contacts: contact ? [contact] : [],
       });
     }
@@ -220,6 +242,8 @@ export async function POST(req: NextRequest) {
                   id: true,
                   orgNumber: true,
                   website: true,
+                  address: true,
+                  city: true,
                   contacts: { select: { id: true, name: true, email: true, directPhone: true } },
                 },
               })
@@ -251,6 +275,8 @@ export async function POST(req: NextRequest) {
                 companyName: g.companyName,
                 orgNumber: g.orgNumber,
                 website: g.website,
+                address: g.address,
+                city: g.city,
                 ownerId: userId,
                 createdAt: now,
                 updatedAt: now,
@@ -265,6 +291,8 @@ export async function POST(req: NextRequest) {
                     id: randomUUID(),
                     leadId: leadData[idx].id,
                     name: c.name,
+                    firstName: c.firstName,
+                    lastName: c.lastName,
                     role: c.role,
                     directPhone: c.directPhone,
                     switchboard: c.switchboard,
@@ -300,6 +328,8 @@ export async function POST(req: NextRequest) {
                   id: leadData[idx].id,
                   orgNumber: g.orgNumber,
                   website: g.website,
+                  address: g.address,
+                  city: g.city,
                   contacts: g.contacts.map((c) => ({
                     id: "",
                     name: c.name,
@@ -323,6 +353,8 @@ export async function POST(req: NextRequest) {
                     data: {
                       companyName: group.companyName,
                       website: group.website ?? lead.website,
+                      address: group.address ?? lead.address,
+                      city: group.city ?? lead.city,
                     },
                   })
                 )
@@ -342,6 +374,8 @@ export async function POST(req: NextRequest) {
                     id: randomUUID(),
                     leadId: lead.id,
                     name: c.name,
+                    firstName: c.firstName,
+                    lastName: c.lastName,
                     role: c.role,
                     directPhone: c.directPhone,
                     switchboard: c.switchboard,

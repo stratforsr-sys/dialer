@@ -70,7 +70,12 @@ export async function getScriptsForLead(leadId: string) {
       select: {
         companyName: true,
         address: true,
-        contacts: { select: { name: true, role: true }, take: 1, orderBy: { createdAt: "asc" } },
+        city: true,
+        contacts: {
+          select: { name: true, firstName: true, role: true },
+          take: 1,
+          orderBy: { createdAt: "asc" },
+        },
         dossier: {
           select: {
             claims: {
@@ -92,8 +97,11 @@ export async function getScriptsForLead(leadId: string) {
   const context = {
     företag: lead.companyName,
     kontakt: lead.contacts[0]?.name ?? null,
+    förnamn: lead.contacts[0]?.firstName ?? null,
     roll: lead.contacts[0]?.role ?? null,
-    ort: lead.address?.split(",").pop()?.trim() ?? null,
+    // city först — address-splitten är kvar som fallback för leads som
+    // importerades innan ortkolumnen fanns.
+    ort: lead.city ?? lead.address?.split(",").pop()?.trim() ?? null,
     säljare: user.name,
   };
 
@@ -291,7 +299,8 @@ export async function previewVariants(
         select: {
           companyName: true,
           address: true,
-          contacts: { select: { name: true, role: true }, take: 1 },
+          city: true,
+          contacts: { select: { name: true, firstName: true, role: true }, take: 1 },
           dossier: {
             select: {
               claims: {
@@ -307,8 +316,9 @@ export async function previewVariants(
   const context = {
     företag: lead?.companyName ?? "Exempelbolaget AB",
     kontakt: lead?.contacts[0]?.name ?? "Anna Andersson",
+    förnamn: lead?.contacts[0]?.firstName ?? "Anna",
     roll: lead?.contacts[0]?.role ?? "VD",
-    ort: lead?.address?.split(",").pop()?.trim() ?? "Göteborg",
+    ort: lead?.city ?? lead?.address?.split(",").pop()?.trim() ?? "Göteborg",
     säljare: user.name,
   };
 

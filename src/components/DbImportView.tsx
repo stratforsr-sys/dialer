@@ -29,13 +29,32 @@ const SYSTEM_FIELDS = [
   { value: "company",      label: "Bolagsnamn" },
   { value: "org_number",   label: "Org-nummer" },
   { value: "website",      label: "Hemsida" },
-  { value: "name",         label: "Kontaktnamn" },
+  { value: "address",      label: "Adress" },
+  { value: "city",         label: "Stad / Ort" },
+  { value: "name",         label: "Kontaktnamn (helt)" },
+  { value: "first_name",   label: "Förnamn" },
+  { value: "last_name",    label: "Efternamn" },
   { value: "role",         label: "Roll / Titel" },
   { value: "direct_phone", label: "Direkttelefon" },
   { value: "switchboard",  label: "Växel" },
   { value: "email",        label: "Email" },
   { value: "linkedin",     label: "LinkedIn" },
 ];
+
+/**
+ * Visningsnamnet på kontakten.
+ *
+ * En hel namnkolumn vinner när den finns — den är vad filen faktiskt påstår.
+ * Saknas den sätts namnet ihop av delarna, och räcker bara den ena delen
+ * används den ensam hellre än att kontakten tappas: import-API:t skapar ingen
+ * kontakt utan namn, och då hade telefonnumret på raden försvunnit med den.
+ */
+function composeContactName(full?: string, first?: string, last?: string): string | undefined {
+  const whole = full?.trim();
+  if (whole) return whole;
+  const parts = [first?.trim(), last?.trim()].filter(Boolean);
+  return parts.length > 0 ? parts.join(" ") : undefined;
+}
 
 export function DbImportView({ users = [] }: { users?: UserOption[] }) {
   const router = useRouter();
@@ -101,7 +120,11 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
         companyName: mapped.company || "",
         orgNumber: mapped.org_number || undefined,
         website: mapped.website || undefined,
-        contactName: mapped.name || undefined,
+        address: mapped.address || undefined,
+        city: mapped.city || undefined,
+        contactName: composeContactName(mapped.name, mapped.first_name, mapped.last_name),
+        contactFirstName: mapped.first_name || undefined,
+        contactLastName: mapped.last_name || undefined,
         contactRole: mapped.role || undefined,
         directPhone: mapped.direct_phone || undefined,
         switchboard: mapped.switchboard || undefined,
@@ -341,7 +364,7 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                 <table className="w-full border-collapse">
                   <thead>
                     <tr style={{ background: "var(--surface-inset)", borderBottom: "1px solid var(--border)" }}>
-                      {["Bolag", "Org-nr", "Kontakt", "Telefon", "Email"].map((h) => (
+                      {["Bolag", "Org-nr", "Ort", "Kontakt", "Telefon", "Email"].map((h) => (
                         <th key={h} className="text-left px-4 py-2" style={{ color: "var(--text-dim)" }}>{h}</th>
                       ))}
                     </tr>
@@ -351,6 +374,7 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                       <tr key={i} style={{ borderBottom: "1px solid var(--border-subtle)", background: "var(--surface)" }}>
                         <td className="px-4 py-2 text-[12px] font-medium" style={{ color: "var(--text)" }}>{row.companyName}</td>
                         <td className="px-4 py-2 text-[11px]" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>{row.orgNumber || "—"}</td>
+                        <td className="px-4 py-2 text-[12px]" style={{ color: "var(--text-muted)" }}>{row.city || "—"}</td>
                         <td className="px-4 py-2 text-[12px]" style={{ color: "var(--text-muted)" }}>{row.contactName || "—"}</td>
                         <td className="px-4 py-2 text-[11px]" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>{row.directPhone || "—"}</td>
                         <td className="px-4 py-2 text-[12px]" style={{ color: "var(--text-muted)" }}>{row.email || "—"}</td>

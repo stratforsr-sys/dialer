@@ -41,8 +41,12 @@ export interface CallList {
 
 export type SystemFieldKey =
   | "name"
+  | "first_name"
+  | "last_name"
   | "company"
   | "role"
+  | "address"
+  | "city"
   | "direct_phone"
   | "switchboard"
   | "email"

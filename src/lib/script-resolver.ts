@@ -124,7 +124,11 @@ export function resolveScript(
 
     if (missing) continue;
 
-    return { variantId: v.id, label: v.label, text: text.trim(), usedKeys, empty: false };
+    // Texten lämnas exakt som den skrevs. Radbrytningar och blankrader ÄR
+    // manuset: de talar om var säljaren ska pausa och var ett nytt stycke
+    // börjar. Ett .trim() här åt inledande radbrytningar, och renderingen
+    // klämde ihop resten till en enda mening.
+    return { variantId: v.id, label: v.label, text, usedKeys, empty: false };
   }
 
   return { variantId: null, label: null, text: "", usedKeys: [], empty: true };

@@ -42,7 +42,10 @@ export function ScriptPanel({ scripts }: { scripts: ResolvedScript[] }) {
         >
           {FRAMEWORK_STEPS.find((s) => s.value === first.step)?.label ?? first.name}
         </p>
-        <p className="text-[14.5px] leading-relaxed" style={{ color: "var(--text)" }}>
+        {/* whitespace-pre-wrap: manuset visas precis som det skrevs. HTML slår
+            annars ihop radbrytningar och blankrader till mellanslag, och en
+            styckeindelad öppning blir en enda oläsbar mening mitt i samtalet. */}
+        <p className="text-[14.5px] leading-relaxed whitespace-pre-wrap" style={{ color: "var(--text)" }}>
           {first.resolved.text}
         </p>
       </div>
@@ -69,7 +72,7 @@ export function ScriptPanel({ scripts }: { scripts: ResolvedScript[] }) {
                 : <ChevronDown size={12} style={{ color: "var(--text-dim)" }} />}
             </button>
             {isOpen && (
-              <p className="text-[13.5px] leading-relaxed px-3.5 pb-3" style={{ color: "var(--text)" }}>
+              <p className="text-[13.5px] leading-relaxed px-3.5 pb-3 whitespace-pre-wrap" style={{ color: "var(--text)" }}>
                 {s.resolved.text}
               </p>
             )}
