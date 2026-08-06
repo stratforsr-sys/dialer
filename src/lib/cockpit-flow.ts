@@ -69,6 +69,9 @@ export const OUTCOME_OPTIONS: FlowOption<ConversationOutcome>[] = [
   { key: "1", label: "Sa nej", value: "DM_NO", color: "#EF4444", hint: "Varför?" },
   { key: "2", label: "Ring igen", value: "CALLBACK_BOOKED", color: "#3B82F6", hint: "När?" },
   { key: "3", label: "Såld", value: "SOLD", color: "#22C55E" },
+  // Inte ett nej — erbjudandet nådde aldrig rätt person. Leadet går tillbaka
+  // i rotationen i stället för att räknas som avfärdat.
+  { key: "4", label: "Fel beslutsfattare", value: "WRONG_DM", color: "#F59E0B", hint: "Ringer igen" },
 ];
 
 // ── Steg 3: varför nej ────────────────────────────────────────────────────
@@ -141,6 +144,10 @@ export function stageAfterOutcome(outcome: ConversationOutcome): FlowStage | nul
   // Sålt: ingen coachningsfråga behövs, samtalet gick ju hela vägen.
   if (outcome === "SOLD") return null;
   if (outcome === "CALLBACK_BOOKED") return null;
+  // Fel beslutsfattare: ingen följdfråga. "Varför nej?" har inget svar när
+  // erbjudandet aldrig nådde fram, och att fråga ändå lär säljaren att klicka
+  // bort rutan. Ett tryck, sen nästa samtal.
+  if (outcome === "WRONG_DM") return null;
   // Växelutfall är kompletta i sig.
   return null;
 }
@@ -157,6 +164,8 @@ export function shouldAskFramework(
   outcome: ConversationOutcome | null
 ): boolean {
   if (result !== "CONNECTED_DM") return false;
+  // Bara på DM_NO. Fel beslutsfattare säger ingenting om hur långt säljaren
+  // kom i ramverket — samtalet dog på att personen var fel, inte på pitchen.
   return outcome === "DM_NO";
 }
 

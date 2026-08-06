@@ -390,6 +390,12 @@ enum ConversationOutcome {
   GATEKEEPER_BLOCKED
   GATEKEEPER_TRANSFERRED
   GATEKEEPER_GAVE_DM_DETAILS
+  /// Någon svarade och pratade, men var inte den som bestämmer. Skilt från
+  /// DM_NO: det här är inget nej på erbjudandet, för erbjudandet nådde aldrig
+  /// rätt person. Räknas de ihop ser ett lead med fel kontaktuppgift ut som
+  /// ett lead som tackat nej, och bolaget dör i statistiken utan att någon
+  /// någonsin ställt frågan till rätt person.
+  WRONG_DM
   DM_NO
   CALLBACK_BOOKED
   SOLD

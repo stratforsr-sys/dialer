@@ -31,6 +31,7 @@ export type OutcomeLike =
   | "GATEKEEPER_BLOCKED"
   | "GATEKEEPER_TRANSFERRED"
   | "GATEKEEPER_GAVE_DM_DETAILS"
+  | "WRONG_DM"
   | "DM_NO"
   | "CALLBACK_BOOKED"
   | "SOLD"
