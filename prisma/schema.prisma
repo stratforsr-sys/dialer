@@ -175,11 +175,22 @@ model LeadOnList {
   leadId  String
   addedAt DateTime @default(now())
 
+  /// True när det var DEN HÄR länken som skapade leadet — importen hittade
+  /// inget befintligt bolag på org-numret. False när leadet redan fanns och
+  /// bara länkades in (dubbletten).
+  ///
+  /// Avgör vad som händer när mappen tas bort: leads som mappen skapade följer
+  /// med, dubbletter blir kvar. Utan flaggan går de två fallen inte att skilja
+  /// åt i efterhand — createdAt duger inte, eftersom ett lead som importerades
+  /// och återimporterades samma dag ser likadant ut som ett nyskapat.
+  createdByImport Boolean @default(false)
+
   list CallList @relation(fields: [listId], references: [id], onDelete: Cascade)
   lead Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
   @@id([listId, leadId])
   @@index([leadId])
+  @@index([listId, createdByImport])
 }
 
 /// Ger en användare tillgång till en mapp. Admin behöver ingen rad — ser allt.

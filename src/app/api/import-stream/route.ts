@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { randomUUID } from "crypto";
 import { authOptions } from "@/lib/auth-options";
 import { db } from "@/lib/db";
+import { toE164 } from "@/lib/phone";
 import type { Prisma } from "@/generated/prisma/client";
 
 export const runtime = "nodejs";
@@ -33,6 +34,11 @@ type ContactDraft = {
   role: string | null;
   directPhone: string | null;
   switchboard: string | null;
+  /// Normaliserat här, vid importen. Cockpiten renderar ringknapparna på
+  /// E164-fälten — lämnas de tomma har ett importerat nummer ingenstans att
+  /// synas, oavsett att råtexten finns kvar i kolumnen bredvid.
+  directPhoneE164: string | null;
+  switchboardE164: string | null;
   email: string | null;
   linkedin: string | null;
 };
@@ -99,14 +105,19 @@ function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
     const contactName =
       clean(row.contactName) ?? ([firstName, lastName].filter(Boolean).join(" ") || null);
 
+    const directPhone = clean(row.directPhone);
+    const switchboard = clean(row.switchboard);
+
     const contact: ContactDraft | null = contactName
       ? {
           name: contactName,
           firstName,
           lastName,
           role: clean(row.contactRole),
-          directPhone: clean(row.directPhone),
-          switchboard: clean(row.switchboard),
+          directPhone,
+          switchboard,
+          directPhoneE164: toE164(directPhone),
+          switchboardE164: toE164(switchboard),
           email: clean(row.email),
           linkedin: clean(row.linkedin),
         }
@@ -239,7 +250,13 @@ export async function POST(req: NextRequest) {
          * filtrerar bara bort dubbletter inom SAMMA mapp (SQLite stödjer inte
          * skipDuplicates i createMany).
          */
-        const linkToList = async (leadIds: string[]) => {
+        /**
+         * `createdByImport` säger om det var den här importen som skapade
+         * leadet. Flaggan avgör vad som händer när mappen tas bort: leads som
+         * importen skapade följer med, dubbletter som redan fanns blir kvar.
+         * Den måste sättas här och nu — i efterhand går fallen inte att skilja.
+         */
+        const linkToList = async (leadIds: string[], createdByImport: boolean) => {
           if (leadIds.length === 0) return;
           const already = await db.leadOnList.findMany({
             where: { listId: list.id, leadId: { in: leadIds } },
@@ -249,7 +266,7 @@ export async function POST(req: NextRequest) {
           const fresh = Array.from(new Set(leadIds)).filter((id) => !existing.has(id));
           if (fresh.length === 0) return;
           await db.leadOnList.createMany({
-            data: fresh.map((leadId) => ({ listId: list.id, leadId })),
+            data: fresh.map((leadId) => ({ listId: list.id, leadId, createdByImport })),
           });
         };
 
@@ -270,7 +287,13 @@ export async function POST(req: NextRequest) {
                   city: true,
                   employees: true,
                   revenue: true,
-                  contacts: { select: { id: true, name: true, email: true, directPhone: true } },
+                  contacts: {
+                    select: {
+                      id: true, name: true, firstName: true, lastName: true, role: true,
+                      email: true, directPhone: true, switchboard: true,
+                      directPhoneE164: true, switchboardE164: true, linkedin: true,
+                    },
+                  },
                 },
               })
             : [];
@@ -324,6 +347,8 @@ export async function POST(req: NextRequest) {
                     role: c.role,
                     directPhone: c.directPhone,
                     switchboard: c.switchboard,
+                    directPhoneE164: c.directPhoneE164,
+                    switchboardE164: c.switchboardE164,
                     email: c.email,
                     linkedin: c.linkedin,
                     createdAt: now,
@@ -346,7 +371,8 @@ export async function POST(req: NextRequest) {
                 })),
               });
 
-              await linkToList(leadData.map((l) => l.id));
+              // Skapade av den här importen — försvinner med mappen.
+              await linkToList(leadData.map((l) => l.id), true);
 
               // Kommande batchar måste se de här som befintliga, annars
               // försöker vi skapa samma org-nummer igen
@@ -361,10 +387,21 @@ export async function POST(req: NextRequest) {
                   employees: g.employees,
                   revenue: g.revenue,
                   contacts: g.contacts.map((c) => ({
+                    // id är tomt: raden skapades med createMany, som inte ger
+                    // tillbaka id:n. Cachen används bara för dubblettkontroll
+                    // i kommande batchar — en kontakt som just skapats i den
+                    // här körningen har inga tomma fält att fylla i.
                     id: "",
                     name: c.name,
+                    firstName: c.firstName,
+                    lastName: c.lastName,
+                    role: c.role,
                     email: c.email,
                     directPhone: c.directPhone,
+                    switchboard: c.switchboard,
+                    directPhoneE164: c.directPhoneE164,
+                    switchboardE164: c.switchboardE164,
+                    linkedin: c.linkedin,
                   })),
                 });
               });
@@ -392,8 +429,15 @@ export async function POST(req: NextRequest) {
                 )
               );
 
-              // Bara kontakter som inte redan finns på leadet
+              // Bara kontakter som inte redan finns på leadet. Den som redan
+              // finns får i stället sina TOMMA fält ifyllda — annars kan en
+              // omimport aldrig laga en kontakt som saknar förnamn eller växel,
+              // och enda vägen tillbaka blir att radera och importera om.
+              // Ifyllda värden rörs aldrig: filen ska komplettera det som
+              // står i systemet, inte skriva över det någon rättat för hand.
               const contactCreates: Prisma.ContactCreateManyInput[] = [];
+              const contactPatches: Array<{ id: string; data: Prisma.ContactUpdateInput }> = [];
+
               for (const { group, lead } of existingGroups) {
                 for (const c of group.contacts) {
                   const match = lead.contacts.find(
@@ -401,7 +445,32 @@ export async function POST(req: NextRequest) {
                       (c.email && x.email === c.email) ||
                       (c.directPhone && x.directPhone === c.directPhone)
                   );
-                  if (match) continue;
+                  if (match) {
+                    const patch: Prisma.ContactUpdateInput = {};
+                    if (!match.firstName && c.firstName) patch.firstName = c.firstName;
+                    if (!match.lastName && c.lastName) patch.lastName = c.lastName;
+                    if (!match.role && c.role) patch.role = c.role;
+                    if (!match.switchboard && c.switchboard) patch.switchboard = c.switchboard;
+                    if (!match.switchboardE164 && c.switchboardE164) patch.switchboardE164 = c.switchboardE164;
+                    if (!match.directPhoneE164 && c.directPhoneE164) patch.directPhoneE164 = c.directPhoneE164;
+                    if (!match.email && c.email) patch.email = c.email;
+                    if (!match.linkedin && c.linkedin) patch.linkedin = c.linkedin;
+                    // Namnet lagas bara när filen har ett mer komplett namn —
+                    // "Anders Svensson" ersätter "Svensson", aldrig tvärtom.
+                    if (c.firstName && c.lastName && match.name.trim() !== `${c.firstName} ${c.lastName}`) {
+                      if (match.name.trim().split(/\s+/).length < 2) {
+                        patch.name = `${c.firstName} ${c.lastName}`;
+                      }
+                    }
+                    // match.id === "" är en kontakt som skapades tidigare i den
+                    // här körningen (createMany ger inga id:n tillbaka). Den
+                    // går inte att uppdatera på id — hoppa hellre över än att
+                    // krascha importen på en where-sats som inte träffar något.
+                    if (match.id && Object.keys(patch).length > 0) {
+                      contactPatches.push({ id: match.id, data: patch });
+                    }
+                    continue;
+                  }
                   contactCreates.push({
                     id: randomUUID(),
                     leadId: lead.id,
@@ -411,6 +480,8 @@ export async function POST(req: NextRequest) {
                     role: c.role,
                     directPhone: c.directPhone,
                     switchboard: c.switchboard,
+                    directPhoneE164: c.directPhoneE164,
+                    switchboardE164: c.switchboardE164,
                     email: c.email,
                     linkedin: c.linkedin,
                     createdAt: now,
@@ -423,6 +494,14 @@ export async function POST(req: NextRequest) {
                 await db.contact.createMany({ data: contactCreates });
               }
 
+              for (let p = 0; p < contactPatches.length; p += 100) {
+                await Promise.all(
+                  contactPatches.slice(p, p + 100).map(({ id, data }) =>
+                    db.contact.update({ where: { id }, data })
+                  )
+                );
+              }
+
               await db.activity.createMany({
                 data: existingGroups.map(({ lead }) => ({
                   id: randomUUID(),
@@ -433,7 +512,8 @@ export async function POST(req: NextRequest) {
                 })),
               });
 
-              await linkToList(existingGroups.map(({ lead }) => lead.id));
+              // Fanns redan i dialern — dubbletter, stannar kvar när mappen tas bort.
+              await linkToList(existingGroups.map(({ lead }) => lead.id), false);
 
               updated += existingGroups.length;
             }

@@ -3,6 +3,7 @@
 import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
+import { toE164 } from "@/lib/phone";
 
 type ImportRow = {
   companyName: string;
@@ -101,6 +102,8 @@ export async function importLeads(rows: ImportRow[]): Promise<ImportResult> {
                 role: row.contactRole?.trim() || null,
                 directPhone: row.directPhone?.trim() || null,
                 switchboard: row.switchboard?.trim() || null,
+                directPhoneE164: toE164(row.directPhone),
+                switchboardE164: toE164(row.switchboard),
                 email: row.email?.trim() || null,
                 linkedin: row.linkedin?.trim() || null,
               },
@@ -139,6 +142,8 @@ export async function importLeads(rows: ImportRow[]): Promise<ImportResult> {
                     role: row.contactRole?.trim() || null,
                     directPhone: row.directPhone?.trim() || null,
                     switchboard: row.switchboard?.trim() || null,
+                    directPhoneE164: toE164(row.directPhone),
+                    switchboardE164: toE164(row.switchboard),
                     email: row.email?.trim() || null,
                     linkedin: row.linkedin?.trim() || null,
                   },

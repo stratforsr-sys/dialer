@@ -117,11 +117,23 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
   function buildRows() {
     if (!csvData) return [];
     return csvData.rows.map((row) => {
-      const mapped: Record<string, string> = {};
+      // Värden per fält, inte ett värde per fält. Tidigare skrev en senare
+      // kolumn över en tidigare med samma mappning: satte man både "Förnamn"
+      // och "Efternamn" till Kontaktnamn vann efternamnet, och förnamnet
+      // försvann utan att något sa ifrån.
+      const byField: Record<string, string[]> = {};
       csvData.headers.forEach((h) => {
         const field = mapping[h];
-        if (field && field !== "skip") mapped[field] = row[h] || "";
+        if (!field || field === "skip") return;
+        const value = (row[h] || "").trim();
+        if (value) (byField[field] ||= []).push(value);
       });
+      // Namn sätts ihop av alla kolumner som pekar dit; övriga fält tar första
+      // ifyllda värdet — två adresskolumner ska inte bli "Storgatan 1 Box 12".
+      const mapped: Record<string, string> = {};
+      for (const [field, values] of Object.entries(byField)) {
+        mapped[field] = field === "name" ? values.join(" ") : values[0];
+      }
       return {
         companyName: mapped.company || "",
         orgNumber: mapped.org_number || undefined,

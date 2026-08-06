@@ -175,6 +175,12 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
       companyName: true,
       website: true,
       orgNumber: true,
+      // Kvalificeringsdata från importen. Säljaren ska inte behöva lämna
+      // cockpiten för att se var bolaget ligger eller hur stort det är.
+      address: true,
+      city: true,
+      employees: true,
+      revenue: true,
       attemptCount: true,
       lastAttemptAt: true,
       lastResult: true,
@@ -183,6 +189,8 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
         select: {
           id: true,
           name: true,
+          firstName: true,
+          lastName: true,
           role: true,
           directPhone: true,
           switchboard: true,
@@ -256,7 +264,13 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
         {
           företag: lead.companyName,
           kontakt: lead.contacts[0]?.name ?? null,
+          // {förnamn} och {ort} fanns i redigerarens platshållarlista men
+          // saknades i cockpitens kontext. En variant som använde dem
+          // renderades därför aldrig här — den föll igenom som "saknar värde"
+          // och säljaren fick nästa variant, eller ingen alls.
+          förnamn: lead.contacts[0]?.firstName ?? null,
           roll: lead.contacts[0]?.role ?? null,
+          ort: lead.city ?? lead.address?.split(",").pop()?.trim() ?? null,
           säljare: user.name,
         }
       ),

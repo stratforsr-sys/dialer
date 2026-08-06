@@ -93,6 +93,12 @@ export function ListsBoard({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<ListSummary | null>(null);
+  // Vad borttagningen faktiskt gjorde. Visas efteråt: siffrorna går inte att
+  // räkna ut i förväg utan ett extra serveranrop, och de är det enda sättet
+  // att se att dubbletterna verkligen skonades.
+  const [deleteResult, setDeleteResult] = useState<
+    { name: string; deletedLeads: number; keptDuplicates: number; keptInOtherLists: number } | null
+  >(null);
   const [shareList, setShareList] = useState<ListSummary | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -150,7 +156,8 @@ export function ListsBoard({
     setConfirmDelete(null);
     if (!list) return;
     startTransition(async () => {
-      await deleteList(list.id);
+      const res = await deleteList(list.id);
+      setDeleteResult({ name: list.name, ...res });
       router.refresh();
     });
   }
@@ -473,6 +480,26 @@ export function ListsBoard({
       </div>
 
       {/* ── Bekräfta borttagning ── */}
+      {deleteResult && (
+        <div className="fixed bottom-6 right-6 z-50 max-w-sm px-4 py-3 rounded-[14px]"
+          style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", boxShadow: "var(--shadow-lg, 0 8px 30px rgba(0,0,0,.35))" }}>
+          <p className="text-[13px] font-semibold mb-1" style={{ color: "var(--text)" }}>
+            ”{deleteResult.name}” borttagen
+          </p>
+          <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>
+            {deleteResult.deletedLeads} lead{deleteResult.deletedLeads === 1 ? "" : "s"} borttagna.
+            {deleteResult.keptDuplicates > 0 &&
+              ` ${deleteResult.keptDuplicates} fanns redan innan importen och ligger kvar.`}
+            {deleteResult.keptInOtherLists > 0 &&
+              ` ${deleteResult.keptInOtherLists} sparades eftersom de även ligger i en annan mapp.`}
+          </p>
+          <button onClick={() => setDeleteResult(null)}
+            className="mt-2 text-[11px] font-medium" style={{ color: "var(--accent)" }}>
+            Stäng
+          </button>
+        </div>
+      )}
+
       {confirmDelete && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center"
@@ -486,9 +513,14 @@ export function ListsBoard({
             <h3 className="text-[16px] font-semibold mb-2" style={{ color: "var(--text)" }}>
               Ta bort ”{confirmDelete.name}”?
             </h3>
+            <p className="text-[13px] mb-3" style={{ color: "var(--text-muted)" }}>
+              Leadsen som <strong style={{ color: "var(--text-secondary)" }}>den här importen skapade</strong> tas
+              bort med mappen — tillsammans med deras kontakter, anteckningar, affärer
+              och samtalsstatistik. Det går inte att ångra.
+            </p>
             <p className="text-[13px] mb-6" style={{ color: "var(--text-muted)" }}>
-              Mappen tas bort — men leadsen ligger kvar i CRM:et med all sin historik,
-              och påverkas inte i andra mappar de ligger i.
+              Leads som redan fanns i dialern när listan importerades ligger kvar, och
+              detsamma gäller leads som även ligger i en annan mapp.
             </p>
             <div className="flex items-center justify-end gap-3">
               <button

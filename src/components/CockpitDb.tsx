@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Phone, Globe, Linkedin, ChevronLeft, ChevronRight, ExternalLink, Mail,
   ArrowLeft, SkipForward, Clock, Building2, Zap, X, AlertTriangle, Copy,
-  Check, TrendingUp, Loader2, CalendarClock,
+  Check, TrendingUp, Loader2, CalendarClock, MapPin, Users, Banknote,
 } from "lucide-react";
 import { startSession, endSession } from "@/app/actions/sessions";
 import { leaseNextLeads, releaseLeases } from "@/app/actions/dialer";
@@ -729,6 +729,40 @@ export function CockpitDb({
                 </button>
               </div>
 
+              {/* Bolagsfakta från importen. Ligger direkt under rubriken och
+                  före manuset: det är underlaget säljaren kvalificerar på, och
+                  det får inte kräva att man lämnar cockpiten för att se det. */}
+              {(lead.city || lead.address || lead.employees !== null || lead.revenue !== null) && (
+                <div className="flex items-center flex-wrap gap-x-4 gap-y-1 mb-3 px-1">
+                  {(lead.city || lead.address) && (
+                    <span className="flex items-center gap-1.5 text-[12px]" style={{ color: "var(--text-muted)" }}>
+                      <MapPin size={11} style={{ color: "var(--text-dim)" }} />
+                      {[lead.address, lead.city].filter(Boolean).join(", ")}
+                    </span>
+                  )}
+                  {lead.employees !== null && (
+                    <span className="flex items-center gap-1.5 text-[12px]" style={{ color: "var(--text-muted)" }}>
+                      <Users size={11} style={{ color: "var(--text-dim)" }} />
+                      {lead.employees.toLocaleString("sv-SE")} anställda
+                    </span>
+                  )}
+                  {/* Utan valutasuffix — talet lagras som det stod i filen, och
+                      exporterna blandar kronor och tkr utan att säga vilket. */}
+                  {lead.revenue !== null && (
+                    <span className="flex items-center gap-1.5 text-[12px]" style={{ color: "var(--text-muted)" }}
+                      title="Omsättning, som den stod i importfilen">
+                      <Banknote size={11} style={{ color: "var(--text-dim)" }} />
+                      {lead.revenue.toLocaleString("sv-SE")}
+                    </span>
+                  )}
+                  {lead.orgNumber && (
+                    <span className="text-[11px]" style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
+                      {lead.orgNumber}
+                    </span>
+                  )}
+                </div>
+              )}
+
               <PitchPanel dossier={lead.dossier} />
               <ScriptPanel scripts={lead.scripts} />
 
@@ -738,7 +772,15 @@ export function CockpitDb({
                   style={{ background: "var(--glass-bg)", backdropFilter: "var(--glass-blur)", WebkitBackdropFilter: "var(--glass-blur)", border: "1px solid var(--glass-border)", boxShadow: "var(--glass-shadow)" }}>
                   <div className="flex items-start justify-between mb-4">
                     <div>
-                      <p className="text-[18px] font-semibold" style={{ color: "var(--text)" }}>{contact.name}</p>
+                      {/* Förnamn + efternamn när importen har dem var för sig.
+                          Contact.name är visningsnamnet, men på rader där bara
+                          ena delen råkade hamna där är de separata fälten mer
+                          kompletta — och tilltalsnamnet är det säljaren säger. */}
+                      <p className="text-[18px] font-semibold" style={{ color: "var(--text)" }}>
+                        {contact.firstName && contact.lastName
+                          ? `${contact.firstName} ${contact.lastName}`
+                          : contact.name}
+                      </p>
                       {contact.role && <p className="text-[13px] mt-[2px]" style={{ color: "var(--text-muted)" }}>{contact.role}</p>}
                     </div>
                     <div className="flex items-center gap-1">
@@ -759,9 +801,13 @@ export function CockpitDb({
                     </div>
                   </div>
 
+                  {/* Faller tillbaka på råtexten från importen när numret inte
+                      gick att normalisera. Ett nummer som finns men ser ovanligt
+                      ut ska visas ändå — annars tror säljaren att kontakten
+                      saknar telefon, fast den står i filen. */}
                   <div className="flex flex-col gap-2">
-                    {contact.directPhoneE164 && (
-                      <a href={`tel:${contact.directPhoneE164}`} className="flex items-center gap-3 px-4 py-3 rounded-[12px]"
+                    {(contact.directPhoneE164 || contact.directPhone) && (
+                      <a href={`tel:${contact.directPhoneE164 ?? contact.directPhone}`} className="flex items-center gap-3 px-4 py-3 rounded-[12px]"
                         style={{ background: "var(--accent-muted)", border: "1px solid var(--border-strong)" }}>
                         <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--accent)" }}>
                           <Phone size={13} color="var(--bg)" />
@@ -769,14 +815,14 @@ export function CockpitDb({
                         <div>
                           <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>Direkttelefon</p>
                           <p className="text-[16px] font-medium" style={{ color: "var(--text)", fontFamily: "var(--font-mono)" }}>
-                            {formatSwedish(contact.directPhoneE164)}
+                            {contact.directPhoneE164 ? formatSwedish(contact.directPhoneE164) : contact.directPhone}
                           </p>
                         </div>
                         <ExternalLink size={13} className="ml-auto" style={{ color: "var(--text-dim)" }} />
                       </a>
                     )}
-                    {contact.switchboardE164 && (
-                      <a href={`tel:${contact.switchboardE164}`} className="flex items-center gap-3 px-4 py-3 rounded-[12px]"
+                    {(contact.switchboardE164 || contact.switchboard) && (
+                      <a href={`tel:${contact.switchboardE164 ?? contact.switchboard}`} className="flex items-center gap-3 px-4 py-3 rounded-[12px]"
                         style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
                         <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--surface)", border: "1px solid var(--border-strong)" }}>
                           <Building2 size={12} style={{ color: "var(--text-muted)" }} />
@@ -784,7 +830,7 @@ export function CockpitDb({
                         <div>
                           <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>Växel</p>
                           <p className="text-[15px] font-medium" style={{ color: "var(--text)", fontFamily: "var(--font-mono)" }}>
-                            {formatSwedish(contact.switchboardE164)}
+                            {contact.switchboardE164 ? formatSwedish(contact.switchboardE164) : contact.switchboard}
                           </p>
                         </div>
                       </a>

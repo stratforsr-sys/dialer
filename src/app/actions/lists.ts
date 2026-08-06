@@ -179,11 +179,41 @@ export async function renameList(listId: string, name: string) {
   revalidatePath(`/lists/${listId}`);
 }
 
+/** SQLite har ett tak för antal parametrar i en IN-lista. */
+function chunk<T>(items: T[], size = 400): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+export type DeleteListResult = {
+  /** Leads som importen skapade och som nu är borta. */
+  deletedLeads: number;
+  /** Dubbletter — fanns i dialern redan innan importen, och ligger kvar. */
+  keptDuplicates: number;
+  /** Skapade här, men ligger även i en annan mapp och sparades därför. */
+  keptInOtherLists: number;
+};
+
 /**
- * Tar bort mappen — INTE leadsen. Ett lead som ligger i flera mappar
- * påverkas inte i de andra, och all historik ligger kvar på leadet.
+ * Tar bort mappen OCH de leads mappen själv skapade.
+ *
+ * Delningen går på LeadOnList.createdByImport, satt när importen kördes:
+ *
+ *   createdByImport = true   importen hittade inget bolag på org-numret och
+ *                            skapade leadet → det försvinner med mappen
+ *   createdByImport = false  leadet fanns redan i dialern och länkades bara in
+ *                            (dubbletten) → det ligger kvar
+ *
+ * Undantag: ett lead som den här importen skapade men som sedan hamnat i en
+ * ANNAN mapp raderas inte. Annars tömmer den här borttagningen någon annans
+ * ringlista på leads de står och ringer.
+ *
+ * Att radera ett lead kaskaderar bort dess kontakter, aktiviteter, affärer och
+ * CallAttempt-rader. Statistiken för de samtalen försvinner alltså också — det
+ * är priset för att en felimporterad lista ska gå att ångra helt.
  */
-export async function deleteList(listId: string) {
+export async function deleteList(listId: string): Promise<DeleteListResult> {
   await requireAdmin();
   const list = await db.callList.findUnique({
     where: { id: listId },
@@ -192,8 +222,37 @@ export async function deleteList(listId: string) {
   if (!list) throw new Error("Mappen finns inte");
   if (list.isSystem) throw new Error("Systemmappar kan inte tas bort");
 
+  // Måste läsas FÖRE borttagningen: CallList kaskaderar bort LeadOnList-raderna,
+  // och då är kopplingen som säger vad mappen skapade redan borta.
+  const links = await db.leadOnList.findMany({
+    where: { listId },
+    select: { leadId: true, createdByImport: true },
+  });
+
+  const createdHere = links.filter((l) => l.createdByImport).map((l) => l.leadId);
+  const keptDuplicates = links.length - createdHere.length;
+
+  const shared = new Set<string>();
+  for (const batch of chunk(createdHere)) {
+    const elsewhere = await db.leadOnList.findMany({
+      where: { leadId: { in: batch }, listId: { not: listId } },
+      select: { leadId: true },
+    });
+    for (const l of elsewhere) shared.add(l.leadId);
+  }
+
+  const toDelete = createdHere.filter((id) => !shared.has(id));
+
   await db.callList.delete({ where: { id: listId } });
+  for (const batch of chunk(toDelete)) {
+    await db.lead.deleteMany({ where: { id: { in: batch } } });
+  }
+
   revalidatePath("/lists");
+  revalidatePath("/leads");
+  revalidatePath("/pipeline");
+
+  return { deletedLeads: toDelete.length, keptDuplicates, keptInOtherLists: shared.size };
 }
 
 // ── Mutations: åtkomst ─────────────────────────────────────────────────────
