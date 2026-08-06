@@ -49,9 +49,9 @@ You are not a passive assistant; you are a Senior Design Engineer with a "Direct
 - Turso (LibSQL/SQLite) — 9 GB free tier
 - Prisma ORM + @prisma/adapter-libsql
 - NextAuth.js — CredentialsProvider (email + password, bcrypt)
-- Resend — transactional email (no-show reminders)
 - @dnd-kit/core — Kanban drag-and-drop
 - Framer Motion — animations
+- xlsx — läser CSV och Excel vid import
 
 ### Architecture Rules
 - Server Actions for ALL data mutations (no REST endpoints for CRUD)
@@ -61,15 +61,46 @@ You are not a passive assistant; you are a Senior Design Engineer with a "Direct
 - orgNumber uniqueness: on CSV import, if orgNumber exists → merge/update lead, never duplicate
 
 ### Database: Turso
-- Single database for all users
-- Prisma schema in prisma/schema.prisma
-- Migrations via: npx prisma migrate dev
+- **En enda databas — den är också produktionens.** Det finns ingen separat
+  dev-databas. Allt du kör mot den syns direkt på https://dialer-five.vercel.app/
+- Prisma-schema i `prisma/schema.prisma`, genererad klient i `src/generated/prisma`
+  (gitignorerad, byggs av `postinstall`)
+
+#### Migrationer — INTE `prisma migrate dev`
+Migrationerna är handskriven SQL, körd av en egen runner. `prisma migrate` används
+aldrig: den vill äga en shadow-databas och rulla om schemat, vilket mot en delad
+produktionsdatabas är fel verktyg.
+
+1. Ändra `prisma/schema.prisma`
+2. `npx prisma generate`
+3. Skriv en ny numrerad fil i `prisma/migrations/`, t.ex. `009_nagot.sql`
+4. `node prisma/apply-sql.mjs 009_nagot.sql --dry-run` för att se vad som körs
+5. `node prisma/apply-sql.mjs 009_nagot.sql`
+
+Runnern bokför varje fil med checksumma i tabellen `_migrations`. Den vägrar köra
+om en redan applicerad fil, och vägrar köra en fil som ändrats sedan den kördes.
+**Ändra därför aldrig en applicerad migrationsfil — skriv en ny.** Hela filen körs
+med `executeMultiple()`, så SQLite tolkar satsgränserna själv; SQLite rullar inte
+tillbaka DDL, så en fil som fallerar mitt i lämnar databasen halvmigrerad.
+
+`prisma/apply-migration.mjs` är den gamla runnern (splittar på `;`, sväljer
+"already exists" tyst). Använd den inte.
+
+Eftersom pushen går rakt till produktion måste migrationen köras i samma arbetspass
+som koden pushas — annars kraschar sajten på kolumner som inte finns.
+
+### Git & deploy
+- Commita och pusha **direkt till `main`**. Inga feature-branches, inga PR:er.
+- `main` auto-deployar till https://dialer-five.vercel.app/ (Vercel-projekt `dialer`).
+  En branch når aldrig sajten, så ändringen finns i praktiken inte förrän den är på `main`.
 
 ### User Roles
 - ADMIN: sees all leads, all stats, manages users and pipeline stages
 - SELLER: sees only own leads, own stats
 
-### Pipeline Stages (seeded, admin-configurable)
+### Pipeline Stages (seeded i prisma/seed.mjs, admin-configurable)
+Stegen är bara seed-data — de säger inget om vilka funktioner som finns. "Möte
+bokat" är kvar som steg trots att mötesbokningen togs bort i migration 007.
 1. Fallback (default for new leads)
 2. Möte bokat
 3. Demo
@@ -83,5 +114,17 @@ You are not a passive assistant; you are a Senior Design Engineer with a "Direct
 - Multiple deals per lead (no pipeline for deals, just status: OPEN/WON/LOST)
 - Activity log on every lead — visible to all users
 - Fluff tracking: auto-measure idle time between calls
-- Morning email (cron 08:00 Mon-Fri): yesterday's meetings → mark Show/No-show
 - Global search across leads, contacts, org numbers
+- Manus per ramverkssteg, i prioritetsordnade varianter (`src/lib/script-resolver.ts`).
+  Manustexten visas ordagrant — radbrytningar och blankrader är en del av manuset,
+  så alla vyer som renderar den måste ha `whitespace-pre-wrap`
+- Uppföljningsmotorn: `CallAttempt` är append-only och all statistik läses därifrån
+
+### Cron (vercel.json)
+- `/api/cron/enrich?tier=0` — dagligen 01:00
+- `/api/cron/enrich?tier=1&limit=40` — 02:30 mån–fre
+
+Det finns ingen mötesbokning och ingen utgående e-post. Möten togs bort i migration
+007 (verksamheten är one call close); återkomster hanteras av `Lead.callbackAt` och
+`CallAttempt.outcome = CALLBACK_BOOKED`. Gamla `MEETING_*`-rader ligger kvar i
+aktivitetsloggen med flit — loggen är oföränderlig.
