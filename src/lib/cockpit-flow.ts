@@ -87,6 +87,10 @@ export const REASON_OPTIONS: FlowOption<NoReason>[] = [
   // sitter i fingrarna på säljarna, och att flytta dem hade gett felregistrerat
   // utfall i veckor. Mäter öppningen, inte erbjudandet.
   { key: "7", label: "Sa nej innan pitch", value: "NEJ_INNAN_PITCH", color: "#94A3B8" },
+  // Hållning, inte tidpunkt: ett bättre intro ändrar den inte. Håll isär från
+  // 7 — annars går det inte att se skillnad på ett intro som misslyckas och en
+  // mottagare som aldrig tar kalla samtal.
+  { key: "8", label: "Vill inte prata med säljare", value: "VILL_EJ_PRATA_SALJARE", color: "#78716C" },
 ];
 
 // ── Steg 4: hur långt kom samtalet ────────────────────────────────────────

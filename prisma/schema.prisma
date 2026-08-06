@@ -415,6 +415,11 @@ enum NoReason {
   /// öppningen, inte produkten: en säljare med många av dessa har ett
   /// intro-problem, inte ett pris- eller behovsproblem.
   NEJ_INNAN_PITCH
+  /// Principiellt nej till kalla samtal, oavsett vad som erbjuds. Skilt från
+  /// NEJ_INNAN_PITCH, som är en tidpunkt: det här är en hållning, och den
+  /// ändras inte av ett bättre intro. Ett lead med många av dessa är en
+  /// kandidat för spärrlistan, inte för nästa varv i rotationen.
+  VILL_EJ_PRATA_SALJARE
 }
 
 enum CallDirection {
