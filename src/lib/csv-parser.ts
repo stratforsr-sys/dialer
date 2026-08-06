@@ -65,6 +65,55 @@ export function parseCSV(text: string): CSVData {
 }
 
 /**
+ * Tolkar ett tal ur en importfil.
+ *
+ * Företagsregisterexporter skriver samma siffra på ett halvdussin sätt:
+ * "1 234 567", "1.234.567", "1 234 567,50", "12,5", "25 st", "4 500 tkr",
+ * ofta med hårda mellanslag från Excel. `Number("1 234 567")` ger NaN, så utan
+ * normalisering blir kolumnen tyst tom och ingen märker det förrän någon
+ * undrar varför alla leads saknar omsättning.
+ */
+export function parseNumeric(raw: string | undefined | null): number | null {
+  if (!raw) return null;
+
+  // Bort med allt utom siffror, separatorer och minustecken — valutakoder,
+  // "st", "tkr", hårda mellanslag.
+  const cleaned = raw.replace(/[^\d,.-]/g, "");
+  if (!/\d/.test(cleaned)) return null;
+
+  const lastComma = cleaned.lastIndexOf(",");
+  const lastDot = cleaned.lastIndexOf(".");
+  let normalized: string;
+
+  if (lastComma >= 0 && lastDot >= 0) {
+    // Båda förekommer → den som står sist är decimaltecknet, den andra är
+    // tusenavskiljare. Gäller åt båda hållen: "1.234,50" och "1,234.50".
+    const decimalAt = Math.max(lastComma, lastDot);
+    normalized =
+      cleaned.slice(0, decimalAt).replace(/[,.]/g, "") + "." + cleaned.slice(decimalAt + 1);
+  } else {
+    const sep = lastComma >= 0 ? "," : lastDot >= 0 ? "." : null;
+    if (!sep) {
+      normalized = cleaned;
+    } else {
+      const occurrences = cleaned.split(sep).length - 1;
+      const digitsAfter = cleaned.length - cleaned.lastIndexOf(sep) - 1;
+      // Flera separatorer, eller exakt tre siffror efter den enda → tusental.
+      // "1,234" blir alltså 1234 och inte 1,234. Svenska företagsdata skriver
+      // decimaler med en eller två siffror ("12,5"), aldrig tre — så
+      // tusentalstolkningen är den säkrare gissningen när det är tvetydigt.
+      normalized =
+        occurrences > 1 || digitsAfter === 3
+          ? cleaned.split(sep).join("")
+          : cleaned.replace(sep, ".");
+    }
+  }
+
+  const n = Number(normalized);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
  * Auto-guess which CSV columns map to which system fields
  */
 export function autoGuessMapping(headers: string[]): FieldMapping {
@@ -116,6 +165,16 @@ export function autoGuessMapping(headers: string[]): FieldMapping {
       hl.includes("adress") || hl.includes("address") || hl === "gata" || hl === "street"
     ) {
       mapping[h] = "address";
+    } else if (
+      hl.includes("anställda") || hl.includes("anstallda") || hl.includes("antal anst") ||
+      hl === "employees" || hl === "employee count" || hl === "headcount" || hl === "antal"
+    ) {
+      mapping[h] = "employees";
+    } else if (
+      hl.includes("omsättning") || hl.includes("omsattning") || hl.includes("turnover") ||
+      hl.includes("revenue") || hl === "nettoomsättning" || hl === "intäkter"
+    ) {
+      mapping[h] = "revenue";
     } else if ((hl.includes("org") && (hl.includes("num") || hl.includes("nr"))) || hl === "organisationsnummer") {
       mapping[h] = "org_number";
     } else {

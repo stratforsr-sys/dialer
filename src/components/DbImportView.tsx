@@ -4,7 +4,7 @@ import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Upload, ChevronRight, Check, AlertCircle, X, ArrowLeft, Users, Play, FolderOpen } from "lucide-react";
-import { parseCSV, parseXLSX, autoGuessMapping } from "@/lib/csv-parser";
+import { parseCSV, parseXLSX, autoGuessMapping, parseNumeric } from "@/lib/csv-parser";
 import type { CSVData, FieldMapping } from "@/types";
 
 type Step = "upload" | "mapping" | "preview" | "importing" | "done";
@@ -31,6 +31,8 @@ const SYSTEM_FIELDS = [
   { value: "website",      label: "Hemsida" },
   { value: "address",      label: "Adress" },
   { value: "city",         label: "Stad / Ort" },
+  { value: "employees",    label: "Anställda" },
+  { value: "revenue",      label: "Omsättning" },
   { value: "name",         label: "Kontaktnamn (helt)" },
   { value: "first_name",   label: "Förnamn" },
   { value: "last_name",    label: "Efternamn" },
@@ -49,6 +51,10 @@ const SYSTEM_FIELDS = [
  * används den ensam hellre än att kontakten tappas: import-API:t skapar ingen
  * kontakt utan namn, och då hade telefonnumret på raden försvunnit med den.
  */
+/** Tusentalsavgränsat i förhandsgranskningen — så syns en feltolkad siffra direkt. */
+const formatNum = (n?: number) =>
+  typeof n === "number" ? n.toLocaleString("sv-SE") : "—";
+
 function composeContactName(full?: string, first?: string, last?: string): string | undefined {
   const whole = full?.trim();
   if (whole) return whole;
@@ -122,6 +128,8 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
         website: mapped.website || undefined,
         address: mapped.address || undefined,
         city: mapped.city || undefined,
+        employees: parseNumeric(mapped.employees) ?? undefined,
+        revenue: parseNumeric(mapped.revenue) ?? undefined,
         contactName: composeContactName(mapped.name, mapped.first_name, mapped.last_name),
         contactFirstName: mapped.first_name || undefined,
         contactLastName: mapped.last_name || undefined,
@@ -364,7 +372,7 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                 <table className="w-full border-collapse">
                   <thead>
                     <tr style={{ background: "var(--surface-inset)", borderBottom: "1px solid var(--border)" }}>
-                      {["Bolag", "Org-nr", "Ort", "Kontakt", "Telefon", "Email"].map((h) => (
+                      {["Bolag", "Org-nr", "Ort", "Anst.", "Omsättning", "Kontakt", "Telefon", "Email"].map((h) => (
                         <th key={h} className="text-left px-4 py-2" style={{ color: "var(--text-dim)" }}>{h}</th>
                       ))}
                     </tr>
@@ -375,6 +383,8 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                         <td className="px-4 py-2 text-[12px] font-medium" style={{ color: "var(--text)" }}>{row.companyName}</td>
                         <td className="px-4 py-2 text-[11px]" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>{row.orgNumber || "—"}</td>
                         <td className="px-4 py-2 text-[12px]" style={{ color: "var(--text-muted)" }}>{row.city || "—"}</td>
+                        <td className="px-4 py-2 text-[11px] text-right" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>{formatNum(row.employees)}</td>
+                        <td className="px-4 py-2 text-[11px] text-right" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>{formatNum(row.revenue)}</td>
                         <td className="px-4 py-2 text-[12px]" style={{ color: "var(--text-muted)" }}>{row.contactName || "—"}</td>
                         <td className="px-4 py-2 text-[11px]" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>{row.directPhone || "—"}</td>
                         <td className="px-4 py-2 text-[12px]" style={{ color: "var(--text-muted)" }}>{row.email || "—"}</td>

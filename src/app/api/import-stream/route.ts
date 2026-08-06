@@ -14,6 +14,8 @@ type ImportRow = {
   website?: string;
   address?: string;
   city?: string;
+  employees?: number;
+  revenue?: number;
   contactName?: string;
   contactFirstName?: string;
   contactLastName?: string;
@@ -42,6 +44,8 @@ type CompanyGroup = {
   website: string | null;
   address: string | null;
   city: string | null;
+  employees: number | null;
+  revenue: number | null;
   contacts: ContactDraft[];
 };
 
@@ -52,6 +56,20 @@ function sse(data: object) {
 }
 
 const clean = (v?: string) => v?.trim() || null;
+
+/**
+ * Klienten skickar redan tolkade tal, men endpointen tar emot JSON utifrån och
+ * får inte lita på det. Strängar och NaN ska bli NULL, inte en trasig rad —
+ * "uppgiften saknas" är ett giltigt svar, en nolla är det inte.
+ */
+const num = (v: unknown): number | null =>
+  typeof v === "number" && Number.isFinite(v) ? v : null;
+
+/** Anställda är ett heltal i schemat; ett decimaltal från filen avrundas. */
+const int = (v: unknown): number | null => {
+  const n = num(v);
+  return n === null ? null : Math.round(n);
+};
 
 /**
  * Slår ihop rader som hör till samma bolag.
@@ -101,6 +119,8 @@ function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
         website: clean(row.website),
         address: clean(row.address),
         city: clean(row.city),
+        employees: int(row.employees),
+        revenue: num(row.revenue),
         contacts: contact ? [contact] : [],
       });
       continue;
@@ -112,6 +132,8 @@ function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
       existing.website ??= clean(row.website);
       existing.address ??= clean(row.address);
       existing.city ??= clean(row.city);
+      existing.employees ??= int(row.employees);
+      existing.revenue ??= num(row.revenue);
       if (contact && !hasContact(existing.contacts, contact)) {
         existing.contacts.push(contact);
       }
@@ -122,6 +144,8 @@ function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
         website: clean(row.website),
         address: clean(row.address),
         city: clean(row.city),
+        employees: int(row.employees),
+        revenue: num(row.revenue),
         contacts: contact ? [contact] : [],
       });
     }
@@ -244,6 +268,8 @@ export async function POST(req: NextRequest) {
                   website: true,
                   address: true,
                   city: true,
+                  employees: true,
+                  revenue: true,
                   contacts: { select: { id: true, name: true, email: true, directPhone: true } },
                 },
               })
@@ -277,6 +303,8 @@ export async function POST(req: NextRequest) {
                 website: g.website,
                 address: g.address,
                 city: g.city,
+                employees: g.employees,
+                revenue: g.revenue,
                 ownerId: userId,
                 createdAt: now,
                 updatedAt: now,
@@ -330,6 +358,8 @@ export async function POST(req: NextRequest) {
                   website: g.website,
                   address: g.address,
                   city: g.city,
+                  employees: g.employees,
+                  revenue: g.revenue,
                   contacts: g.contacts.map((c) => ({
                     id: "",
                     name: c.name,
@@ -355,6 +385,8 @@ export async function POST(req: NextRequest) {
                       website: group.website ?? lead.website,
                       address: group.address ?? lead.address,
                       city: group.city ?? lead.city,
+                      employees: group.employees ?? lead.employees,
+                      revenue: group.revenue ?? lead.revenue,
                     },
                   })
                 )

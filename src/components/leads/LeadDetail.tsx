@@ -126,10 +126,28 @@ export function LeadDetail({
                   {lead.website}
                 </a>
               )}
-              {lead.address && (
+              {(lead.address || lead.city) && (
                 <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>
-                  {lead.address}
+                  {[lead.address, lead.city].filter(Boolean).join(", ")}
                 </p>
+              )}
+              {(lead.employees !== null || lead.revenue !== null) && (
+                <div className="flex items-center gap-3 text-[12px]" style={{ color: "var(--text-muted)" }}>
+                  {lead.employees !== null && (
+                    <span className="flex items-center gap-1.5">
+                      <Users size={12} />
+                      {lead.employees.toLocaleString("sv-SE")} anställda
+                    </span>
+                  )}
+                  {/* Ingen valutasuffix: talet lagras precis som det stod i
+                      importfilen, och exporterna blandar kronor och tkr utan
+                      att säga vilket. Att skriva "kr" här vore en gissning. */}
+                  {lead.revenue !== null && (
+                    <span title="Omsättning, som den stod i importfilen">
+                      Oms. {lead.revenue.toLocaleString("sv-SE")}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
 

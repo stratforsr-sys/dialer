@@ -10,6 +10,8 @@ type ImportRow = {
   website?: string;
   address?: string;
   city?: string;
+  employees?: number;
+  revenue?: number;
   contactName?: string;
   contactFirstName?: string;
   contactLastName?: string;
@@ -18,6 +20,14 @@ type ImportRow = {
   switchboard?: string;
   email?: string;
   linkedin?: string;
+};
+
+/** Samma försvar som i /api/import-stream — icke-tal ska bli null, inte NaN. */
+const num = (v: unknown): number | null =>
+  typeof v === "number" && Number.isFinite(v) ? v : null;
+const int = (v: unknown): number | null => {
+  const n = num(v);
+  return n === null ? null : Math.round(n);
 };
 
 /** Samma regel som i /api/import-stream: hel namnkolumn vinner, annars delarna. */
@@ -64,6 +74,8 @@ export async function importLeads(rows: ImportRow[]): Promise<ImportResult> {
             website: row.website?.trim() || existing.website,
             address: row.address?.trim() || existing.address,
             city: row.city?.trim() || existing.city,
+            employees: int(row.employees) ?? existing.employees,
+            revenue: num(row.revenue) ?? existing.revenue,
           },
         });
 
@@ -115,6 +127,8 @@ export async function importLeads(rows: ImportRow[]): Promise<ImportResult> {
             website: row.website?.trim() || null,
             address: row.address?.trim() || null,
             city: row.city?.trim() || null,
+            employees: int(row.employees),
+            revenue: num(row.revenue),
             ownerId: user.id,
             contacts: contactName
               ? {

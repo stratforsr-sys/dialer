@@ -49,6 +49,13 @@ model Lead {
   /// läste tidigare ut den med en split på komma, vilket gav "12345 Göteborg"
   /// eller hela adressen beroende på hur exportfilen råkade se ut.
   city          String?
+  /// Kvalificeringsdata från importfilen. Båda är nullbara med flit: noll
+  /// anställda och "vet ej" är olika saker, och en tom kolumn får aldrig bli
+  /// en nolla som sedan sorteras som om den vore mätt.
+  employees     Int?
+  /// Lagras exakt som talet stod i filen — ingen enhetsomräkning. Exporterna
+  /// blandar kronor och tkr och det går inte att gissa vilket utan att fråga.
+  revenue       Float?
   hasActiveDeal Boolean  @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
