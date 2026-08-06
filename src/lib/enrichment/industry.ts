@@ -174,7 +174,10 @@ ${INDUSTRIES.join("\n")}`;
  */
 async function generateWithRetry(userMessage: string, attempts = 3): Promise<string> {
   const model = getGeminiClient().getGenerativeModel({
-    model: GEMINI_MODEL,
+    // Via env så att en modellbyte är en konfigurationsändring och inte en
+    // deploy. Gratisnivåns dygnstak sitter per modell, så vilken modell som
+    // används är den enda spak som betyder något innan fakturering är påslagen.
+    model: process.env.GEMINI_INDUSTRY_MODEL || GEMINI_MODEL,
     systemInstruction: SYSTEM_PROMPT,
   });
 

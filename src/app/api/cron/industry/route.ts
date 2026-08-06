@@ -60,7 +60,17 @@ export async function GET(request: Request) {
   const reasons: Record<string, number> = {};
   const samples: string[] = [];
 
+  // Gratisnivån har ett DYGNSTAK, inte bara ett minuttak. Är det slaget hjälper
+  // ingen backoff — då är varje ytterligare anrop bortkastad tid, och en
+  // körning som maler vidare äter hela cron-fönstret för noll resultat.
+  let consecutiveRateLimited = 0;
+  let stoppedEarly = false;
+
   for (let i = 0; i < leads.length; i += CONCURRENCY) {
+    if (consecutiveRateLimited >= 2 * CONCURRENCY) {
+      stoppedEarly = true;
+      break;
+    }
     const batch = leads.slice(i, i + CONCURRENCY);
     const results = await Promise.all(
       batch.map(async (lead) => ({ lead, out: await classifyIndustry(lead) }))
@@ -69,11 +79,13 @@ export async function GET(request: Request) {
     for (const { lead, out } of results) {
       if (!out.ok) {
         reasons[out.reason] = (reasons[out.reason] ?? 0) + 1;
+        consecutiveRateLimited = out.reason === "rate_limited" ? consecutiveRateLimited + 1 : 0;
         if (samples.length < 8 && out.detail) {
           samples.push(`${lead.companyName}: ${out.reason} — ${out.detail}`);
         }
         continue;
       }
+      consecutiveRateLimited = 0;
       await db.lead.update({
         where: { id: lead.id },
         data: {
@@ -102,6 +114,10 @@ export async function GET(request: Request) {
     unresolved: leads.length - classified,
     reasons,
     samples,
+    stoppedEarly,
+    ...(stoppedEarly
+      ? { note: "Dygnskvoten mot Gemini är slut. Resten av kön ligger kvar till nästa körning." }
+      : {}),
     seconds: Math.round((Date.now() - started) / 1000),
   });
 }
