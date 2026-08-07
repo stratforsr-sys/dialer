@@ -8,6 +8,66 @@ Nyast först.
 
 ---
 
+## 2026-08-07 (senare) — Rank på hela beståndet
+
+### Rättelse till anteckningen nedan
+
+Påståendet att en omimport av `berikade_leads.csv` skulle lyfta rankspåret var
+**fel**. Filen och databasen är i huvudsak olika bolag: av 3 426 leads matchar
+286 på org-nummer och 679 på normaliserat namn — 2 461 finns inte i filen alls.
+En omimport hade fyllt bransch på **71** leads och skapat 5 776 nya. Att lägga
+till dem kan vara värt något i sig, men det löser inte rank för de befintliga.
+
+### Den riktiga vägen: fråga Google i stället för att gissa
+
+Rank mäts **aldrig** på bolagsnamnet. "Kulladals Snickeri AB" ligger etta på
+sitt eget namn oavsett hur osynliga de är för en kund som söker hjälp. Rank
+mäts på tjänstetermen, och hela svårigheten är att få fram den för varje bolag.
+
+Tre källor, i fallande auktoritet, alla implementerade:
+
+1. **Googles egen kategori**, via `/places` med "bolagsnamn + ort"
+   (`serper-lead.ts`, `/api/cron/seo-leads`). En kredit per bolag. Ger också
+   betyg, recensionsantal, telefonnummer, hemsida och adress.
+2. **Bolagsnamnet** (`trade.ts`). Gratis, deterministiskt, ingen kvot.
+3. **Sajttiteln**, som nivå 0 redan hämtat gratis.
+
+Källa 2 och 3 körs av `/api/cron/keywords`, som också fyller `Lead.city` ur
+adressen. **Kör den alltid före en betald körning.**
+
+### Mätt utfall av gratiskörningen
+
+    602 orter räddade ur adressfältet
+    782 yrkestermer ur bolagsnamn, 101 ur sajttitlar
+    rankbara leads:  18  →  1 116
+    leads med sökord: 307 → 2 102
+
+Noll krediter. Ordlistan gissar aldrig — matchar inget mönster blir det null,
+och då hämtas ingen rank.
+
+### Vad som återstår, och vad det kostar
+
+    uppslag per bolag (alla 3 424)        ~3 424 krediter
+    rankmätning på 1 314 segment          ~7 884 krediter i värsta fall
+                                          (~5 000 realistiskt, tidigt stopp
+                                           gav 32 av 48 i skarp mätning)
+
+Gratisnivåns 2 500 räcker alltså till ungefär en tredjedel av ett varv. Två
+vägar: betald Serper-plan, eller `?listId=` och bara den lista som ringas.
+
+**Segmenteffektiviteten är dålig just nu** — 1 314 segment för 2 102 leads,
+alltså 1,6 leads per sökning. Ordlistans termer är finkorniga och orterna
+många. Görs uppslaget per bolag först blir segmenten färre och större, eftersom
+Googles kategorier är mer standardiserade än ordlistans.
+
+### Bieffekt: importfilen kan bli mycket tunnare
+
+Med uppslag per bolag räcker **bolagsnamn + telefonnummer** i filen. Adress,
+ort, hemsida, kategori, betyg, recensioner och telefon kommer från Google.
+Två förbehåll: org-numret kommer inte därifrån och importen deduplicerar på
+det, så utan org-nummer blir samma bolag två leads vid nästa uppladdning — och
+bolag utan Google-profil får ingenting.
+
 ## 2026-08-07 — SEO-spåret: rank, Google-profil, tjänster
 
 Ingen migration. `LeadClaim` hade redan rätt form med `@@unique([leadId, key])`,
