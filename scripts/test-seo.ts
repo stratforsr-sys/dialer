@@ -16,7 +16,7 @@ process.env.TURSO_DATABASE_URL ||= "file:./prisma/shadow.db";
 process.env.TURSO_AUTH_TOKEN ||= "test";
 
 import { parseRank, signalsFromImport, hasSeoData } from "../src/lib/enrichment/import-claims.ts";
-import { deriveKeyword, normalizeCompany, hostOf } from "../src/lib/enrichment/serper.ts";
+import { deriveKeyword, normalizeCompany, hostOf, absolutePosition } from "../src/lib/enrichment/serper.ts";
 import { autoGuessMapping } from "../src/lib/csv-parser.ts";
 
 let pass = 0, fail = 0;
@@ -116,6 +116,17 @@ console.log("\nhostOf — positionen matchas på domän, aldrig på namn");
   check("versaler ned", hostOf("HTTPS://Exempel.SE") === "exempel.se");
   check("skräp ger null", hostOf("—") === null);
   check("tomt ger null", hostOf(null) === null);
+}
+
+console.log("\nabsolutePosition — sida 2 är inte topp tio");
+{
+  // Serper räknar om från 1 på varje sida. Uppmätt 2026-08-07: page=2 svarar
+  // med positionerna 1-10, inte 11-20.
+  check("sida 1 lämnas orörd", absolutePosition(1, 4) === 4);
+  check("sida 2 position 4 är plats 14", absolutePosition(2, 4) === 14);
+  check("sida 3 position 7 är plats 27", absolutePosition(3, 7) === 27);
+  check("sida 5 position 10 är plats 50", absolutePosition(5, 10) === 50);
+  check("första på sida 2 är plats 11", absolutePosition(2, 1) === 11);
 }
 
 console.log("\nautoGuessMapping — leadmotorns egna kolumnnamn");

@@ -7,10 +7,13 @@
  * än en säljare som inte säger något alls. Det är inte en teknisk risk utan en
  * trovärdighetsrisk, och den styr tre val nedan.
  *
- *   1. Djup 100, inte 10. Med tio träffar går det bara att säga "vi hittade er
- *      inte", vilket prospektet med rätta hör som svammel. Med hundra går det
- *      att säga "plats 47" — ett tal hen kan kontrollera, vilket är hela
- *      skillnaden mellan ett påstående och en pitch.
+ *   1. Djup i flera sidor, inte en. Med tio träffar går det bara att säga "vi
+ *      hittade er inte", vilket prospektet med rätta hör som svammel. Med
+ *      fem sidor går det att säga "plats 47" — ett tal hen kan kontrollera,
+ *      vilket är hela skillnaden mellan ett påstående och en pitch. Och det
+ *      djup vi faktiskt nådde är det enda som får stå i meningen: `num: 100`
+ *      ger tio träffar hos Serper, så den som litar på parametern påstår
+ *      hundra och har kollat tio.
  *   2. Ett anrop per bransch+ort, inte per företag. Alla rörmokare i Malmö
  *      konkurrerar om samma sökning; SERP:en är gemensam och positionen läses
  *      ur den per domän. Ett anrop bär därför hela segmentet, och 2 500 gratis
@@ -33,21 +36,53 @@ const PLACES_ENDPOINT = "https://google.serper.dev/places";
 /** Hur länge en rankmätning räknas som färsk. Google rör sig, men inte dagligen. */
 export const SERPER_TTL_DAYS = 21;
 
-/** Antal organiska träffar per sökning. Serpers tak är 100. */
-const DEPTH = 100;
+/**
+ * Djupet hämtas SIDVIS, inte med `num`.
+ *
+ * Uppmätt mot Serper 2026-08-07: `num: 100` returnerar tio träffar och drar en
+ * kredit. Parametern ignoreras. Det är exakt fällan som gjorde att leadmotorns
+ * egen export skrev ">20" på tio kontrollerade träffar — ett förbehåll som
+ * låter dubbelt så grundligt som mätningen var.
+ *
+ * `page` fungerar däremot, en kredit per sida om tio. Positionen börjar om på
+ * 1 varje sida, så den absoluta placeringen är (sida-1)*10 + position.
+ */
+const RESULTS_PER_PAGE = 10;
 
 /**
- * Kreditgolvet i torrkörningen. Serper fakturerar per tio träffar, så ett
- * anrop med djup 100 kostar mer än ett med djup 10 — men den exakta trappan
- * är leverantörens och kan ändras utan att vi märker det. Därför är det här
- * en försiktig UPPSKATTNING som bara styr torrkörningen och spärren; den
- * faktiska förbrukningen läses ur svarets `credits`-fält och rapporteras
- * separat. Gissa aldrig i efterhand det som går att mäta.
+ * Absolut placering ur sidnummer och placering på sidan.
+ *
+ * Serper räknar om från 1 på varje sida: en träff på sida 2 rapporterar
+ * position 4 när den i själva verket är plats 14. Missas det här blir varje
+ * bolag på sida två till fyra plötsligt topp tio, vilket är en pitch som
+ * spricker i samma sekund som prospektet googlar sig själv.
  */
-const ESTIMATED_CREDITS_PER_SEARCH = Math.ceil(DEPTH / 10);
+export function absolutePosition(page: number, positionOnPage: number): number {
+  return (page - 1) * RESULTS_PER_PAGE + positionOnPage;
+}
+
+/**
+ * Tak på antal sidor per sökord. Fem sidor är femtio träffar och fem krediter
+ * i värsta fall — men bara i värsta fall: hämtningen slutar så fort alla
+ * bolag i segmentet är hittade, eller så fort Google tar slut. "Rörmokare
+ * Malmö" har 27 organiska träffar totalt, alltså tre sidor, och det är
+ * typiskt för en lokal sökning.
+ */
+function maxPages(): number {
+  const raw = Number(process.env.SERPER_MAX_PAGES);
+  return Number.isFinite(raw) && raw >= 1 && raw <= 10 ? Math.floor(raw) : 5;
+}
+
+/**
+ * Kreditgolvet i torrkörningen — VÄRSTA fallet, alla sidor plus platsanropet.
+ * Den faktiska förbrukningen är nästan alltid lägre tack vare det tidiga
+ * stoppet, och läses ur svarets `credits`-fält. Gissa aldrig i efterhand det
+ * som går att mäta.
+ */
 const ESTIMATED_CREDITS_PER_PLACES = 1;
-const ESTIMATED_CREDITS_PER_SEGMENT =
-  ESTIMATED_CREDITS_PER_SEARCH + ESTIMATED_CREDITS_PER_PLACES;
+function estimatedCreditsPerSegment(): number {
+  return maxPages() + ESTIMATED_CREDITS_PER_PLACES;
+}
 
 /**
  * Tak per körning. Gratisnivån ger 2 500 krediter totalt, inte per månad, och
@@ -141,7 +176,15 @@ type PlaceHit = {
 };
 
 type SearchResult = {
+  /** Träffarna från alla hämtade sidor, med ABSOLUT position ifylld. */
   organic: OrganicHit[];
+  /**
+   * Hur djupt vi faktiskt tittade. Det här talet, och inget annat, får stå i
+   * meningen "utanför topp N" — annars påstår vi en grundlighet vi inte hade.
+   */
+  depthChecked: number;
+  /** True när Google tog slut innan taket, dvs. vi såg HELA resultatlistan. */
+  exhausted: boolean;
   credits: number | null;
 };
 
@@ -178,16 +221,66 @@ async function post<T>(
 
 export class SerperFatal extends Error {}
 
-async function search(keyword: string): Promise<SearchResult | null> {
-  const r = await post<{ organic?: OrganicHit[] }>(SEARCH_ENDPOINT, {
-    q: keyword,
-    gl: "se",
-    hl: "sv",
-    location: "Sweden",
-    num: DEPTH,
-  });
-  if (!r) return null;
-  return { organic: r.data.organic ?? [], credits: r.credits };
+/**
+ * Hämtar sökresultatet sida för sida.
+ *
+ * Slutar så fort ett av tre är sant:
+ *   1. Alla bolag i segmentet är hittade. Att betala för sida fyra när ingen
+ *      av de sju rörmokarna vi frågar om finns där är rena krediter i sjön.
+ *   2. Google tog slut (färre än tio träffar på sidan). Då har vi hela listan,
+ *      och "syns inte alls" är ett starkare och sannare påstående än ett tal.
+ *   3. Taket nås.
+ */
+async function searchDeep(
+  keyword: string,
+  wantedHosts: Set<string>
+): Promise<SearchResult | null> {
+  const organic: OrganicHit[] = [];
+  const found = new Set<string>();
+  let credits = 0;
+  let sawCredits = false;
+  let exhausted = false;
+  const pages = maxPages();
+
+  for (let page = 1; page <= pages; page++) {
+    const r = await post<{ organic?: OrganicHit[] }>(SEARCH_ENDPOINT, {
+      q: keyword,
+      gl: "se",
+      hl: "sv",
+      location: "Sweden",
+      ...(page > 1 ? { page } : {}),
+    });
+    // Första sidan måste lyckas, annars har vi ingenting att påstå. Ett fel på
+    // en senare sida är inte lika illa — då har vi ett grundare men ärligt
+    // djup, och depthChecked speglar det.
+    if (!r) return page === 1 ? null : { organic, depthChecked: organic.length, exhausted, credits: sawCredits ? credits : null };
+
+    if (r.credits != null) {
+      credits += r.credits;
+      sawCredits = true;
+    }
+
+    const hits = r.data.organic ?? [];
+    hits.forEach((hit, i) => {
+      const absolute = absolutePosition(page, hit.position ?? i + 1);
+      organic.push({ ...hit, position: absolute });
+      const h = hostOf(hit.link);
+      if (h && wantedHosts.has(h)) found.add(h);
+    });
+
+    if (hits.length < RESULTS_PER_PAGE) {
+      exhausted = true;
+      break;
+    }
+    if (wantedHosts.size > 0 && found.size === wantedHosts.size) break;
+  }
+
+  return {
+    organic,
+    depthChecked: organic.length,
+    exhausted,
+    credits: sawCredits ? credits : null,
+  };
 }
 
 async function places(keyword: string): Promise<PlacesResult | null> {
@@ -221,7 +314,9 @@ function signalsForLead(
   lead: SegmentLead,
   keyword: string,
   organic: OrganicHit[],
-  placeHits: PlaceHit[]
+  placeHits: PlaceHit[],
+  depthChecked: number,
+  exhausted: boolean
 ): Signal[] {
   const out: Signal[] = [];
   const host = hostOf(lead.website);
@@ -270,10 +365,14 @@ function signalsForLead(
     } else {
       out.push({
         key: "seo.rank",
-        // Formulerat som det vi faktiskt kollade. "Utanför topp 100" är sant
-        // och kontrollerbart; "syns inte på Google" är varken eller.
-        valueStr: `utanför topp ${DEPTH}`,
-        confidence: 85,
+        // Formulerat som det vi FAKTISKT kollade, aldrig som taket vi siktade
+        // på. Tog Google slut har vi sett hela listan och kan säga det rakt
+        // ut — det är ett starkare påstående än vilket tal som helst, och det
+        // enda som håller när prospektet googlar sig själv under samtalet.
+        valueStr: exhausted
+          ? "syns inte alls i sökresultatet"
+          : `utanför topp ${depthChecked}`,
+        confidence: exhausted ? 90 : 85,
         strength: 5,
         weakness: true,
         source: "serper",
@@ -510,14 +609,15 @@ export async function dryRun(opts: {
   const capped = opts.limit ? segments.slice(0, opts.limit) : segments;
 
   const budget = creditBudget();
-  const affordable = Math.floor(budget / ESTIMATED_CREDITS_PER_SEGMENT);
+  const perSegment = estimatedCreditsPerSegment();
+  const affordable = Math.floor(budget / perSegment);
   const withinBudget = capped.slice(0, affordable);
 
   return {
     segments: capped.length,
     leadsCovered: capped.reduce((n, s) => n + s.leads.length, 0),
     leadsWithoutKeyword: withoutKeyword,
-    estimatedCredits: capped.length * ESTIMATED_CREDITS_PER_SEGMENT,
+    estimatedCredits: capped.length * perSegment,
     budget,
     segmentsWithinBudget: withinBudget.length,
     leadsWithinBudget: withinBudget.reduce((n, s) => n + s.leads.length, 0),
@@ -565,7 +665,7 @@ export async function runSerper(opts: {
   let sawReported = false;
 
   for (const segment of capped) {
-    if (run.creditsEstimated + ESTIMATED_CREDITS_PER_SEGMENT > budget) {
+    if (run.creditsEstimated + estimatedCreditsPerSegment() > budget) {
       run.stoppedBecause = `kreditspärren nådd (${budget})`;
       break;
     }
@@ -573,9 +673,19 @@ export async function runSerper(opts: {
     // Hämta brett …
     let organic: OrganicHit[] = [];
     let placeHits: PlaceHit[] = [];
+    let depthChecked = 0;
+    let exhausted = false;
     try {
-      const [s, p] = await Promise.all([search(segment.keyword), places(segment.keyword)]);
-      run.creditsEstimated += ESTIMATED_CREDITS_PER_SEGMENT;
+      // Domänerna vi letar efter skickas med så att hämtningen kan sluta så
+      // fort alla är hittade i stället för att betala för fem sidor varje gång.
+      const wanted = new Set(
+        segment.leads.map((l) => hostOf(l.website)).filter((h): h is string => h !== null)
+      );
+      const [s, p] = await Promise.all([
+        searchDeep(segment.keyword, wanted),
+        places(segment.keyword),
+      ]);
+      run.creditsEstimated += estimatedCreditsPerSegment();
       if (s?.credits != null) {
         reported += s.credits;
         sawReported = true;
@@ -585,6 +695,8 @@ export async function runSerper(opts: {
         sawReported = true;
       }
       organic = s?.organic ?? [];
+      depthChecked = s?.depthChecked ?? 0;
+      exhausted = s?.exhausted ?? false;
       placeHits = p?.places ?? [];
       if (!s) {
         run.failedKeywords.push(segment.keyword);
@@ -602,7 +714,9 @@ export async function runSerper(opts: {
     // … skriv smalt. Turso håller skrivlåset över nätverket och SQLite har en
     // enda skrivare; parallella transaktioner här ger P2028 och tappar satsen.
     for (const lead of segment.leads) {
-      const signals = signalsForLead(lead, segment.keyword, organic, placeHits);
+      const signals = signalsForLead(
+        lead, segment.keyword, organic, placeHits, depthChecked, exhausted
+      );
       if (signals.length === 0) continue;
       await writeClaims(lead.id, signals);
       run.leadsUpdated++;

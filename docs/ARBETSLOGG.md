@@ -24,9 +24,11 @@ i Malmö konkurrerar om samma sökning, så SERP:en är gemensam och positionen
 läses ur den per domän. Det är därför 2 500 gratiskrediter räcker till ett
 bestånd som annars hade kostat tusentals.
 
-**Djup 100, inte 10.** Med tio träffar går det bara att säga "vi hittade er
-inte", vilket prospektet med rätta hör som svammel. Med hundra går det att säga
-"plats 47" — ett tal hen kan kontrollera.
+**Djupet hämtas sidvis.** Med tio träffar går det bara att säga "vi hittade er
+inte", vilket prospektet med rätta hör som svammel. Med fem sidor går det att
+säga "plats 47" — ett tal hen kan kontrollera. Hämtningen slutar så fort alla
+bolag i segmentet är hittade eller Google tar slut, så de fem sidorna är ett
+tak och inte en kostnad.
 
 **Uppgifterna:** `seo.rank`, `seo.keyword`, `seo.competitor`, `seo.top3`,
 `seo.rivals`, `gmb.rating`, `gmb.reviewCount`, `gmb.category`,
@@ -49,6 +51,24 @@ förväntas ligga vilande, se Gemini-kvoten nedan. `gmb.category` fyller fältet
 under tiden.
 
 ### Fallgropar som kostade tid
+
+**Serper ignorerar `num`.** Uppmätt mot skarpt API: `num: 100` svarar med tio
+träffar och drar en kredit. Djup får man bara via `page`, en kredit per sida om
+tio — och **positionen börjar om på 1 varje sida**, så absolut placering är
+`(sida-1)*10 + position`. Missas det blir varje bolag på sida två till fyra
+plötsligt topp tio. Det här är samma fälla som gjorde att leadmotorns export
+skrev ">20" på tio kontrollerade träffar; koden hade ärvt den rakt av innan
+mätningen gjordes. `absolutePosition()` har egna tester.
+
+**Lokala sökningar tar slut långt före 100.** "Rörmokare Malmö" har 27
+organiska träffar totalt. Därför skiljer `seo.rank` på två fall: tog Google
+slut säger uppgiften "syns inte alls i sökresultatet" (starkare, och sant),
+annars "utanför topp N" där N är det djup vi **faktiskt** nådde — aldrig taket
+vi siktade på.
+
+**`places` finns inte i `/search`-svaret.** Verifierat: nyckeln saknas helt.
+Maps-rutan kräver `/places`-endpointen. Det är orsaken till att `lokala_paketet`
+var tomt i samtliga rader i leadmotorns export.
 
 **">20" får ALDRIG bli talet 20.** Berikade filer skriver den som hittades som
 "14" och den som inte hittades som ">20" eller ">100". Tolkas förbehållet som
