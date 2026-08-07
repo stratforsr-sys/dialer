@@ -17,6 +17,7 @@ process.env.TURSO_AUTH_TOKEN ||= "test";
 
 import { parseRank, signalsFromImport, hasSeoData } from "../src/lib/enrichment/import-claims.ts";
 import { deriveKeyword, normalizeCompany, hostOf, absolutePosition } from "../src/lib/enrichment/serper.ts";
+import { tradeFromText, cityFromAddress } from "../src/lib/enrichment/trade.ts";
 import { autoGuessMapping } from "../src/lib/csv-parser.ts";
 
 let pass = 0, fail = 0;
@@ -127,6 +128,45 @@ console.log("\nabsolutePosition — sida 2 är inte topp tio");
   check("sida 3 position 7 är plats 27", absolutePosition(3, 7) === 27);
   check("sida 5 position 10 är plats 50", absolutePosition(5, 10) === 50);
   check("första på sida 2 är plats 11", absolutePosition(2, 1) === 11);
+}
+
+console.log("\ntradeFromText — yrkestermen ur bolagsnamnet");
+{
+  const t = (s: string) => tradeFromText(s);
+  check("snickeri", t("Kulladals Snickeri AB") === "snickare");
+  check("bygg", t("A2 Bygg AB") === "byggfirma");
+  check("takservice fastnar inte på service", t("A. Madsens Takservice Aktiebolag") === "takläggare");
+  check("måleri", t("018MÅLERI AB") === "målare");
+  check("elektriska", t("1988 Elektriska AB") === "elektriker");
+  check("VVS", t("AB Vårgårda VVS") === "rörmokare");
+  check("brandtätning", t("AB Svensk Brandtätning") === "brandskyddsföretag");
+  check("redovisning", t("Malmö Redovisningsbyrå AB") === "redovisningsbyrå");
+  check("advokat", t("Advokatfirman Nilsson") === "advokatbyrå");
+  check("tandvård", t("Tandläkarna i Lund AB") === "tandläkare");
+  check("fotvård", t("Lindgårdens Fotvård") === "fotvård");
+  check("städ", t("Nordic Städservice AB") === "städfirma");
+
+  // Det viktigaste testet i filen: ett intetsägande namn får ALDRIG bli en
+  // gissning. Ett sökord byggt på ingenting ger en rankuppgift som ser exakt
+  // lika trovärdig ut som en riktig.
+  check("intetsägande namn ger null", t("+Moveco AB") === null);
+  check("initialer ger null", t("AB Xforto") === null);
+  check("nonsens ger null", t("63 Grader Nord AB") === null);
+  check("tomt ger null", t("") === null);
+  check("odefinierat ger null", t(undefined) === null);
+}
+
+console.log("\ncityFromAddress — orten står i fältet bredvid");
+{
+  const c = cityFromAddress;
+  check("standardformat", c("Messeniusgatan 6, 112 57 Stockholm") === "Stockholm");
+  check("utan mellanslag i postnr", c("Girovägen 13, 17562 Järfälla") === "Järfälla");
+  check("ort med å ä ö", c("Storgatan 1, 211 22 Malmö") === "Malmö");
+  check("tvåordsort", c("Okvistavägen 22, 186 40 Upplands Väsby") === "Upplands Väsby");
+  check("kolon i gatunamnet stör inte", c("S:t Göransgatan 125, 112 19 Stockholm") === "Stockholm");
+  check("utan postnummer ger null", c("Storgatan 1, Malmö") === null);
+  check("bara gata ger null", c("Storgatan 1") === null);
+  check("tomt ger null", c("") === null);
 }
 
 console.log("\nautoGuessMapping — leadmotorns egna kolumnnamn");

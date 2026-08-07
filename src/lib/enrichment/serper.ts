@@ -534,11 +534,23 @@ export async function buildSegments(opts: {
     orderBy: [{ nextActionAt: "asc" }],
   });
 
+  // Yrkestermen slår branschen när den finns. Den kommer från Googles egen
+  // kategori för bolaget (serper-lead.ts) eller ur bolagsnamnet, och är i båda
+  // fallen ett bättre SÖKORD än taxonomietiketten: "snickare malmö" är vad en
+  // kund skriver, "bygg malmö" är vad ett register kallar det.
+  const trades = await db.leadClaim.findMany({
+    where: { key: "seo.trade", leadId: { in: leads.map((l) => l.id) } },
+    select: { leadId: true, valueStr: true },
+  });
+  const tradeById = new Map(trades.map((t) => [t.leadId, t.valueStr]));
+
   const grouped = new Map<string, Segment>();
   let withoutKeyword = 0;
 
   for (const lead of leads) {
-    const keyword = deriveKeyword(lead.industry, lead.city);
+    const keyword =
+      deriveKeyword(tradeById.get(lead.id) ?? null, lead.city) ??
+      deriveKeyword(lead.industry, lead.city);
     if (!keyword) {
       withoutKeyword++;
       continue;
@@ -554,7 +566,7 @@ export async function buildSegments(opts: {
     } else {
       grouped.set(keyword, {
         keyword,
-        industry: lead.industry as string,
+        industry: tradeById.get(lead.id) ?? (lead.industry as string),
         city: lead.city as string,
         leads: [entry],
         freshestAt: null,
