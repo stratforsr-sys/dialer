@@ -240,7 +240,12 @@ async function searchDeep(
   let credits = 0;
   let sawCredits = false;
   let exhausted = false;
-  const pages = maxPages();
+  // Har inget bolag i segmentet en hemsida finns ingen domän att leta efter,
+  // och djupet kan inte ge någon placering åt någon. Då räcker sida ett: den
+  // bär konkurrenten och topplistan, som är segmentgemensamma. Utan den här
+  // raden slår det tidiga stoppet aldrig till och vi betalar fem krediter för
+  // fyra sidor ingen kan använda.
+  const pages = wantedHosts.size === 0 ? 1 : maxPages();
 
   for (let page = 1; page <= pages; page++) {
     const r = await post<{ organic?: OrganicHit[] }>(SEARCH_ENDPOINT, {
