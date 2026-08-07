@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node --experimental-strip-types --no-warnings scripts/test-scheduler.ts && node --experimental-strip-types --no-warnings scripts/test-script-resolver.ts",
+    "test": "node --experimental-strip-types --no-warnings scripts/test-scheduler.ts && node --experimental-strip-types --no-warnings scripts/test-script-resolver.ts && node --import ./scripts/ts-resolve.mjs --experimental-strip-types --no-warnings scripts/test-seo.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

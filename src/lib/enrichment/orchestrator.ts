@@ -2,7 +2,6 @@ import { db } from "@/lib/db";
 import type { Signal, SignalContext, SignalProvider } from "./types";
 import { websiteProvider } from "./website";
 import { pagespeedProvider } from "./pagespeed";
-import { rankProvider } from "./rank";
 
 /**
  * Anrikningen.
@@ -13,15 +12,21 @@ import { rankProvider } from "./rank";
  *   Nivå 1 — PageSpeed. Gratis men långsam (10–30 s per sajt), körs bara på
  *            leads som faktiskt står på tur att ringas.
  *
+ * Rank och Google-profil ligger MEDVETET utanför den här kedjan, i
+ * `serper.ts` med egen route. Providergränssnittet är per lead, och Serper
+ * betalas per sökning som täcker ett helt segment — pressas det in här görs
+ * ett anrop per bolag i stället för ett per bransch och ort, till hundrafalt
+ * priset för samma svar.
+ *
  * Varje uppgift skrivs som en egen rad med egen källa, egen säkerhet och egen
  * tidsstämpel. En provider som fallerar tar aldrig med sig de andra: hellre
  * ett dossier med två påståenden än inget alls.
  */
 
-export const PROVIDERS: SignalProvider[] = [websiteProvider, pagespeedProvider, rankProvider];
+export const PROVIDERS: SignalProvider[] = [websiteProvider, pagespeedProvider];
 
 export const TIER0: SignalProvider[] = [websiteProvider];
-export const TIER1: SignalProvider[] = [pagespeedProvider, rankProvider];
+export const TIER1: SignalProvider[] = [pagespeedProvider];
 
 export interface EnrichResult {
   leadId: string;

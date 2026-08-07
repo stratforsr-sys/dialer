@@ -43,6 +43,19 @@ const SYSTEM_FIELDS = [
   { value: "switchboard",  label: "Växel" },
   { value: "email",        label: "Email" },
   { value: "linkedin",     label: "LinkedIn" },
+  // SEO-kolumnerna. Samma uppgifter som Serper-körningen hämtar, men mappade
+  // ur en fil som redan är berikad — typiskt en export från leadmotorn. De
+  // landar som LeadClaim med source "import" och syns i cockpitens SEO-ruta
+  // exakt som de hämtade, med den skillnaden att källan står utskriven.
+  { value: "seo_rank",       label: "SEO · Google-placering" },
+  { value: "seo_keyword",    label: "SEO · Sökord" },
+  { value: "seo_competitor", label: "SEO · Konkurrent (etta)" },
+  { value: "seo_top3",       label: "SEO · Topp 3 på sökordet" },
+  { value: "seo_rivals",     label: "SEO · Antal konkurrenter" },
+  { value: "seo_services",   label: "SEO · Tjänster" },
+  { value: "gmb_rating",     label: "Google · Betyg" },
+  { value: "gmb_reviews",    label: "Google · Antal recensioner" },
+  { value: "gmb_category",   label: "Google · Kategori" },
 ];
 
 /**
@@ -154,6 +167,19 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
         switchboard: mapped.switchboard || undefined,
         email: mapped.email || undefined,
         linkedin: mapped.linkedin || undefined,
+        // Rank skickas som TEXT, inte som tal. Berikade filer skriver ofta
+        // ">20" eller ">100" för den som inte hittades, och parseNumeric hade
+        // gjort 20 av det — alltså gjort en placering av en icke-placering.
+        // Servern avgör vad som är ett tal och vad som är ett förbehåll.
+        seoRank: mapped.seo_rank || undefined,
+        seoKeyword: mapped.seo_keyword || undefined,
+        seoCompetitor: mapped.seo_competitor || undefined,
+        seoTop3: mapped.seo_top3 || undefined,
+        seoRivals: parseNumeric(mapped.seo_rivals) ?? undefined,
+        seoServices: mapped.seo_services || undefined,
+        gmbRating: parseNumeric(mapped.gmb_rating) ?? undefined,
+        gmbReviews: parseNumeric(mapped.gmb_reviews) ?? undefined,
+        gmbCategory: mapped.gmb_category || undefined,
       };
     }).filter((r) => r.companyName.trim());
   }

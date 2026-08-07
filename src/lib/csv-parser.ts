@@ -134,7 +134,10 @@ export function autoGuessMapping(headers: string[]): FieldMapping {
       mapping[h] = "last_name";
     } else if (hl === "name" || hl === "namn" || hl === "kontaktnamn" || hl === "contact name") {
       mapping[h] = "name";
-    } else if (hl.includes("company") || hl.includes("företag") || hl === "company name" || hl === "bolagsnamn") {
+      // "foretag" utan ö tas med: exporter som skrivits av verktyg utan
+      // teckenstöd stavar så, och bolagsnamnet är ett OBLIGATORISKT fält —
+      // missas det måste hela filen mappas för hand.
+    } else if (hl.includes("company") || hl.includes("företag") || hl.includes("foretag") || hl === "company name" || hl === "bolagsnamn") {
       mapping[h] = "company";
     } else if (hl === "roll" || hl === "title" || hl === "titel" || hl === "befattning" || hl === "position") {
       mapping[h] = "role";
@@ -156,7 +159,10 @@ export function autoGuessMapping(headers: string[]): FieldMapping {
       mapping[h] = "linkedin";
     } else if (
       hl === "stad" || hl === "ort" || hl === "postort" || hl === "city" || hl === "town" ||
-      hl.includes("postort") || hl.includes("besöksort")
+      // Kommunen är den ort leadmotorn grupperar på, och det är samma sak som
+      // orten för allt cockpiten använder den till: manusets {ort} och
+      // sökordet "bransch + ort".
+      hl === "kommun" || hl.includes("postort") || hl.includes("besöksort")
     ) {
       mapping[h] = "city";
     } else if (
@@ -189,6 +195,29 @@ export function autoGuessMapping(headers: string[]): FieldMapping {
       mapping[h] = "revenue";
     } else if ((hl.includes("org") && (hl.includes("num") || hl.includes("nr"))) || hl === "organisationsnummer") {
       mapping[h] = "org_number";
+    }
+    // ── SEO-kolumnerna ──────────────────────────────────────────────────────
+    // Namnen är leadmotorns egna (berikade_leads.csv), plus de engelska
+    // varianter andra exportverktyg använder. Ligger sist så att de aldrig
+    // kapar en kolumn en tidigare regel redan känner igen.
+    else if (hl === "google_position" || hl === "position" || hl === "rank" || hl === "ranking" || hl.includes("google-placering") || hl.includes("placering")) {
+      mapping[h] = "seo_rank";
+    } else if (hl === "sokord" || hl === "sökord" || hl === "keyword" || hl === "query") {
+      mapping[h] = "seo_keyword";
+    } else if (hl === "topp3_pa_sokordet" || hl.includes("topp3") || hl.includes("topp 3")) {
+      mapping[h] = "seo_top3";
+    } else if (hl === "antal_konkurrenter" || hl.includes("konkurrenter")) {
+      mapping[h] = "seo_rivals";
+    } else if (hl === "konkurrent" || hl === "competitor") {
+      mapping[h] = "seo_competitor";
+    } else if (hl === "tjanster" || hl === "tjänster" || hl === "services") {
+      mapping[h] = "seo_services";
+    } else if (hl === "betyg" || hl === "rating" || hl.includes("google-betyg")) {
+      mapping[h] = "gmb_rating";
+    } else if (hl === "recensioner" || hl.includes("recension") || hl === "reviews" || hl === "review_count") {
+      mapping[h] = "gmb_reviews";
+    } else if (hl === "kategori" || hl === "category" || hl.includes("google-kategori")) {
+      mapping[h] = "gmb_category";
     } else {
       mapping[h] = "skip";
     }

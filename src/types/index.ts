@@ -57,6 +57,18 @@ export type SystemFieldKey =
   | "website"
   | "linkedin"
   | "org_number"
+  // SEO-uppgifter ur en redan berikad fil. Lagras som LeadClaim, inte som
+  // kolumner på Lead: de har en källa och en färskhet som måste följa med,
+  // och en placering från i mars är inte samma påstående som en från i går.
+  | "seo_rank"
+  | "seo_keyword"
+  | "seo_competitor"
+  | "seo_top3"
+  | "seo_rivals"
+  | "seo_services"
+  | "gmb_rating"
+  | "gmb_reviews"
+  | "gmb_category"
   | "skip";
 
 export interface FieldMapping {

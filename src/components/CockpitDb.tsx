@@ -7,6 +7,7 @@ import {
   Phone, Globe, Linkedin, ChevronLeft, ChevronRight, ExternalLink, Mail,
   ArrowLeft, SkipForward, Clock, Building2, Zap, X, AlertTriangle, Copy,
   Check, TrendingUp, Loader2, CalendarClock, MapPin, Users, Banknote,
+  Search, Star, Trophy, Tag,
 } from "lucide-react";
 import { startSession, endSession } from "@/app/actions/sessions";
 import { leaseNextLeads, releaseLeases } from "@/app/actions/dialer";
@@ -173,6 +174,167 @@ function PitchPanel({ dossier }: { dossier: LeasedLead["dossier"] }) {
   );
 }
 
+/**
+ * SEO-rutan — hela synlighetsbilden, inte bara det säljbara.
+ *
+ * Skiljer sig från PitchPanel med flit. Den rutan är en pitchmotor: tre
+ * svagheter, filtrerade på säljstyrka, formulerade som repliker. Den här är ett
+ * uppslagsverk säljaren tittar i när prospektet ifrågasätter något — och då
+ * måste även de bra siffrorna finnas där. Ett bolag som ligger tvåa och har
+ * 4,9 i betyg ska synas som just det; att dölja det för att det inte går att
+ * sälja på gör verktyget till en partsinlaga, och säljaren märker det.
+ *
+ * Rutan renderas bara när det finns något att visa. Tomt är ett giltigt
+ * tillstånd — de flesta leads saknar bransch eller ort och får därför aldrig
+ * något sökord att mätas på.
+ */
+function SeoPanel({ dossier }: { dossier: LeasedLead["dossier"] }) {
+  if (!dossier) return null;
+
+  const claims = dossier.claims;
+  const find = (key: string) => claims.find((c) => c.key === key);
+
+  const rank = find("seo.rank");
+  const keyword = find("seo.keyword");
+  const competitor = find("seo.competitor");
+  const rating = find("gmb.rating");
+  const reviews = find("gmb.reviewCount");
+  const category = find("gmb.category");
+  const services = find("seo.services");
+  const rivals = find("seo.rivals");
+  const localLeader = find("gmb.localLeader");
+
+  const anything =
+    rank || keyword || competitor || rating || reviews || category || services;
+  if (!anything) return null;
+
+  // Källan står utskriven. En siffra ur en importfil och en vi hämtat själva
+  // är olika mycket värda i ett samtal, och säljaren ska kunna se vilket det
+  // är utan att fråga.
+  const source = rank?.source ?? keyword?.source ?? "okänd";
+  const stamp = rank?.fetchedAt ?? keyword?.fetchedAt ?? null;
+  const age = stamp ? Math.floor((Date.now() - new Date(stamp).getTime()) / 86_400_000) : null;
+
+  // Google visar tio träffar per sida. Plats 14 är sida 2 — och "sida 2" är
+  // det prospektet begriper, inte talet 14.
+  const position = rank?.valueNum ?? null;
+  const page = position != null ? Math.ceil(position / 10) : null;
+
+  return (
+    <div className="rounded-[14px] p-3.5 mb-3"
+      style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+      <div className="flex items-center justify-between mb-2.5">
+        <div className="flex items-center gap-1.5">
+          <Search size={11} style={{ color: "var(--text-dim)" }} />
+          <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>
+            Synlighet på Google
+          </p>
+        </div>
+        <span className="text-[10px]" style={{ color: "var(--text-dim)" }}>
+          {source === "import" ? "ur importfil" : source}
+          {age !== null && age > 0 && ` · ${age} d`}
+        </span>
+      </div>
+
+      {/* Placeringen. Det enda talet säljaren behöver ha i huvudet. */}
+      {rank && (
+        <div className="flex items-baseline gap-2 mb-2">
+          {position != null ? (
+            <>
+              <span className="text-[26px] font-semibold leading-none"
+                style={{ color: position <= 5 ? "var(--success)" : "var(--warning)", fontFamily: "var(--font-mono)" }}>
+                {position}
+              </span>
+              <span className="text-[12px]" style={{ color: "var(--text-muted)" }}>
+                :a plats{page && page > 1 ? ` — sida ${page}` : " — sida 1"}
+              </span>
+            </>
+          ) : (
+            <span className="text-[14px] font-medium" style={{ color: "var(--warning)" }}>
+              {rank.valueStr}
+            </span>
+          )}
+        </div>
+      )}
+
+      {keyword?.valueStr && (
+        <p className="text-[12px] mb-2.5" style={{ color: "var(--text-muted)" }}>
+          på sökningen <span style={{ color: "var(--text)" }}>”{keyword.valueStr}”</span>
+          {rivals?.valueNum != null && (
+            <span style={{ color: "var(--text-dim)" }}> · {rivals.valueNum} konkurrenter</span>
+          )}
+        </p>
+      )}
+
+      <div className="flex flex-col gap-1.5">
+        {competitor?.valueStr && (
+          <SeoRow icon={<Trophy size={11} style={{ color: "var(--text-dim)" }} />} label="Ligger etta">
+            {competitor.valueStr}
+          </SeoRow>
+        )}
+
+        {/* Betyg och recensioner hör ihop och läses som en enhet. Ett betyg
+            utan antal säger ingenting — 5,0 av en recension är inte 5,0. */}
+        {(rating?.valueNum != null || reviews?.valueNum != null) && (
+          <SeoRow icon={<Star size={11} style={{ color: "var(--text-dim)" }} />} label="Google-profil">
+            {rating?.valueNum != null && (
+              <span style={{ fontFamily: "var(--font-mono)" }}>
+                {rating.valueNum.toLocaleString("sv-SE", { minimumFractionDigits: 1 })}
+              </span>
+            )}
+            {rating?.valueNum != null && reviews?.valueNum != null && " · "}
+            {reviews?.valueNum != null && (
+              <span style={{ color: reviews.valueNum < 5 ? "var(--warning)" : undefined }}>
+                {reviews.valueNum === 0 ? "inga recensioner" : `${reviews.valueNum} recensioner`}
+              </span>
+            )}
+          </SeoRow>
+        )}
+
+        {localLeader?.valueStr && (
+          <SeoRow icon={<MapPin size={11} style={{ color: "var(--text-dim)" }} />} label="Kartrutan">
+            {localLeader.valueStr}
+          </SeoRow>
+        )}
+
+        {category?.valueStr && (
+          <SeoRow icon={<Tag size={11} style={{ color: "var(--text-dim)" }} />} label="Kategori">
+            {category.valueStr}
+          </SeoRow>
+        )}
+
+        {services?.valueStr && (
+          <SeoRow icon={<Zap size={11} style={{ color: "var(--text-dim)" }} />} label="Tjänster">
+            {services.valueStr}
+          </SeoRow>
+        )}
+      </div>
+
+      {rank?.sourceUrl && (
+        <a href={rank.sourceUrl} target="_blank" rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 mt-2.5 text-[11px]"
+          style={{ color: "var(--text-dim)" }}>
+          Se sökningen <ExternalLink size={9} />
+        </a>
+      )}
+    </div>
+  );
+}
+
+function SeoRow({ icon, label, children }: {
+  icon: React.ReactNode; label: string; children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-start gap-2">
+      <span className="mt-[3px] shrink-0">{icon}</span>
+      <p className="text-[12px] leading-snug min-w-0" style={{ color: "var(--text)" }}>
+        <span style={{ color: "var(--text-dim)" }}>{label}: </span>
+        {children}
+      </p>
+    </div>
+  );
+}
+
 /** Formulering per uppgiftstyp. Säljaren ska aldrig läsa en rå nyckel. */
 function claimSentence(c: LeasedLead["dossier"] extends { claims: (infer C)[] } | null ? C : never): string {
   const v = c.valueStr ?? (c.valueNum !== null ? String(c.valueNum) : c.valueBool === false ? "nej" : "ja");
@@ -222,13 +384,25 @@ function claimSentence(c: LeasedLead["dossier"] extends { claims: (infer C)[] } 
     case "pagespeed.mobileScore":
       return `Googles hastighetsbetyg är ${v} av 100`;
 
-    // ── Google-profil och rank (kräver betald data) ─────────────────────
+    // ── Google-profil och rank (Serper) ─────────────────────────────────
     case "gmb.reviewCount":
-      return `${v} recensioner på Google`;
+      return Number(c.valueNum) === 0
+        ? "Inga recensioner alls på Google"
+        : `Bara ${v} recensioner på Google`;
+    case "gmb.rating":
+      return `Betyget på Google är ${v} av 5`;
     case "gmb.newestReview":
       return `Senaste recensionen är från ${v}`;
+    case "gmb.localRank":
+      return `Plats ${v} i kartrutan — utanför de tre som visas`;
     case "seo.rank":
-      return `Plats ${v} på sökningen`;
+      // Talet finns bara när de faktiskt hittades. Saknas det bär valueStr
+      // förbehållet ("utanför topp 100") och det ska läsas ordagrant — att
+      // säga "plats utanför topp 100" är inte svenska, och värre: det låter
+      // som en placering.
+      return c.valueNum != null
+        ? `Ligger på plats ${c.valueNum} — sida ${Math.ceil(Number(c.valueNum) / 10)}`
+        : `Syns inte på sitt eget sökord (${v})`;
     case "seo.keyword":
       return `Sökord: ${v}`;
     case "seo.competitor":
@@ -791,6 +965,7 @@ export function CockpitDb({
               )}
 
               <PitchPanel dossier={lead.dossier} />
+              <SeoPanel dossier={lead.dossier} />
               <ScriptPanel scripts={lead.scripts} />
 
               {/* Kontaktkort */}

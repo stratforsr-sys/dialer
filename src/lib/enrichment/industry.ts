@@ -108,7 +108,8 @@ function extractText(html: string): string {
     .slice(0, 3000);
 }
 
-async function fetchSiteText(website: string): Promise<string | null> {
+/** Exporterad för tjänsteextraktionen i services.ts — samma sajt, samma tak. */
+export async function fetchSiteText(website: string): Promise<string | null> {
   const url = website.startsWith("http") ? website : `https://${website}`;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);

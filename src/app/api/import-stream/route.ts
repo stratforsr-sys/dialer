@@ -5,6 +5,13 @@ import { authOptions } from "@/lib/auth-options";
 import { db } from "@/lib/db";
 import { toE164 } from "@/lib/phone";
 import { resolveIndustry } from "@/lib/sni";
+import {
+  hasSeoData,
+  signalsFromImport,
+  writeImportedClaims,
+  type ImportedSeo,
+} from "@/lib/enrichment/import-claims";
+import type { Signal } from "@/lib/enrichment/types";
 import type { Prisma } from "@/generated/prisma/client";
 
 export const runtime = "nodejs";
@@ -28,7 +35,7 @@ type ImportRow = {
   switchboard?: string;
   email?: string;
   linkedin?: string;
-};
+} & ImportedSeo;
 
 type ContactDraft = {
   name: string;
@@ -58,7 +65,41 @@ type CompanyGroup = {
   employees: number | null;
   revenue: number | null;
   contacts: ContactDraft[];
+  /**
+   * SEO-uppgifterna från filen, obearbetade. Tolkas först vid skrivningen —
+   * flera rader kan höra till samma bolag och den första ifyllda vinner, precis
+   * som för adress och bransch.
+   */
+  seo: ImportedSeo;
 };
+
+/** Plockar ut SEO-fälten ur en rad. Tomma strängar blir undefined. */
+function seoOf(row: ImportRow): ImportedSeo {
+  return {
+    seoRank: clean(row.seoRank) ?? undefined,
+    seoKeyword: clean(row.seoKeyword) ?? undefined,
+    seoCompetitor: clean(row.seoCompetitor) ?? undefined,
+    seoTop3: clean(row.seoTop3) ?? undefined,
+    seoRivals: num(row.seoRivals),
+    seoServices: clean(row.seoServices) ?? undefined,
+    gmbRating: num(row.gmbRating),
+    gmbReviews: num(row.gmbReviews),
+    gmbCategory: clean(row.gmbCategory) ?? undefined,
+  };
+}
+
+/** Senare rader fyller luckor i det bolaget redan fått, aldrig tvärtom. */
+function mergeSeo(into: ImportedSeo, from: ImportedSeo): void {
+  into.seoRank ??= from.seoRank;
+  into.seoKeyword ??= from.seoKeyword;
+  into.seoCompetitor ??= from.seoCompetitor;
+  into.seoTop3 ??= from.seoTop3;
+  into.seoRivals ??= from.seoRivals;
+  into.seoServices ??= from.seoServices;
+  into.gmbRating ??= from.gmbRating;
+  into.gmbReviews ??= from.gmbReviews;
+  into.gmbCategory ??= from.gmbCategory;
+}
 
 const BATCH_SIZE = 500;
 
@@ -140,6 +181,7 @@ function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
         employees: int(row.employees),
         revenue: num(row.revenue),
         contacts: contact ? [contact] : [],
+        seo: seoOf(row),
       });
       continue;
     }
@@ -154,6 +196,7 @@ function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
       existing.industryCode ??= clean(row.industryCode);
       existing.employees ??= int(row.employees);
       existing.revenue ??= num(row.revenue);
+      mergeSeo(existing.seo, seoOf(row));
       if (contact && !hasContact(existing.contacts, contact)) {
         existing.contacts.push(contact);
       }
@@ -169,6 +212,7 @@ function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
         employees: int(row.employees),
         revenue: num(row.revenue),
         contacts: contact ? [contact] : [],
+        seo: seoOf(row),
       });
     }
   }
@@ -230,6 +274,12 @@ export async function POST(req: NextRequest) {
         const total = groups.length;
         let created = 0;
         let updated = 0;
+        // SEO-uppgifter som skrevs, och sådana filen fick stå tillbaka för
+        // eftersom en hämtning redan ägde nyckeln. Båda rapporteras — en
+        // import där filens siffror tyst ignorerades ser annars ut att ha
+        // fungerat.
+        let seoClaims = 0;
+        let seoKept = 0;
         const errors: string[] = [];
 
         enqueue({ total, created: 0, updated: 0, skipped, merged, done: 0 });
@@ -326,6 +376,12 @@ export async function POST(req: NextRequest) {
             if (found) existingGroups.push({ group, lead: found });
             else newGroups.push(group);
           }
+
+          // SEO-uppgifterna samlas för hela batchen och skrivs i EN klump på
+          // slutet. Per lead hade det blivit fyra rundturer mot Turso gånger
+          // femhundra bolag — samma jobb, tvåtusen anrop, och cron-fönstret
+          // slut långt innan filen är genomläst.
+          const seoWrites: { leadId: string; signals: Signal[] }[] = [];
 
           try {
             // ── NYA LEADS ───────────────────────────────────────────────────
@@ -424,6 +480,12 @@ export async function POST(req: NextRequest) {
                     linkedin: c.linkedin,
                   })),
                 });
+              });
+
+              newGroups.forEach((g, idx) => {
+                if (hasSeoData(g.seo)) {
+                  seoWrites.push({ leadId: leadData[idx].id, signals: signalsFromImport(g.seo) });
+                }
               });
 
               created += newGroups.length;
@@ -538,7 +600,19 @@ export async function POST(req: NextRequest) {
               // Fanns redan i dialern — dubbletter, stannar kvar när mappen tas bort.
               await linkToList(existingGroups.map(({ lead }) => lead.id), false);
 
+              for (const { group, lead } of existingGroups) {
+                if (hasSeoData(group.seo)) {
+                  seoWrites.push({ leadId: lead.id, signals: signalsFromImport(group.seo) });
+                }
+              }
+
               updated += existingGroups.length;
+            }
+
+            if (seoWrites.length > 0) {
+              const seoResult = await writeImportedClaims(seoWrites);
+              seoClaims += seoResult.written;
+              seoKept += seoResult.keptExisting;
             }
           } catch (batchErr) {
             // En trasig batch ska inte döda hela importen — logga och fortsätt
@@ -555,6 +629,7 @@ export async function POST(req: NextRequest) {
 
         enqueue({
           complete: true, total, created, updated, skipped, merged, errors,
+          seoClaims, seoKept,
           listId: list.id, listName: list.name,
         });
       } catch (err) {

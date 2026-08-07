@@ -8,6 +8,96 @@ Nyast först.
 
 ---
 
+## 2026-08-07 — SEO-spåret: rank, Google-profil, tjänster
+
+Ingen migration. `LeadClaim` hade redan rätt form med `@@unique([leadId, key])`,
+och `seo.rank` / `gmb.reviewCount` stod redan namngivna i schemats egen
+kommentar — hela spåret ryms i befintliga tabeller. Produktionsdatabasen rörs
+alltså inte, vilket är hela skillnaden mot ett vanligt arbetspass här.
+
+### Vad som byggdes
+
+**Serper ersatte DataForSEO.** `rank.ts` var en tom stub bakom
+`DATAFORSEO_LOGIN`; den är borta. `serper.ts` gör samma jobb men
+segmentbaserat: **ett anrop per bransch+ort, inte per företag.** Alla rörmokare
+i Malmö konkurrerar om samma sökning, så SERP:en är gemensam och positionen
+läses ur den per domän. Det är därför 2 500 gratiskrediter räcker till ett
+bestånd som annars hade kostat tusentals.
+
+**Djup 100, inte 10.** Med tio träffar går det bara att säga "vi hittade er
+inte", vilket prospektet med rätta hör som svammel. Med hundra går det att säga
+"plats 47" — ett tal hen kan kontrollera.
+
+**Uppgifterna:** `seo.rank`, `seo.keyword`, `seo.competitor`, `seo.top3`,
+`seo.rivals`, `gmb.rating`, `gmb.reviewCount`, `gmb.category`,
+`gmb.localRank`, `gmb.localLeader`, `seo.services`.
+
+**Importen** tar emot samma uppgifter ur en redan berikad fil. De landar som
+`LeadClaim` med `source = "import"` och lägre konfidens än en hämtning — filen
+kan vara veckor gammal och vi vet inte hur den togs fram. **Filen fyller luckor,
+den skriver aldrig över en hämtning.**
+
+**Cockpiten** har en ny `SeoPanel` bredvid `PitchPanel`. De gör olika saker med
+flit: PitchPanel är en pitchmotor (tre svagheter, filtrerade på säljstyrka),
+SeoPanel är ett uppslagsverk som visar **även de bra siffrorna**. Ett bolag som
+ligger tvåa och har 4,9 i betyg ska synas som just det — att dölja det för att
+det inte går att sälja på gör verktyget till en partsinlaga, och säljaren
+märker det.
+
+**Tjänsteextraktionen** (`services.ts` + `/api/cron/services`) är byggd men
+förväntas ligga vilande, se Gemini-kvoten nedan. `gmb.category` fyller fältet
+under tiden.
+
+### Fallgropar som kostade tid
+
+**">20" får ALDRIG bli talet 20.** Berikade filer skriver den som hittades som
+"14" och den som inte hittades som ">20" eller ">100". Tolkas förbehållet som
+ett tal påstår cockpiten att bolaget ligger tjugonde när sanningen är att vi
+inte hittade dem alls — och säljaren säger något kontrollerbart fel. `parseRank`
+skiljer dem åt och har egna tester för varje stavning som förekommer i
+verkligheten.
+
+**`writeClaims()` går inte att använda i importen.** Den gör fyra rundturer per
+lead, vilket är rätt för en anrikning på femtio och helt fel för en fil på
+sjutusen: samma jobb blir tjugotusen anrop mot Turso. `import-claims.ts` har en
+bulkväg på sex satser per sats om femhundra bolag.
+
+**Autogissningen kände inte igen `foretag` och `kommun`.** Två stavningar som
+leadmotorns egna exporter använder, och bolagsnamn är ett *obligatoriskt* fält
+— hela filen hade behövt mappas för hand. Fanns sedan tidigare, hittades av de
+nya testerna, lagat.
+
+**`hostOf` byggde på "HTTPS://…" till "https://HTTPS://…".** Schemakontrollen
+var skiftlägeskänslig. Dessutom saknades punktkontrollen som `normalizeUrl` har,
+så "—" blev ett värdnamn som jämfördes mot riktiga domäner.
+
+### Öppna punkter
+
+- [ ] **Ingen SERPER_KEY är satt.** Hela spåret ligger inaktivt tills den finns
+      i Vercel. Gratisnyckel utan kreditkort på serper.dev. Kör alltid
+      torrkörningen först — krediterna är engångs, inte per månad:
+      `GET /api/cron/seo?dry=1` med `CRON_SECRET` som bearer.
+- [ ] **Sökordet kräver bransch OCH ort på leadet.** Saknas någondera finns
+      inget sökord och ingenting hämtas — hellre tomt än "ni syns inte på X"
+      följt av "ingen söker på X". Eftersom branschklassificeringen är
+      kvotblockerad (se nedan) täcker rankspåret idag bara den minoritet som
+      har bransch. Torrkörningen rapporterar `leadsWithoutKeyword`.
+- [ ] **Sökvolym är medvetet bortvald.** Serper säljer inte sökvolym — de
+      levererar SERP-resultat, inte hur många som söker. Vill man ha "så här
+      många söker på tjänsten i deras stad" krävs DataForSEO:s Keywords Data,
+      Google Ads Keyword Planner (kräver konto med aktiv annonsering för exakta
+      tal) eller Keywords Everywhere. Inget fält är reserverat i schemat.
+- [ ] **`/api/cron/seo` ligger utanför `vercel.json`.** Med flit: en anrikning
+      som tömmer ett engångskonto medan ingen tittar är värre än ingen
+      anrikning alls. Routen anropas för hand.
+- [ ] **Gemini-kvoten blockerar även tjänsteextraktionen**, samma nyckel och
+      samma dygnstak som branschklassificeringen. `GEMINI_SERVICES_MODEL` finns
+      för att kunna lägga den på en annan modell och därmed ett annat tak.
+- [ ] **`src/app/actions/import.ts` är död kod.** Inget anropar `importLeads`;
+      all import går via `/api/import-stream`. Den saknar sedan tidigare både
+      hopslagningen per bolag och nu SEO-fälten. Radera eller synka — att ha
+      två importvägar där bara den ena underhålls är en fälla.
+
 ## 2026-08-06 — Import, manus, cockpit, dispositioner, bransch
 
 Commits `a89a462`..`d422dc7`. Migrationer 008–013, alla applicerade mot Turso.
