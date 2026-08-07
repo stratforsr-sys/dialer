@@ -508,10 +508,14 @@ export async function buildSegments(opts: {
   listId?: string | null;
   onlyStale?: boolean;
 }): Promise<{ segments: Segment[]; withoutKeyword: number }> {
+  // Leads UTAN hemsida tas med med flit. De kan inte få en rankposition —
+  // det finns ingen domän att matcha mot — men de kan få betyg, recensioner
+  // och kategori ur Maps-rutan via namnmatchning, och /places-anropet är redan
+  // betalt för segmentet. Att utesluta dem hade kostat noll och gett noll,
+  // samtidigt som det är precis de bolagen samtalet är enklast att öppna med.
   const leads = await db.lead.findMany({
     where: {
       retired: false,
-      website: { not: null },
       ...(opts.listId ? { lists: { some: { listId: opts.listId } } } : {}),
     },
     select: {
@@ -559,7 +563,11 @@ export async function buildSegments(opts: {
     const cutoff = new Date(Date.now() - SERPER_TTL_DAYS * 86_400_000);
     const fresh = await db.leadClaim.findMany({
       where: {
-        key: "seo.rank",
+        // Färskheten mäts på sökordet, inte på placeringen. Ett lead utan
+        // hemsida får aldrig någon seo.rank, och hade mätningen hängt på den
+        // hade de bolagen sett eviga ut och hämtats om vid varje körning —
+        // samma kredit betald om och om igen för ett svar vi redan har.
+        key: "seo.keyword",
         source: "serper",
         fetchedAt: { gt: cutoff },
         leadId: { in: segments.flatMap((s) => s.leads.map((l) => l.id)) },
