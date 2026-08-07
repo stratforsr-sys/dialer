@@ -93,15 +93,44 @@ så "—" blev ett värdnamn som jämfördes mot riktiga domäner.
 
 ### Öppna punkter
 
-- [ ] **Ingen SERPER_KEY är satt.** Hela spåret ligger inaktivt tills den finns
-      i Vercel. Gratisnyckel utan kreditkort på serper.dev. Kör alltid
+- [x] **SERPER_KEY satt i Vercel 2026-08-07** och verifierad mot skarpt API.
+      Cirka 54 av 2 500 krediter förbrukade i valideringen. Kör **alltid**
       torrkörningen först — krediterna är engångs, inte per månad:
       `GET /api/cron/seo?dry=1` med `CRON_SECRET` som bearer.
-- [ ] **Sökordet kräver bransch OCH ort på leadet.** Saknas någondera finns
-      inget sökord och ingenting hämtas — hellre tomt än "ni syns inte på X"
-      följt av "ingen söker på X". Eftersom branschklassificeringen är
-      kvotblockerad (se nedan) täcker rankspåret idag bara den minoritet som
-      har bransch. Torrkörningen rapporterar `leadsWithoutKeyword`.
+- [ ] **Maps-matchningen träffar sällan för bolag utan hemsida.** Av 40 leads
+      i valideringskörningen fick 2 betyg och recensionsantal. Utan domän
+      matchas bolaget på normaliserat namn mot `/places`, och ett litet bolag
+      som inte rankar i segmentets kartrutta finns helt enkelt inte i svaret.
+      Vill man ha recensioner för dem krävs ett `/places`-anrop per bolag
+      (namn + ort som fråga) i stället för per segment — en kredit styck.
+      Filens `recensioner`-kolumn täcker 100 % och är gratis; ta den vägen först.
+- [ ] **Rankspåret når 18 leads av 3 426. Åtgärden är en omimport, inte kod.**
+      Mätt mot produktionen 2026-08-07:
+
+          leads totalt                            3426
+            varav hemsida                         2344
+            varav bransch                          913
+            varav ort                             2817
+            varav bransch + ort  (mätbara)         307
+            varav + hemsida      (RANKBARA)         18
+            hemsida men ingen bransch             2326
+
+      Sökordet är bransch + ort och byggs aldrig på en gissning — hellre tomt
+      än "ni syns inte på X" följt av "ingen söker på X". Flaskhalsen är alltså
+      `industry`, som saknas på 2 326 leads med hemsida därför att
+      klassificeringen är kvotblockerad.
+
+      `berikade_leads.csv` i leadmotorns mapp har **bransch och kommun ifyllt
+      på 100 % av 6 723 rader**, varav 5 828 har hemsida. En omimport med
+      `bransch` → Bransch och `kommun` → Stad/Ort tar rankspåret från 18 till
+      tusentals leads — och tar samtidigt med rank, betyg, recensioner och
+      kategori som `LeadClaim` **utan att kosta en enda kredit**. 2 940 rader
+      har org-nummer och slås ihop med befintliga leads i stället för att
+      dubbleras. Autogissningen känner igen alla kolumnnamnen sedan den här
+      omgången.
+
+      Gör det INNAN nästa Serper-körning. Att betala krediter för 307 leads när
+      6 723 ligger gratis i en fil är fel ordning.
 - [ ] **Sökvolym är medvetet bortvald.** Serper säljer inte sökvolym — de
       levererar SERP-resultat, inte hur många som söker. Vill man ha "så här
       många söker på tjänsten i deras stad" krävs DataForSEO:s Keywords Data,
