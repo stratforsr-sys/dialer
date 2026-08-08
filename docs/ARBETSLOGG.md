@@ -120,6 +120,27 @@ taket. Funktionen dödades mitt i: skrivningarna fanns kvar men svaret försvann
 och det gick inte att se hur långt den kom. `lookupLeads` har nu en tidsspärr
 på 260 sekunder och rapporterar att den stannade själv.
 
+### Import från skal: `scripts/import-enriched.ts`
+
+Gränssnittets import kräver en inloggad admin-session och går inte att köra
+från ett skal. Skriptet återanvänder samma moduler som `/api/import-stream` —
+`toE164`, `resolveIndustry`, `signalsFromImport`, `writeImportedClaims` —
+i stället för att skriva om reglerna. En kopia av importlogiken hade blivit
+den tredje importvägen, och det är precis fällan den här loggen varnar för.
+
+**Skriptet SKAPAR bara, det slår aldrig ihop.** Det stannar med felkod om något
+org-nummer redan finns. Filen måste därför filtreras först: importen
+deduplicerar på org-nummer och 44 % av raderna saknar sådant, så en ofiltrerad
+fil ger dubbletter av allt som bara matchar på namn.
+
+**Kontakterna heter numera bolaget, inte "Mobil".** Den tidigare importen
+pekade "Kontaktnamn" på `nummertyp`-kolumnen, så samtliga kontakter i databasen
+heter "Mobil" eller "Fast". Skriptet sätter bolagsnamnet som kontaktnamn och
+nummertypen som roll — samma information, läsbar på skärmen. Mobilnummer läggs
+på `directPhone`, fasta nummer på `switchboard`, eftersom ett fast nummer i
+praktiken är en växel. De gamla kontakterna är orörda; vill man rätta dem
+behövs en egen backfill.
+
 ### Bieffekt: importfilen kan bli mycket tunnare
 
 Med uppslag per bolag räcker **bolagsnamn + telefonnummer** i filen. Adress,
