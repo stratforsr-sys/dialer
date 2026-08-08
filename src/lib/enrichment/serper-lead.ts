@@ -241,9 +241,25 @@ export async function lookupLeads(opts: {
   let reported = 0;
   let sawReported = false;
 
+  /**
+   * Tidsspärr.
+   *
+   * Uppslagen görs ett i taget mot ett främmande API och tar drygt en sekund
+   * styck. Vercels tak är 300 sekunder, och en körning som slår i det blir
+   * dödad mitt i: skrivningarna som hunnits med finns kvar, men svaret
+   * försvinner och anroparen får ingen aning om hur långt det gick. Att stanna
+   * själv med 40 sekunders marginal ger i stället en rapport att fortsätta
+   * från — och jobbet är idempotent, så nästa anrop tar vid där det slutade.
+   */
+  const deadline = Date.now() + 260_000;
+
   for (const lead of leads) {
     if (run.creditsSpent + CREDITS_PER_LOOKUP > budget) {
       run.stoppedBecause = `kreditspärren nådd (${budget})`;
+      break;
+    }
+    if (Date.now() > deadline) {
+      run.stoppedBecause = "tidsspärren nådd — kör igen för resten";
       break;
     }
 
