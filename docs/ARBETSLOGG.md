@@ -8,6 +8,32 @@ Nyast först.
 
 ---
 
+## 2026-08-08 — Läget efter importen
+
+    leads totalt                          9 094   (var 3 426)
+      med hemsida                         8 066
+      med ort                             9 086
+      med bransch                         6 599
+      RANKBARA                            7 018   (var 18)
+      utan kontakt, alltså oringbara          0
+
+    seo.rank                              5 711
+      varav faktisk placering               854
+      varav syns inte på sitt sökord      4 857   ← de säljbara
+    gmb.reviewCount                       5 878
+    gmb.category                          5 760
+    gmb.rating                            5 176
+
+5 668 bolag importerade ur `berikade_leads_ENDAST_NYA.csv` med
+`scripts/import-enriched.ts`, 38 708 SEO-uppgifter, noll krediter, noll
+krockar med befintliga leads.
+
+Rankmätningen på ringlista `b50c921f` är påbörjad men INTE klar: 39 av 376
+segment, mätt till 2,7 krediter per segment. Resten kostar ~910 krediter.
+Ungefär 1 500 av 2 500 gratiskrediter förbrukade, varav 445 på kvittobuggen.
+
+---
+
 ## 2026-08-07 (senare) — Rank på hela beståndet
 
 ### Rättelse till anteckningen nedan
