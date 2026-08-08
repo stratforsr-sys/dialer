@@ -179,13 +179,15 @@ function signalsFromPlace(place: PlaceHit, confidence: number): Signal[] {
 /**
  * Slår upp bolag ett i taget.
  *
- * Kön är leads utan färsk kategori. Leads som redan har en rörs inte, så
- * jobbet är idempotent och kan köras om utan att betala för samma svar igen.
+ * Kön är leads vi inte FRÅGAT om än — inte leads utan kategori. Skillnaden är
+ * hela skillnaden: ett bolag som inte finns hos Google får aldrig en kategori,
+ * och en kö byggd på kategorin hade därför frågat om det varje gång, för
+ * evigt. Med kvittot är jobbet idempotent på riktigt.
  */
 export async function lookupLeads(opts: {
   listId?: string | null;
   limit?: number | null;
-  /** Kör om även dem som redan har en kategori. */
+  /** Slå upp även dem vi redan frågat om. */
   redo?: boolean;
 }): Promise<LeadLookupRun> {
   const run: LeadLookupRun = {
@@ -212,17 +214,20 @@ export async function lookupLeads(opts: {
     where: {
       retired: false,
       ...(opts.listId ? { lists: { some: { listId: opts.listId } } } : {}),
+      // Kön står på KVITTOT, inte på kategorin. Se kommentaren vid `receipt`
+      // nedan: bygger man den på kategorin blir varje bolag utan Google-profil
+      // en evig post som betalas om vid varje körning.
       ...(opts.redo
         ? {}
         : {
             OR: [
               { dossier: null },
-              { dossier: { is: { claims: { none: { key: "gmb.category" } } } } },
+              { dossier: { is: { claims: { none: { key: "gmb.lookup" } } } } },
               {
                 dossier: {
                   is: {
                     claims: {
-                      some: { key: "gmb.category", fetchedAt: { lte: cutoff } },
+                      some: { key: "gmb.lookup", fetchedAt: { lte: cutoff } },
                     },
                   },
                 },
@@ -305,33 +310,52 @@ export async function lookupLeads(opts: {
     }
 
     const picked = pickPlace(hits, lead.companyName, lead.website);
+
+    /**
+     * Kvittot. Skrivs OAVSETT utfall, och det är hela poängen.
+     *
+     * Kön byggde tidigare på frånvaron av `gmb.category`. Ett bolag som inte
+     * finns hos Google får aldrig någon kategori, låg därför kvar i kön för
+     * alltid och slogs upp på nytt vid varje körning — samma misslyckande
+     * betalt om och om igen. Mätt i skarp drift: tre körningar à 150 uppslag
+     * flyttade kön fem steg och brände 445 krediter.
+     *
+     * Med kvittot vet vi att vi HAR frågat, och svaret "finns inte hos Google"
+     * är ett lika giltigt resultat som en kategori.
+     */
+    const receipt: Signal = {
+      key: "gmb.lookup",
+      valueBool: picked !== null,
+      confidence: 90,
+      strength: 1,
+      source: "serper",
+    };
+
     if (!picked) {
       run.unmatched++;
       // Ingen Google-profil betyder inte att bolaget saknar bransch. Faller
       // tillbaka på namnet — gratis, och bättre än ingenting alls.
       const fallback = tradeFromText(lead.companyName);
+      const signals: Signal[] = [receipt];
       if (fallback) {
-        await writeClaims(lead.id, [
-          {
-            key: "seo.trade",
-            valueStr: fallback,
-            // Lägre än Googles egen kategori, med flit. Härlett ur ett namn
-            // är en svagare uppgift och ska se ut som en.
-            confidence: 60,
-            strength: 1,
-            source: "name",
-          },
-        ]);
-        run.claimsWritten++;
+        signals.push({
+          key: "seo.trade",
+          valueStr: fallback,
+          // Lägre än Googles egen kategori, med flit. Härlett ur ett namn
+          // är en svagare uppgift och ska se ut som en.
+          confidence: 60,
+          strength: 1,
+          source: "name",
+        });
       }
+      await writeClaims(lead.id, signals);
+      run.claimsWritten += signals.length;
       continue;
     }
 
-    const signals = signalsFromPlace(picked.place, picked.confidence);
-    if (signals.length > 0) {
-      await writeClaims(lead.id, signals);
-      run.claimsWritten += signals.length;
-    }
+    const signals = [...signalsFromPlace(picked.place, picked.confidence), receipt];
+    await writeClaims(lead.id, signals);
+    run.claimsWritten += signals.length;
     run.matched++;
 
     // Fyll TOMMA fält på själva leadet. Aldrig skriva över: det som står i
@@ -365,30 +389,33 @@ export async function lookupDryRun(opts: {
   estimatedCredits: number;
   budget: number;
   withinBudget: number;
-  alreadyHaveCategory: number;
+  alreadyLookedUp: number;
   freeFromName: number;
 }> {
   const cutoff = new Date(Date.now() - SERPER_TTL_DAYS * 86_400_000);
 
-  const [total, withCategory] = await Promise.all([
+  const [total, alreadyLooked] = await Promise.all([
     db.lead.count({
       where: {
         retired: false,
         ...(opts.listId ? { lists: { some: { listId: opts.listId } } } : {}),
       },
     }),
+    // Räknar dem vi HAR frågat om, träff eller ej. Räknas bara träffarna ser
+    // kön ut att vara kvar och torrkörningen lovar en kostnad som redan är
+    // betald.
     db.lead.count({
       where: {
         retired: false,
         ...(opts.listId ? { lists: { some: { listId: opts.listId } } } : {}),
         dossier: {
-          is: { claims: { some: { key: "gmb.category", fetchedAt: { gt: cutoff } } } },
+          is: { claims: { some: { key: "gmb.lookup", fetchedAt: { gt: cutoff } } } },
         },
       },
     }),
   ]);
 
-  const queued = opts.redo ? total : total - withCategory;
+  const queued = opts.redo ? total : total - alreadyLooked;
   const capped = opts.limit ? Math.min(queued, opts.limit) : queued;
   const budget = creditBudget();
 
@@ -410,7 +437,7 @@ export async function lookupDryRun(opts: {
     estimatedCredits: capped * CREDITS_PER_LOOKUP,
     budget,
     withinBudget: Math.min(capped, Math.floor(budget / CREDITS_PER_LOOKUP)),
-    alreadyHaveCategory: withCategory,
+    alreadyLookedUp: alreadyLooked,
     freeFromName,
   };
 }
