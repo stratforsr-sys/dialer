@@ -88,6 +88,31 @@ Regeln generellt: **en anrikningskö ska stå på "har vi frågat?", aldrig på
 `seo.services`). Där är den gratis eftersom Gemini inte kostar per anrop på
 gratisnivån — men blir den betald måste båda byggas om på samma sätt.
 
+### Antagandet att Googles kategorier skulle täta segmenten var FEL
+
+Gissningen var att `gmb.category` är mer standardiserad än ordlistans termer
+och därför skulle ge färre och större segment. Mätt efter att alla 562 leads på
+ringlistan slagits upp:
+
+    376 segment för 391 leads  =  1,04 leads per sökning
+
+Kategorierna splittrar i stället för att täta, och orsaken är inte kategorierna
+utan **orten**. Beståndet ligger i småorter — Limhamn, Rimbo, Svedala — där en
+ort ofta har ett enda bolag i sin kategori. Segmentdelningen bär bara frukt när
+många bolag delar både yrke och ort, alltså i storstäderna.
+
+Slutsats: för det här beståndet är segmentspåret ungefär lika dyrt som ett
+uppslag per bolag. Det är inte ett fel i koden utan en egenskap hos datan, och
+den ska man känna till innan man budgeterar.
+
+### Segmentet ska inte betala för Maps-rutan två gånger
+
+`runSerper` anropade `/places` per segment även när varje bolag i segmentet
+redan slagits upp enskilt. Den datan är då redan hämtad — och hämtad med bättre
+träffsäkerhet, eftersom uppslaget gällde just det bolaget i stället för
+segmentets topplista. 376 krediter på ringlistan som inte behövde spenderas.
+Hoppas nu över när alla i segmentet har ett `gmb.lookup`-kvitto.
+
 ### Vercels 300-sekundersgräns dödade körningarna tyst
 
 Uppslagen görs ett i taget och tar drygt en sekund styck, så `limit=300` slog i
