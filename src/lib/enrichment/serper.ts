@@ -305,6 +305,13 @@ type SegmentLead = {
   id: string;
   companyName: string;
   website: string | null;
+  /**
+   * True när bolaget redan slagits upp enskilt hos Google. Styr om segmentet
+   * behöver betala för /places: har alla i segmentet ett kvitto finns betyg,
+   * recensioner och kategori redan, hämtade med bättre träffsäkerhet än en
+   * segmentsökning kan ge.
+   */
+  hasGmbLookup: boolean;
 };
 
 /**
@@ -544,6 +551,17 @@ export async function buildSegments(opts: {
   });
   const tradeById = new Map(trades.map((t) => [t.leadId, t.valueStr]));
 
+  // Vilka som redan slagits upp enskilt. Styr om segmentet behöver betala för
+  // Maps-rutan eller om den datan redan finns, hämtad med bättre precision.
+  const lookedUp = new Set(
+    (
+      await db.leadClaim.findMany({
+        where: { key: "gmb.lookup", leadId: { in: leads.map((l) => l.id) } },
+        select: { leadId: true },
+      })
+    ).map((c) => c.leadId)
+  );
+
   const grouped = new Map<string, Segment>();
   let withoutKeyword = 0;
 
@@ -560,6 +578,7 @@ export async function buildSegments(opts: {
       id: lead.id,
       companyName: lead.companyName,
       website: lead.website,
+      hasGmbLookup: lookedUp.has(lead.id),
     };
     if (existing) {
       existing.leads.push(entry);
@@ -706,11 +725,19 @@ export async function runSerper(opts: {
       const wanted = new Set(
         segment.leads.map((l) => hostOf(l.website)).filter((h): h is string => h !== null)
       );
+      // Maps-rutan hämtas BARA när segmentet behöver den.
+      //
+      // Har varje bolag i segmentet redan ett kvitto från uppslaget per bolag
+      // (serper-lead.ts) är betyg, recensioner och kategori redan hämtade —
+      // och hämtade med bättre träffsäkerhet, eftersom den sökningen gällde
+      // just det bolaget i stället för segmentets topplista. Att anropa
+      // /places igen ger då ingenting alls och kostar en kredit per segment.
+      const needPlaces = segment.leads.some((l) => !l.hasGmbLookup);
       const [s, p] = await Promise.all([
         searchDeep(segment.keyword, wanted),
-        places(segment.keyword),
+        needPlaces ? places(segment.keyword) : Promise.resolve(null),
       ]);
-      run.creditsEstimated += estimatedCreditsPerSegment();
+      run.creditsEstimated += maxPages() + (needPlaces ? ESTIMATED_CREDITS_PER_PLACES : 0);
       if (s?.credits != null) {
         reported += s.credits;
         sawReported = true;
