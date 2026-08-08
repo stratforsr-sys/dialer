@@ -60,6 +60,41 @@ alltså 1,6 leads per sökning. Ordlistans termer är finkorniga och orterna
 många. Görs uppslaget per bolag först blir segmenten färre och större, eftersom
 Googles kategorier är mer standardiserade än ordlistans.
 
+### Fallgrop som kostade 445 krediter
+
+**En kö byggd på ett LYCKAT utfall betalar för misslyckanden i evighet.**
+
+`lookupLeads` valde leads som saknade `gmb.category`. Ett bolag som inte finns
+hos Google får aldrig någon kategori — det låg alltså kvar i kön efter att ha
+slagits upp, och slogs upp igen vid nästa körning. Och nästa.
+
+Mätt i skarp drift innan fixen:
+
+    tre körningar à 150 uppslag
+    kön flyttade sig 262 → 257
+    445 krediter för 5 nya svar
+
+Symptomet var att träffkvoten "kollapsade" från 85 % till 3 % mellan körning
+ett och två. Den kollapsade inte — körning två och tre frågade om exakt samma
+bolag som redan misslyckats.
+
+Nu skrivs `gmb.lookup` (bool) **oavsett utfall**, och kön står på den. "Finns
+inte hos Google" är ett lika giltigt resultat som en kategori och ska kosta
+lika mycket att ta reda på: en gång.
+
+Regeln generellt: **en anrikningskö ska stå på "har vi frågat?", aldrig på
+"fick vi svar?"** Samma fälla finns i `/api/cron/industry` (kön är
+`industry: null`) och i `/api/cron/services` (kön är avsaknad av
+`seo.services`). Där är den gratis eftersom Gemini inte kostar per anrop på
+gratisnivån — men blir den betald måste båda byggas om på samma sätt.
+
+### Vercels 300-sekundersgräns dödade körningarna tyst
+
+Uppslagen görs ett i taget och tar drygt en sekund styck, så `limit=300` slog i
+taket. Funktionen dödades mitt i: skrivningarna fanns kvar men svaret försvann,
+och det gick inte att se hur långt den kom. `lookupLeads` har nu en tidsspärr
+på 260 sekunder och rapporterar att den stannade själv.
+
 ### Bieffekt: importfilen kan bli mycket tunnare
 
 Med uppslag per bolag räcker **bolagsnamn + telefonnummer** i filen. Adress,
