@@ -55,7 +55,7 @@ export function ShareListModal({
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
-        className="w-full max-w-md mx-4 rounded-[20px] overflow-hidden"
+        className="w-full max-w-md mx-4 rounded-lg overflow-hidden"
         style={{ background: "var(--surface)", border: "1px solid var(--border-strong)" }}
       >
         <div
@@ -63,7 +63,7 @@ export function ShareListModal({
           style={{ borderBottom: "1px solid var(--border)" }}
         >
           <div
-            className="w-8 h-8 rounded-[10px] flex items-center justify-center"
+            className="w-8 h-8 rounded-md flex items-center justify-center"
             style={{ background: "var(--accent-muted)", color: "var(--accent)" }}
           >
             <Users size={14} />
@@ -93,11 +93,11 @@ export function ShareListModal({
                 <button
                   key={u.id}
                   onClick={() => toggle(u.id)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[11px] transition-colors text-left"
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors text-left"
                   style={{ background: on ? "var(--accent-muted)" : "transparent" }}
                 >
                   <div
-                    className="w-5 h-5 rounded-[6px] flex items-center justify-center shrink-0"
+                    className="w-5 h-5 rounded-sm flex items-center justify-center shrink-0"
                     style={{
                       background: on ? "var(--accent)" : "var(--surface-inset)",
                       border: `1px solid ${on ? "var(--accent)" : "var(--border-strong)"}`,
@@ -143,7 +143,7 @@ export function ShareListModal({
           <div className="flex items-center gap-2">
             <button
               onClick={onClose}
-              className="px-4 py-2 rounded-[10px] text-[13px] font-medium"
+              className="px-4 py-2 rounded-md text-[13px] font-medium"
               style={{ color: "var(--text-secondary)" }}
             >
               Avbryt
@@ -151,8 +151,8 @@ export function ShareListModal({
             <button
               onClick={save}
               disabled={isPending}
-              className="px-4 py-2 rounded-[10px] text-[13px] font-semibold"
-              style={{ background: "var(--accent)", color: "var(--bg)", opacity: isPending ? 0.6 : 1 }}
+              className="px-4 py-2 rounded-md text-[13px] font-semibold"
+              style={{ background: "var(--accent)", color: "var(--on-accent)", opacity: isPending ? 0.6 : 1 }}
             >
               {isPending ? "Sparar…" : "Spara"}
             </button>

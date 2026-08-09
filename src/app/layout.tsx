@@ -1,21 +1,23 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Instrument_Serif, Space_Grotesk, JetBrains_Mono } from "next/font/google";
+import { Inter, Space_Grotesk, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { SessionProvider } from "@/components/SessionProvider";
 
-const serif = Instrument_Serif({
-  weight: ["400"],
-  style: ["normal", "italic"],
+// Inter bär gränssnittet. Space Grotesk är gjord för rubriker och stora
+// tal — i 13px tabellceller blir den bred och svårläst, och det är där
+// säljaren tillbringar dagen. Instrument Serif är borta: en serif-rubrik
+// signalerar redaktionellt, inte operativt instrument.
+const sans = Inter({
   subsets: ["latin"],
-  variable: "--font-serif",
+  variable: "--font-sans",
   display: "swap",
 });
 
-const sans = Space_Grotesk({
+const display = Space_Grotesk({
   subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
-  variable: "--font-sans",
+  weight: ["500", "600", "700"],
+  variable: "--font-display",
   display: "swap",
 });
 
@@ -35,7 +37,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="sv"
-      className={`light ${serif.variable} ${sans.variable} ${mono.variable}`}
+      className={`light ${sans.variable} ${display.variable} ${mono.variable}`}
       data-theme="light"
       suppressHydrationWarning
     >

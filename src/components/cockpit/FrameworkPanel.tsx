@@ -26,7 +26,7 @@ export function FrameworkGuide({ activeStep }: { activeStep?: FrameworkStep | nu
         return (
           <div
             key={step.value}
-            className="flex items-center gap-2 px-2 py-[5px] rounded-[7px] transition-colors"
+            className="flex items-center gap-2 px-2 py-[5px] rounded-sm transition-colors"
             style={{
               background: active ? "var(--accent-muted)" : "transparent",
               border: `1px solid ${active ? "var(--border-strong)" : "transparent"}`,
@@ -90,7 +90,7 @@ export function FrameworkTap({
 }) {
   return (
     <div
-      className="rounded-[14px] p-4"
+      className="rounded-lg p-4"
       style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}
     >
       <p
@@ -105,7 +105,7 @@ export function FrameworkTap({
           <button
             key={s.value}
             onClick={() => onStep(s.value)}
-            className="px-2 py-[7px] text-[11px] font-medium rounded-[8px] transition-all"
+            className="px-2 py-[7px] text-[11px] font-medium rounded-md transition-all"
             style={{
               background: endedAtStep === s.value ? "var(--accent)" : "var(--surface)",
               color: endedAtStep === s.value ? "var(--bg)" : "var(--text-muted)",
@@ -126,7 +126,7 @@ export function FrameworkTap({
             <button
               key={n}
               onClick={() => onCloseAttempts(n)}
-              className="w-7 h-7 text-[12px] font-bold rounded-[7px] transition-all"
+              className="w-7 h-7 text-[12px] font-bold rounded-sm transition-all"
               style={{
                 background: closeAttempts === n ? "var(--accent)" : "var(--surface)",
                 color: closeAttempts === n ? "var(--bg)" : "var(--text-muted)",
@@ -152,7 +152,7 @@ export function FrameworkTap({
             <button
               key={o.tag}
               onClick={() => onToggleObjection(o.tag)}
-              className="flex items-center gap-1 px-2 py-1 text-[11px] rounded-[7px] transition-all"
+              className="flex items-center gap-1 px-2 py-1 text-[11px] rounded-sm transition-all"
               style={{
                 background: on ? "var(--accent)" : "var(--surface)",
                 color: on ? "var(--bg)" : "var(--text-muted)",
@@ -169,14 +169,14 @@ export function FrameworkTap({
       <div className="flex items-center gap-2">
         <button
           onClick={onSubmit}
-          className="flex-1 px-3 py-2 text-[12px] font-semibold rounded-[10px]"
-          style={{ background: "var(--accent)", color: "var(--bg)" }}
+          className="flex-1 px-3 py-2 text-[12px] font-semibold rounded-md"
+          style={{ background: "var(--accent)", color: "var(--on-accent)" }}
         >
           Spara (Enter)
         </button>
         <button
           onClick={onSkip}
-          className="px-3 py-2 text-[12px] rounded-[10px]"
+          className="px-3 py-2 text-[12px] rounded-md"
           style={{
             color: "var(--text-dim)",
             background: "var(--surface)",

@@ -131,7 +131,7 @@ export function CreateDealModal({ leadId, companyName, stages, defaultStageId, o
   const inputStyle = {
     background: "var(--surface-inset)",
     border: "1px solid var(--border-strong)",
-    borderRadius: "10px",
+    borderRadius: "var(--r-md)",
     padding: "9px 12px",
     color: "var(--text)",
     fontSize: "13px",
@@ -162,8 +162,8 @@ export function CreateDealModal({ leadId, companyName, stages, defaultStageId, o
           style={{
             background: "var(--surface)",
             border: "1px solid var(--border-strong)",
-            borderRadius: "20px",
-            boxShadow: "var(--shadow-xl)",
+            borderRadius: "var(--r-lg)",
+            boxShadow: "var(--shadow-3)",
             maxHeight: "90vh",
             overflowY: "auto",
           }}
@@ -174,12 +174,12 @@ export function CreateDealModal({ leadId, companyName, stages, defaultStageId, o
             style={{ background: "var(--surface)", borderColor: "var(--border)" }}
           >
             <div>
-              <h2 className="text-[16px] font-semibold" style={{ fontFamily: "var(--font-serif)", color: "var(--text)" }}>
+              <h2 className="text-[16px] font-semibold" style={{ fontFamily: "var(--font-display)", color: "var(--text)" }}>
                 Skapa deal
               </h2>
               <p className="text-[12px] mt-[1px]" style={{ color: "var(--text-muted)" }}>{companyName}</p>
             </div>
-            <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-[7px]"
+            <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-sm"
               style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
               <X size={13} style={{ color: "var(--text-muted)" }} />
             </button>
@@ -227,7 +227,7 @@ export function CreateDealModal({ leadId, companyName, stages, defaultStageId, o
               <div className="flex gap-2">
                 {/* Toggle */}
                 <div
-                  className="flex rounded-[9px] overflow-hidden border shrink-0"
+                  className="flex rounded-md overflow-hidden border shrink-0"
                   style={{ borderColor: "var(--border-strong)" }}
                 >
                   {(["ONE_TIME", "ARR"] as const).map((type) => (
@@ -303,7 +303,7 @@ export function CreateDealModal({ leadId, companyName, stages, defaultStageId, o
               {lineItems.length > 0 && (
                 <div className="space-y-2 mb-2">
                   {lineItems.map((item) => (
-                    <div key={item.key} className="flex items-center gap-2 p-2.5 rounded-[10px]"
+                    <div key={item.key} className="flex items-center gap-2 p-2.5 rounded-md"
                       style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
                       <Package size={12} style={{ color: "var(--text-dim)", flexShrink: 0 }} />
                       <input
@@ -342,7 +342,7 @@ export function CreateDealModal({ leadId, companyName, stages, defaultStageId, o
                     initial={{ opacity: 0, y: -4 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -4 }}
-                    className="rounded-[12px] border overflow-hidden"
+                    className="rounded-lg border overflow-hidden"
                     style={{ borderColor: "var(--border-strong)" }}
                   >
                     {products.length > 0 && (
@@ -386,8 +386,8 @@ export function CreateDealModal({ leadId, companyName, stages, defaultStageId, o
                         style={{ ...inputStyle, padding: "7px 10px", fontSize: "12px" }}
                       />
                       <button type="button" onClick={addFreeText}
-                        className="px-3 py-1.5 text-[12px] font-medium rounded-[8px] shrink-0"
-                        style={{ background: "var(--accent)", color: "var(--bg)" }}>
+                        className="px-3 py-1.5 text-[12px] font-medium rounded-md shrink-0"
+                        style={{ background: "var(--accent)", color: "var(--on-accent)" }}>
                         Lägg till
                       </button>
                     </div>
@@ -396,7 +396,7 @@ export function CreateDealModal({ leadId, companyName, stages, defaultStageId, o
                   <button
                     type="button"
                     onClick={() => setShowProductPicker(true)}
-                    className="flex items-center gap-1.5 text-[12px] px-3 py-2 rounded-[9px] transition-colors w-full"
+                    className="flex items-center gap-1.5 text-[12px] px-3 py-2 rounded-md transition-colors w-full"
                     style={{ background: "var(--surface-inset)", border: "1px dashed var(--border-strong)", color: "var(--text-muted)" }}
                   >
                     <Plus size={12} />
@@ -430,13 +430,13 @@ export function CreateDealModal({ leadId, companyName, stages, defaultStageId, o
               </div>
               <div className="flex gap-2">
                 <button type="button" onClick={onClose}
-                  className="px-4 py-2 text-[13px] font-medium rounded-[10px]"
+                  className="px-4 py-2 text-[13px] font-medium rounded-md"
                   style={{ background: "var(--surface-inset)", border: "1px solid var(--border-strong)", color: "var(--text-muted)" }}>
                   Avbryt
                 </button>
                 <button type="submit" disabled={isPending || !title.trim() || !stageId}
-                  className="px-5 py-2 text-[13px] font-semibold rounded-[10px] transition-opacity"
-                  style={{ background: "var(--accent)", color: "var(--bg)", opacity: isPending ? 0.6 : 1 }}>
+                  className="px-5 py-2 text-[13px] font-semibold rounded-md transition-opacity"
+                  style={{ background: "var(--accent)", color: "var(--on-accent)", opacity: isPending ? 0.6 : 1 }}>
                   {isPending ? "Skapar..." : "Skapa deal"}
                 </button>
               </div>

@@ -2,205 +2,285 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ============================================
-   CSS CUSTOM PROPERTIES — LIGHT THEME (DEFAULT)
-   Engineering-grade monochrome palette
-   ============================================ */
+/* ============================================================
+   DESIGN SYSTEM — SALES HUB
+   ------------------------------------------------------------
+   Tre regler bär hela filen:
+
+   1. LAGER SEPARERAS MED YTA OCH LINJE, INTE MED SKUGGA.
+      Botten (--bg) är mätbart mörkare än ytan (--surface).
+      Hairline-border gör resten. En skugga som ligger på allt
+      lyfter ingenting.
+
+   2. SKUGGA ÄR EN RELATION, INTE DEKORATION.
+      Nivå 0 = ligger i planet (kort, paneler, rader, tabs).
+      Nivå 1 = knappt lyft (primärknapp, aktiv rad).
+      Nivå 2 = svävar (dropdown, popover, tooltip).
+      Nivå 3 = ovanpå allt (modal, side sheet).
+      Nivå 4 = i handen (drag, toast).
+      Höj aldrig ett element ett steg bara för att det ska synas.
+      Byt yta eller border i stället.
+
+   3. ACCENTEN ÄR EN FICKLAMPA.
+      Primär åtgärd, aktivt läge, fokusring. Aldrig som yta,
+      aldrig som dekoration. Ett grönt fält per vy är taket.
+   ============================================================ */
+
 :root,
 :root.light,
 [data-theme="light"] {
-  /* Backgrounds */
-  --bg:             #F8F8F7;
-  --bg-subtle:      #F2F1EF;
-  --bg-muted:       #E8E7E4;
-  --surface:        #FFFFFF;
-  --surface-hover:  #FAFAF9;
+  /* --- Lager -------------------------------------------------
+     ~4% luminanssteg mellan botten och yta. Tidigare var det
+     ~2% vilket ögat läser som en enda platt yta. */
+  --bg:               #F1F3F6;
+  --bg-subtle:        #E9ECF1;
+  --bg-muted:         #DFE3EA;
+  --surface:          #FFFFFF;
+  --surface-hover:    #F7F8FA;
   --surface-elevated: #FFFFFF;
-  --surface-inset:  #F2F1EF;
+  --surface-inset:    #EDEFF3;
 
-  /* Borders */
-  --border:         rgba(0, 0, 0, 0.07);
-  --border-subtle:  rgba(0, 0, 0, 0.04);
-  --border-strong:  rgba(0, 0, 0, 0.11);
-  --border-focus:   rgba(0, 0, 0, 0.20);
+  /* --- Linjer — kalltonade, samma familj som skuggorna ------ */
+  --border:        rgba(16, 24, 40, 0.09);
+  --border-subtle: rgba(16, 24, 40, 0.055);
+  --border-strong: rgba(16, 24, 40, 0.14);
+  --border-focus:  rgba(16, 24, 40, 0.24);
 
-  /* Text — warm zinc */
-  --text:           #1A1A18;
-  --text-secondary: #3D3D3A;
-  --text-muted:     #706F6C;
-  --text-dim:       #A8A6A2;
-  --text-faint:     #D4D2CE;
+  /* --- Text — kall grå. Varm zink mot kalla skuggor gav
+         den smutsiga tonen som lästes som "grått". ---------- */
+  --text:           #101828;
+  --text-secondary: #344054;
+  --text-muted:     #667085;
+  --text-dim:       #98A2B3;
+  --text-faint:     #CBD2DC;
 
-  /* Accent — true black (engineering, no color) */
-  --accent:         #1A1A18;
-  --accent-muted:   rgba(26, 26, 24, 0.06);
-  --accent-hover:   #000000;
+  /* --- Accent — Clicknet-grönt, sänkt till läsbar valör.
+         #3DD68C ger 1,7:1 mot vitt och duger inte till text
+         eller knappyta. #0B7F6E ger 4,9:1. Ljusa varianten
+         finns kvar för grafik på mörk yta. ------------------ */
+  --accent:        #0B7F6E;
+  --accent-hover:  #096B5C;
+  --accent-active: #085648;
+  --accent-bright: #3DD68C;
+  --accent-muted:  rgba(11, 127, 110, 0.10);
+  --accent-border: rgba(11, 127, 110, 0.24);
+  --accent-ring:   rgba(11, 127, 110, 0.26);
+  --on-accent:     #FFFFFF;
 
-  /* Functional — status only, minimal surface */
-  --success:        #16a34a;
-  --success-bg:     rgba(22, 163, 74, 0.07);
-  --success-border: rgba(22, 163, 74, 0.14);
-  --danger:         #dc2626;
-  --danger-bg:      rgba(220, 38, 38, 0.07);
-  --danger-border:  rgba(220, 38, 38, 0.14);
-  --warning:        #b45309;
-  --warning-bg:     rgba(180, 83, 9, 0.07);
-  --warning-border: rgba(180, 83, 9, 0.14);
-  --info:           #0369a1;
-  --info-bg:        rgba(3, 105, 161, 0.07);
-  --info-border:    rgba(3, 105, 161, 0.14);
+  /* --- Status ---------------------------------------------- */
+  --success:        #087443;
+  --success-bg:     rgba(8, 116, 67, 0.08);
+  --success-border: rgba(8, 116, 67, 0.18);
+  --danger:         #B42318;
+  --danger-bg:      rgba(180, 35, 24, 0.08);
+  --danger-border:  rgba(180, 35, 24, 0.18);
+  --on-danger:      #FFFFFF;
+  --warning:        #B54708;
+  --warning-bg:     rgba(181, 71, 8, 0.08);
+  --warning-border: rgba(181, 71, 8, 0.18);
+  --info:           #175CD3;
+  --info-bg:        rgba(23, 92, 211, 0.08);
+  --info-border:    rgba(23, 92, 211, 0.18);
   --linkedin:       #0a66c2;
-  --linkedin-bg:    rgba(10, 102, 194, 0.07);
+  --linkedin-bg:    rgba(10, 102, 194, 0.08);
 
-  /* Glassmorphism */
-  --glass-bg:       rgba(255, 255, 255, 0.72);
-  --glass-border:   rgba(255, 255, 255, 0.30);
-  --glass-shadow:   0 4px 24px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
-  --glass-blur:     blur(20px) saturate(180%);
+  /* --- Elevation — lagrade och kalltonade.
+         Ett enda svart lager läser alltid som billigt. ------- */
+  --shadow-0: none;
+  --shadow-1: 0 1px 2px -1px rgba(16, 24, 40, 0.10),
+              0 1px 1px      rgba(16, 24, 40, 0.04);
+  --shadow-2: 0 0 0 1px      rgba(16, 24, 40, 0.04),
+              0 2px 4px -2px rgba(16, 24, 40, 0.08),
+              0 6px 12px -3px rgba(16, 24, 40, 0.07);
+  --shadow-3: 0 0 0 1px       rgba(16, 24, 40, 0.05),
+              0 4px 8px -3px  rgba(16, 24, 40, 0.07),
+              0 16px 28px -6px rgba(16, 24, 40, 0.12);
+  --shadow-4: 0 0 0 1px        rgba(16, 24, 40, 0.06),
+              0 12px 20px -6px rgba(16, 24, 40, 0.09),
+              0 32px 64px -12px rgba(16, 24, 40, 0.20);
+  --shadow-inset: inset 0 1px 2px rgba(16, 24, 40, 0.06);
 
-  /* Shadows */
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.07), 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-md: 0 4px 8px -1px rgba(0, 0, 0, 0.07), 0 2px 4px rgba(0, 0, 0, 0.04);
-  --shadow-lg: 0 10px 20px -3px rgba(0, 0, 0, 0.08), 0 4px 8px rgba(0, 0, 0, 0.04);
-  --shadow-xl: 0 20px 40px -6px rgba(0, 0, 0, 0.10), 0 8px 16px rgba(0, 0, 0, 0.05);
+  /* --- Radie — fyra värden. Fler går inte att hålla ihop. --- */
+  --r-sm:   6px;   /* badge, kbd, taggar, progress */
+  --r-md:   10px;  /* knapp, input, nav-item, rad */
+  --r-lg:   14px;  /* kort, panel, modal */
+  --r-full: 999px; /* pill, avatar, prick */
 
-  /* Scrollbar */
-  --scrollbar-thumb:       rgba(0, 0, 0, 0.12);
-  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.22);
+  --scrollbar-thumb:       rgba(16, 24, 40, 0.16);
+  --scrollbar-thumb-hover: rgba(16, 24, 40, 0.30);
+  --selection-bg:          rgba(11, 127, 110, 0.16);
 
-  /* Selection */
-  --selection-bg: rgba(26, 26, 24, 0.10);
-
-  /* Timing */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring:   cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
-/* ============================================
-   DARK THEME
-   ============================================ */
+/* ============================================================
+   DARK
+   Samma regler. Här bär ytstegen ännu mer av separationen,
+   eftersom skuggor syns sämre mot mörkt.
+   ============================================================ */
 :root.dark,
 [data-theme="dark"] {
-  --bg:             #111110;
-  --bg-subtle:      #161614;
-  --bg-muted:       #1C1C1A;
-  --surface:        #1C1C1A;
-  --surface-hover:  #222220;
-  --surface-elevated: #252523;
-  --surface-inset:  #141412;
+  --bg:               #0C0E12;
+  --bg-subtle:        #12151A;
+  --bg-muted:         #191D24;
+  --surface:          #161A20;
+  --surface-hover:    #1D222A;
+  --surface-elevated: #1F242C;
+  --surface-inset:    #101318;
 
-  --border:         rgba(255, 255, 255, 0.06);
-  --border-subtle:  rgba(255, 255, 255, 0.03);
-  --border-strong:  rgba(255, 255, 255, 0.10);
-  --border-focus:   rgba(255, 255, 255, 0.20);
+  --border:        rgba(255, 255, 255, 0.08);
+  --border-subtle: rgba(255, 255, 255, 0.045);
+  --border-strong: rgba(255, 255, 255, 0.13);
+  --border-focus:  rgba(255, 255, 255, 0.24);
 
-  --text:           #EEECEA;
-  --text-secondary: #C8C5C0;
-  --text-muted:     #8F8D8A;
-  --text-dim:       #555452;
-  --text-faint:     #333230;
+  --text:           #ECEFF4;
+  --text-secondary: #C3CAD5;
+  --text-muted:     #8A93A3;
+  --text-dim:       #5C6472;
+  --text-faint:     #383E48;
 
-  --accent:         #EEECEA;
-  --accent-muted:   rgba(238, 236, 234, 0.07);
-  --accent-hover:   #FFFFFF;
+  --accent:        #2FC08F;
+  --accent-hover:  #3DD68C;
+  --accent-active: #26A379;
+  --accent-bright: #3DD68C;
+  --accent-muted:  rgba(61, 214, 140, 0.12);
+  --accent-border: rgba(61, 214, 140, 0.28);
+  --accent-ring:   rgba(61, 214, 140, 0.32);
+  --on-accent:     #04160F;
 
-  --success:        #22c55e;
-  --success-bg:     rgba(34, 197, 94, 0.10);
-  --success-border: rgba(34, 197, 94, 0.20);
-  --danger:         #ef4444;
-  --danger-bg:      rgba(239, 68, 68, 0.10);
-  --danger-border:  rgba(239, 68, 68, 0.20);
-  --warning:        #f59e0b;
-  --warning-bg:     rgba(245, 158, 11, 0.10);
-  --warning-border: rgba(245, 158, 11, 0.20);
-  --info:           #3b82f6;
-  --info-bg:        rgba(59, 130, 246, 0.10);
-  --info-border:    rgba(59, 130, 246, 0.20);
+  --success:        #34D399;
+  --success-bg:     rgba(52, 211, 153, 0.12);
+  --success-border: rgba(52, 211, 153, 0.24);
+  --danger:         #F97066;
+  --danger-bg:      rgba(249, 112, 102, 0.12);
+  --danger-border:  rgba(249, 112, 102, 0.24);
+  /* Vit text på ljusröd yta ger 2,6:1 i mörkt läge. Mörk text på
+     samma yta ger 8,4:1. */
+  --on-danger:      #2A0A07;
+  --warning:        #FDB022;
+  --warning-bg:     rgba(253, 176, 34, 0.12);
+  --warning-border: rgba(253, 176, 34, 0.24);
+  --info:           #53B1FD;
+  --info-bg:        rgba(83, 177, 253, 0.12);
+  --info-border:    rgba(83, 177, 253, 0.24);
   --linkedin:       #4b9ee8;
-  --linkedin-bg:    rgba(75, 158, 232, 0.10);
+  --linkedin-bg:    rgba(75, 158, 232, 0.12);
 
-  --glass-bg:       rgba(28, 28, 26, 0.80);
-  --glass-border:   rgba(255, 255, 255, 0.08);
-  --glass-shadow:   0 4px 24px rgba(0, 0, 0, 0.30), 0 1px 3px rgba(0, 0, 0, 0.20);
-  --glass-blur:     blur(20px) saturate(140%);
+  --shadow-0: none;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-2: 0 0 0 1px rgba(255, 255, 255, 0.05),
+              0 4px 10px -2px rgba(0, 0, 0, 0.55);
+  --shadow-3: 0 0 0 1px rgba(255, 255, 255, 0.07),
+              0 8px 16px -6px rgba(0, 0, 0, 0.50),
+              0 24px 40px -12px rgba(0, 0, 0, 0.65);
+  --shadow-4: 0 0 0 1px rgba(255, 255, 255, 0.08),
+              0 16px 28px -8px rgba(0, 0, 0, 0.55),
+              0 40px 72px -16px rgba(0, 0, 0, 0.75);
+  --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.40);
 
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.30);
-  --shadow-sm: 0 0 0 1px rgba(255,255,255,0.03), 0 1px 3px rgba(0, 0, 0, 0.40);
-  --shadow-md: 0 0 0 1px rgba(255,255,255,0.04), 0 4px 12px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 0 0 1px rgba(255,255,255,0.05), 0 8px 24px rgba(0, 0, 0, 0.45);
-  --shadow-xl: 0 0 0 1px rgba(255,255,255,0.05), 0 20px 48px rgba(0, 0, 0, 0.55);
-
-  --scrollbar-thumb:       rgba(255, 255, 255, 0.08);
-  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.15);
-  --selection-bg:          rgba(238, 236, 234, 0.15);
+  --scrollbar-thumb:       rgba(255, 255, 255, 0.12);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.22);
+  --selection-bg:          rgba(61, 214, 140, 0.22);
 }
 
-/* ============================================
-   SCROLLBAR
-   ============================================ */
+/* ============================================================
+   SCROLLBAR — 4px gick inte att träffa med muspekaren
+   ============================================================ */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;
 }
-*::-webkit-scrollbar { width: 4px; height: 4px; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
 *::-webkit-scrollbar-track { background: transparent; }
-*::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 10px; }
-*::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: var(--r-full);
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); background-clip: content-box; }
+*::-webkit-scrollbar-corner { background: transparent; }
 
-/* ============================================
-   BASE TYPOGRAPHY
-   ============================================ */
+/* ============================================================
+   TYPOGRAFI
+   Inter bär gränssnittet: tät, neutral, gjord för tabeller.
+   Space Grotesk bär rubrikerna: teknisk karaktär utan att
+   se redaktionell ut. Serif hörde aldrig hemma i ett verktyg
+   där någon gör 150 samtal om dagen.
+   ============================================================ */
 html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-  font-feature-settings: "kern" 1, "liga" 1, "calt" 1, "ss01" 1;
+  font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
 }
 
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: var(--font-sans), 'Space Grotesk', system-ui, sans-serif;
+  font-family: var(--font-sans), 'Inter', system-ui, -apple-system, sans-serif;
   font-size: 14px;
   line-height: 1.5;
-  letter-spacing: -0.012em;
+  letter-spacing: -0.006em;
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-/* Serif headings — editorial weight */
 h1, h2, h3 {
-  font-family: var(--font-serif), 'Instrument Serif', Georgia, serif;
-  font-weight: 400;
-  letter-spacing: -0.02em;
+  font-family: var(--font-display), var(--font-sans), system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.025em;
   line-height: 1.15;
 }
 
 h4, h5, h6 {
-  font-family: var(--font-sans), 'Space Grotesk', sans-serif;
+  font-family: var(--font-sans), system-ui, sans-serif;
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.015em;
 }
 
-/* Monospace */
 code, kbd, pre, .mono {
   font-family: var(--font-mono), 'JetBrains Mono', 'Menlo', monospace;
 }
 
-/* ============================================
-   SELECTION
-   ============================================ */
+/* Siffror i tabeller och mätvärden ska aldrig hoppa i sidled */
+td, th, .tabular-nums, .mono-nums, .stat-value {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
 ::selection { background: var(--selection-bg); color: var(--text); }
 
-/* ============================================
-   FOCUS
-   ============================================ */
+/* ============================================================
+   FOKUS — en ring, samma överallt, i accentfärgen.
+   box-shadow i stället för outline så den inte klipps av
+   overflow:hidden på föräldern.
+   ============================================================ */
 *:focus { outline: none; }
-*:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+*:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent-ring);
+  border-radius: var(--r-sm);
+  position: relative;
+  z-index: 1;
+}
 
-/* ============================================
+/* ============================================================
+   RÖRELSE — respektera systeminställningen.
+   Ett verktyg man sitter i hela dagen måste gå att stänga av.
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ============================================================
    KBD
-   ============================================ */
+   ============================================================ */
 kbd {
   display: inline-flex;
   align-items: center;
@@ -214,90 +294,140 @@ kbd {
   color: var(--text-muted);
   background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: 5px;
-  box-shadow: 0 1px 0 var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--r-sm);
   user-select: none;
 }
 
-/* ============================================
-   GLASSMORPHISM UTILITIES
-   ============================================ */
+/* ============================================================
+   YTOR
+   ============================================================ */
 @layer components {
-  .glass {
-    background: var(--glass-bg);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    border: 1px solid var(--glass-border);
-    box-shadow: var(--glass-shadow);
-    border-radius: 16px;
+  /* Nivå 0. Kortet ligger i planet — border och ytsteg bär det. */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-0);
   }
 
-  .glass-card {
-    background: var(--glass-bg);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    border: 1px solid var(--glass-border);
-    box-shadow: var(--glass-shadow);
-    border-radius: 18px;
-    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  /* Klickbart kort. Hover byter yta och linje, lyfter inte.
+     translateY på hover ger jitter när muspekaren passerar kanten. */
+  .card-interactive {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-0);
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
   }
-
-  .glass-card:hover {
-    box-shadow: var(--shadow-lg);
+  .card-interactive:hover {
+    background: var(--surface-hover);
     border-color: var(--border-strong);
+    box-shadow: var(--shadow-1);
   }
 
-  .glass-panel {
-    background: var(--glass-bg);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    border: 1px solid var(--glass-border);
+  /* Strukturell behållare — sidopanel, toolbar, kolumn. Aldrig skugga. */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
   }
+
+  .panel-inset {
+    background: var(--surface-inset);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-md);
+  }
+
+  /* Nivå 2 — svävar över innehållet men är förankrad i ett element. */
+  .menu {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-2);
+    padding: 4px;
+  }
+
+  .menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 10px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    transition: background-color 0.1s ease, color 0.1s ease;
+  }
+  .menu-item:hover { background: var(--surface-inset); color: var(--text); }
+  .menu-item.danger:hover { background: var(--danger-bg); color: var(--danger); }
+
+  /* Nivå 3 — modalen. Här får skuggan kosta. */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(16, 24, 40, 0.32);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    z-index: 50;
+  }
+
+  .modal {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-3);
+  }
+
+  /* Nivå 4 — i handen. Drag och toast. */
+  .lifted { box-shadow: var(--shadow-4); }
 }
 
-/* ============================================
-   BUTTONS
-   ============================================ */
+/* ============================================================
+   KNAPPAR
+   Primärknappen är den enda som bär accent och den enda
+   som har skugga. Allt annat är plant.
+   ============================================================ */
 @layer components {
   .btn-base {
     @apply inline-flex items-center justify-center gap-2;
     @apply px-3 py-2;
-    @apply text-sm font-medium;
-    @apply transition-all duration-150;
+    @apply text-[13px] font-medium;
     @apply cursor-pointer select-none;
     @apply border;
-    border-radius: 10px;
+    border-radius: var(--r-md);
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    transition: background-color 0.12s ease, border-color 0.12s ease,
+                color 0.12s ease, box-shadow 0.12s ease;
   }
+
+  .btn-base:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
 
   .btn-primary {
     @apply btn-base;
     background: var(--accent);
-    color: var(--bg);
-    border-color: var(--accent);
-    box-shadow: var(--shadow-sm);
+    color: var(--on-accent);
+    border-color: transparent;
+    box-shadow: var(--shadow-1);
   }
-
-  .btn-primary:hover {
-    background: var(--accent-hover);
-    box-shadow: var(--shadow-md);
-  }
-
-  .btn-primary:active { transform: translateY(1px); }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-primary:active:not(:disabled) { background: var(--accent-active); box-shadow: none; }
 
   .btn-secondary {
     @apply btn-base;
     background: var(--surface);
     color: var(--text-secondary);
     border-color: var(--border-strong);
-    box-shadow: var(--shadow-xs);
   }
-
-  .btn-secondary:hover {
+  .btn-secondary:hover:not(:disabled) {
     background: var(--surface-hover);
     color: var(--text);
     border-color: var(--border-focus);
-    box-shadow: var(--shadow-sm);
   }
+  .btn-secondary:active:not(:disabled) { background: var(--surface-inset); }
 
   .btn-ghost {
     @apply btn-base;
@@ -305,226 +435,229 @@ kbd {
     color: var(--text-muted);
     border-color: transparent;
   }
-
-  .btn-ghost:hover { background: var(--surface-inset); color: var(--text); }
+  .btn-ghost:hover:not(:disabled) { background: var(--surface-inset); color: var(--text); }
 
   .btn-danger {
     @apply btn-base;
     background: var(--danger);
-    color: white;
-    border-color: var(--danger);
+    color: var(--on-danger);
+    border-color: transparent;
+    box-shadow: var(--shadow-1);
   }
+  .btn-danger:hover:not(:disabled) { filter: brightness(1.08); }
 
-  .btn-danger:hover { filter: brightness(1.08); }
+  .btn-sm { @apply px-2.5 py-1.5 text-[12px]; }
+  .btn-lg { @apply px-4 py-2.5 text-[14px]; }
 }
 
-/* ============================================
-   CARDS
-   ============================================ */
-@layer components {
-  .card {
-    background: var(--surface);
-    border-radius: 16px;
-    border: 1px solid var(--border);
-    box-shadow: var(--shadow-sm);
-    transition: all 0.2s ease;
-  }
-
-  .card-interactive {
-    @apply card;
-    cursor: pointer;
-  }
-
-  .card-interactive:hover {
-    border-color: var(--border-strong);
-    box-shadow: var(--shadow-md);
-    transform: translateY(-1px);
-  }
-}
-
-/* ============================================
-   INPUTS
-   ============================================ */
+/* ============================================================
+   FÄLT
+   ============================================================ */
+/* Fält ligger på kort som redan är vita, så ytan är insänkt.
+   Sju komponenter satte redan surface-inset inline — regeln följer
+   koden i stället för tvärtom. */
 input, textarea, select {
   background: var(--surface-inset);
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--r-md);
   color: var(--text);
-  transition: all 0.15s ease;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
 
-input:hover, textarea:hover, select:hover { border-color: var(--border-focus); }
+input:hover:not(:focus), textarea:hover:not(:focus), select:hover:not(:focus) {
+  border-color: var(--border-focus);
+}
 
 input:focus, textarea:focus, select:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-muted);
   outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
 }
 
 input::placeholder, textarea::placeholder { color: var(--text-dim); }
 
-/* ============================================
-   NAVIGATION RAIL — icon-only slim sidebar
-   ============================================ */
+/* Fälten har egen fokusstil — den globala ringen ska inte dubblera */
+input:focus-visible, textarea:focus-visible, select:focus-visible {
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+/* ============================================================
+   SEGMENTERAD KONTROLL / TABS
+   Aktiv flik markeras med yta, inte med skugga.
+   ============================================================ */
+@layer components {
+  .segmented {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    background: var(--surface-inset);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-md);
+  }
+
+  .segmented-item {
+    padding: 5px 12px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--text-muted);
+    border-radius: calc(var(--r-md) - 3px);
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease;
+  }
+  .segmented-item:hover { color: var(--text-secondary); }
+  .segmented-item.active {
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: var(--shadow-1);
+  }
+}
+
+/* ============================================================
+   NAVIGATIONSSKENA
+   ============================================================ */
 .nav-rail {
-  width: 3.5rem;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  padding: 1rem 0;
-  gap: 0.25rem;
-  background: var(--bg);
+  padding: 12px 8px;
+  gap: 2px;
+  background: var(--surface);
   border-right: 1px solid var(--border);
 }
 
 .nav-rail-item {
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 10px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  color: var(--text-dim);
-  transition: all 0.15s ease;
+  gap: 10px;
+  height: 34px;
+  padding: 0 9px;
+  border-radius: var(--r-md);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
-.nav-rail-item:hover { background: var(--surface); color: var(--text-muted); }
+.nav-rail-item:hover { background: var(--surface-inset); color: var(--text); }
+
+/* Aktivt läge: tonad accentyta, inte fylld. En fylld grön ruta per
+   skärmbild räcker och den tillhör primärknappen. */
 .nav-rail-item.active {
-  background: var(--accent);
-  color: var(--bg);
-  box-shadow: var(--shadow-sm);
+  background: var(--accent-muted);
+  color: var(--accent);
 }
 
-/* ============================================
-   STAT MODULE
-   ============================================ */
+/* ============================================================
+   TABELL
+   ============================================================ */
+table { border-collapse: separate; border-spacing: 0; width: 100%; }
+
+th {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-family: var(--font-sans), sans-serif;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-align: left;
+}
+
+/* Rubrikraden ska följa med vid scroll i långa listor */
+.table-sticky thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.row-hover { transition: background-color 0.1s ease; }
+.row-hover:hover { background: var(--surface-hover); }
+
+/* ============================================================
+   STAT
+   ============================================================ */
 .stat-module {
   background: var(--surface);
-  border-radius: 16px;
   border: 1px solid var(--border);
-  padding: 1.25rem;
-  transition: all 0.2s ease;
-  box-shadow: var(--shadow-sm);
+  border-radius: var(--r-lg);
+  padding: 16px 18px;
+  box-shadow: var(--shadow-0);
+  transition: border-color 0.15s ease;
+}
+.stat-module:hover { border-color: var(--border-strong); }
+
+.stat-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
-.stat-module:hover { border-color: var(--border-strong); box-shadow: var(--shadow-md); }
+.stat-value {
+  font-family: var(--font-display), var(--font-sans), sans-serif;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: var(--text);
+}
 
-/* ============================================
-   ACTIVITY LOG
-   ============================================ */
-.activity-log { font-family: var(--font-mono), monospace; font-size: 0.75rem; }
+/* ============================================================
+   AKTIVITETSLOGG
+   ============================================================ */
+.activity-log { font-family: var(--font-mono), monospace; font-size: 12px; }
 
 .activity-log-item {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.25rem 0.5rem;
-  border-radius: 6px;
-  transition: background 0.15s ease;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  transition: background-color 0.1s ease;
 }
-
 .activity-log-item:hover { background: var(--surface-inset); }
-.activity-log-time { color: var(--text-faint); font-variant-numeric: tabular-nums; font-size: 10px; }
+.activity-log-time { color: var(--text-dim); font-variant-numeric: tabular-nums; font-size: 10px; }
 .activity-log-event { color: var(--text-muted); }
 
-/* ============================================
-   LEAD CARD
-   ============================================ */
+/* ============================================================
+   LEAD-RAD I KÖN
+   ============================================================ */
 .lead-card {
   background: var(--surface);
   border-bottom: 1px solid var(--border-subtle);
-  padding: 0.75rem 1rem;
-  transition: all 0.15s ease;
+  padding: 10px 14px;
+  transition: background-color 0.12s ease;
   cursor: pointer;
 }
-
 .lead-card:hover { background: var(--surface-hover); }
 .lead-card.active {
-  background: var(--bg-subtle);
+  background: var(--accent-muted);
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
-/* ============================================
-   COMMAND PALETTE
-   ============================================ */
-.command-palette-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(6px);
-  z-index: 50;
-}
-
-.command-palette {
-  position: fixed;
-  top: 20%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 100%;
-  max-width: 32rem;
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border-radius: 16px;
-  border: 1px solid var(--glass-border);
-  overflow: hidden;
-  box-shadow: var(--shadow-xl);
-}
-
-.command-palette-list { max-height: 20rem; overflow-y: auto; padding: 0.5rem 0; }
-
-.command-palette-item {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.625rem 1rem;
-  font-size: 0.875rem;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all 0.1s ease;
-}
-
-.command-palette-item:hover,
-.command-palette-item.selected { background: var(--surface-inset); color: var(--text); }
-
-/* ============================================
-   TABLE
-   ============================================ */
-table { border-collapse: separate; border-spacing: 0; }
-
-th {
-  color: var(--text-dim);
-  font-weight: 500;
-  font-family: var(--font-sans), sans-serif;
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  text-align: left;
-}
-
-/* ============================================
-   HEALTH BAR (Pipeline)
-   ============================================ */
+/* ============================================================
+   HÄLSOSTAPEL
+   ============================================================ */
 .health-bar {
-  height: 3px;
-  border-radius: 999px;
+  height: 4px;
+  border-radius: var(--r-full);
   overflow: hidden;
   background: var(--surface-inset);
 }
 
 .health-bar-fill {
   height: 100%;
-  border-radius: 999px;
+  border-radius: var(--r-full);
   transition: width 0.5s var(--ease-out-expo);
 }
 
-/* ============================================
-   ANIMATIONS
-   ============================================ */
+/* ============================================================
+   ANIMATIONER
+   ============================================================ */
 @keyframes fadeUp {
-  from { opacity: 0; transform: translateY(10px); }
+  from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
@@ -539,25 +672,23 @@ th {
 }
 
 @keyframes slideUp {
-  from { opacity: 0; transform: translateY(20px); }
+  from { opacity: 0; transform: translateY(16px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
 .shimmer {
-  background: linear-gradient(90deg, var(--surface) 0%, var(--surface-elevated) 50%, var(--surface) 100%);
+  background: linear-gradient(90deg, var(--surface-inset) 0%, var(--bg-muted) 50%, var(--surface-inset) 100%);
   background-size: 200% 100%;
-  animation: shimmer 2s linear infinite;
+  animation: shimmer 1.6s linear infinite;
 }
 
-/* ============================================
-   MISC UTILS
-   ============================================ */
-.tabular-nums { font-variant-numeric: tabular-nums; }
-.mono-nums    { font-family: var(--font-mono), monospace; font-variant-numeric: tabular-nums; }
-.divider      { height: 1px; background: var(--border); }
-.divider-v    { width: 1px; background: var(--border); }
+/* ============================================================
+   SMÅTT
+   ============================================================ */
+.mono-nums { font-family: var(--font-mono), monospace; font-variant-numeric: tabular-nums; }
+.divider   { height: 1px; background: var(--border); }
+.divider-v { width: 1px; background: var(--border); }
 
-/* Phone links */
 a[href^="tel:"] {
   color: var(--text);
   text-decoration: none;
@@ -566,9 +697,9 @@ a[href^="tel:"] {
   letter-spacing: 0.01em;
 }
 
-/* ============================================
-   PULSE DOT
-   ============================================ */
+/* ============================================================
+   PULSPRICK
+   ============================================================ */
 .pulse-dot { position: relative; width: 8px; height: 8px; border-radius: 50%; }
 .pulse-dot::after {
   content: '';
@@ -582,17 +713,17 @@ a[href^="tel:"] {
   100% { box-shadow: 0 0 0 8px currentColor; opacity: 0; }
 }
 
-/* ============================================
+/* ============================================================
    TOGGLE
-   ============================================ */
+   ============================================================ */
 .toggle {
   position: relative;
-  width: 2.75rem;
-  height: 1.5rem;
-  border-radius: 9999px;
+  width: 2.5rem;
+  height: 1.375rem;
+  border-radius: var(--r-full);
   background: var(--bg-muted);
   border: 1px solid var(--border-strong);
-  transition: background 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
   cursor: pointer;
 }
 
@@ -600,14 +731,14 @@ a[href^="tel:"] {
 
 .toggle-thumb {
   position: absolute;
-  top: 3px;
-  left: 3px;
-  width: calc(1.5rem - 8px);
-  height: calc(1.5rem - 8px);
+  top: 2px;
+  left: 2px;
+  width: calc(1.375rem - 6px);
+  height: calc(1.375rem - 6px);
   border-radius: 50%;
-  background: white;
-  box-shadow: var(--shadow-sm);
-  transition: transform 0.2s ease;
+  background: #fff;
+  box-shadow: var(--shadow-1);
+  transition: transform 0.2s var(--ease-out-expo);
 }
 
-.toggle.active .toggle-thumb { transform: translateX(1.25rem); }
+.toggle.active .toggle-thumb { transform: translateX(1.125rem); }

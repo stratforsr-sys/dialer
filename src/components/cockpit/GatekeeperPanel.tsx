@@ -51,7 +51,7 @@ export function GatekeeperPanel({
 
   return (
     <div
-      className="rounded-[14px] p-4 mb-3"
+      className="rounded-lg p-4 mb-3"
       style={{
         background: "var(--surface-inset)",
         border: "1px solid var(--border)",
@@ -59,7 +59,7 @@ export function GatekeeperPanel({
     >
       {known?.name && (
         <div
-          className="flex items-start gap-2 mb-3 px-3 py-2 rounded-[10px]"
+          className="flex items-start gap-2 mb-3 px-3 py-2 rounded-md"
           style={{ background: "var(--accent-muted)", border: "1px solid var(--border-strong)" }}
         >
           <Building2 size={13} className="mt-[2px] shrink-0" style={{ color: "var(--accent)" }} />
@@ -134,7 +134,7 @@ export function GatekeeperPanel({
                   onClick={() =>
                     onChange({ ...draft, tactic: draft.tactic === t.key ? null : t.key })
                   }
-                  className="px-2 py-1 text-[11px] rounded-[7px] transition-all"
+                  className="px-2 py-1 text-[11px] rounded-sm transition-all"
                   style={{
                     background: draft.tactic === t.key ? "var(--accent)" : "var(--surface)",
                     color: draft.tactic === t.key ? "var(--bg)" : "var(--text-muted)",
@@ -159,8 +159,8 @@ export function GatekeeperPanel({
 
       <button
         onClick={onSubmit}
-        className="flex items-center justify-center gap-1.5 w-full mt-3 px-3 py-2 text-[12px] font-semibold rounded-[10px]"
-        style={{ background: "var(--accent)", color: "var(--bg)" }}
+        className="flex items-center justify-center gap-1.5 w-full mt-3 px-3 py-2 text-[12px] font-semibold rounded-md"
+        style={{ background: "var(--accent)", color: "var(--on-accent)" }}
       >
         Spara och gå vidare <ArrowRight size={12} />
       </button>
@@ -194,7 +194,7 @@ function Field({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         autoFocus={autoFocus}
-        className="w-full mt-[3px] px-3 py-[7px] text-[13px] rounded-[9px] outline-none"
+        className="w-full mt-[3px] px-3 py-[7px] text-[13px] rounded-md outline-none"
         style={{
           background: "var(--surface)",
           border: "1px solid var(--border-strong)",

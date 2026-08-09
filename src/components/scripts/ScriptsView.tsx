@@ -67,7 +67,7 @@ export function ScriptsView({
   return (
     <div className="px-8 py-7 max-w-[1400px]">
       <div className="mb-6">
-        <h1 className="text-[26px] mb-1" style={{ color: "var(--text)", fontFamily: "var(--font-serif)" }}>
+        <h1 className="text-[26px] mb-1" style={{ color: "var(--text)", fontFamily: "var(--font-display)" }}>
           Manus
         </h1>
         <p className="text-[13px] max-w-[720px] leading-relaxed" style={{ color: "var(--text-muted)" }}>
@@ -82,7 +82,7 @@ export function ScriptsView({
         <div className="w-[210px] shrink-0">
           <div className="flex flex-col gap-1 mb-4">
             {templates.length === 0 && (
-              <p className="text-[12px] px-3 py-3 rounded-[10px]"
+              <p className="text-[12px] px-3 py-3 rounded-md"
                 style={{ background: "var(--surface-inset)", color: "var(--text-dim)", border: "1px dashed var(--border-strong)" }}>
                 Inga manus än. Skapa ett för intro-steget så syns det i cockpit direkt när det publicerats.
               </p>
@@ -94,7 +94,7 @@ export function ScriptsView({
                 <button
                   key={t.id}
                   onClick={() => setSelected(t.id)}
-                  className="flex items-center gap-2 px-3 py-2.5 rounded-[10px] text-left transition-all"
+                  className="flex items-center gap-2 px-3 py-2.5 rounded-md text-left transition-all"
                   style={{
                     background: selected === t.id ? "var(--accent-muted)" : "transparent",
                     border: `1px solid ${selected === t.id ? "var(--border-strong)" : "transparent"}`,
@@ -115,14 +115,14 @@ export function ScriptsView({
             })}
           </div>
 
-          <div className="rounded-[12px] p-3" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+          <div className="rounded-lg p-3" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
             <p className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--text-dim)" }}>
               Nytt manus
             </p>
             <select
               value={newStep}
               onChange={(e) => setNewStep(e.target.value as FrameworkStep)}
-              className="w-full px-2 py-1.5 text-[12px] rounded-[8px] outline-none mb-2"
+              className="w-full px-2 py-1.5 text-[12px] rounded-md outline-none mb-2"
               style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)" }}
             >
               {FRAMEWORK_STEPS.map((s) => (
@@ -132,8 +132,8 @@ export function ScriptsView({
             <button
               onClick={create}
               disabled={creating}
-              className="flex items-center justify-center gap-1.5 w-full px-3 py-1.5 text-[12px] font-semibold rounded-[8px]"
-              style={{ background: "var(--accent)", color: "var(--bg)" }}
+              className="flex items-center justify-center gap-1.5 w-full px-3 py-1.5 text-[12px] font-semibold rounded-md"
+              style={{ background: "var(--accent)", color: "var(--on-accent)" }}
             >
               {creating ? <Loader2 size={11} className="animate-spin" /> : <Plus size={11} />}
               Skapa
@@ -161,7 +161,7 @@ export function ScriptsView({
               sampleLeadId={sampleLeadId}
             />
           ) : (
-            <div className="flex items-center justify-center h-[300px] rounded-[14px]"
+            <div className="flex items-center justify-center h-[300px] rounded-lg"
               style={{ background: "var(--surface-inset)", border: "1px dashed var(--border-strong)" }}>
               <p className="text-[13px]" style={{ color: "var(--text-dim)" }}>
                 Välj eller skapa ett manus

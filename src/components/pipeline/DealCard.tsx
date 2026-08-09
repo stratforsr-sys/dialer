@@ -80,11 +80,11 @@ export function DealCard({
       className="cursor-grab active:cursor-grabbing select-none"
     >
       <div
-        className="p-3 rounded-[12px] transition-all duration-150"
+        className="p-3 rounded-lg transition-all duration-150"
         style={{
           background: "var(--surface)",
           border: "1px solid var(--border)",
-          boxShadow: isOverlay ? "0 12px 32px rgba(0,0,0,0.18)" : "var(--shadow-xs)",
+          boxShadow: isOverlay ? "var(--shadow-4)" : "var(--shadow-0)",
         }}
         onPointerUp={() => {
           if (!isDragging && !isOverlay) router.push(`/leads/${deal.lead.id}`);
@@ -138,7 +138,7 @@ export function DealCard({
           <div className="flex items-center gap-1 min-w-0">
             {deal.products.length > 0 && (
               <div
-                className="flex items-center gap-1 text-[10px] px-1.5 py-[2px] rounded-[5px]"
+                className="flex items-center gap-1 text-[10px] px-1.5 py-[2px] rounded-sm"
                 style={{ background: "var(--surface-inset)", color: "var(--text-dim)" }}
               >
                 <Package size={9} />

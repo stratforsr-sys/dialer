@@ -94,7 +94,7 @@ export function LeadsTable({
         <div className="flex items-center gap-2">
           {/* Search */}
           <div className="flex items-center gap-2 px-3 h-8"
-            style={{ background: "var(--surface-inset)", border: "1px solid var(--border-strong)", borderRadius: "8px", width: "220px" }}>
+            style={{ background: "var(--surface-inset)", border: "1px solid var(--border-strong)", borderRadius: "var(--r-md)", width: "220px" }}>
             <Search size={13} style={{ color: "var(--text-dim)" }} />
             <input
               ref={searchRef}
@@ -115,7 +115,7 @@ export function LeadsTable({
           <button
             onClick={() => setShowCreateModal(true)}
             className="flex items-center gap-[6px] h-8 px-3 text-[13px] font-medium"
-            style={{ background: "var(--accent)", color: "white", borderRadius: "8px", border: "none" }}
+            style={{ background: "var(--accent)", color: "var(--on-accent)", borderRadius: "var(--r-md)", border: "none" }}
           >
             <Plus size={14} strokeWidth={2.5} />
             Nytt lead
@@ -167,7 +167,7 @@ export function LeadsTable({
                     {/* Company */}
                     <td className="px-4 py-3 pl-6">
                       <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-[7px] flex items-center justify-center text-[11px] font-bold shrink-0"
+                        <div className="w-7 h-7 rounded-sm flex items-center justify-center text-[11px] font-bold shrink-0"
                           style={{ background: "var(--surface-inset)", color: "var(--text-secondary)" }}>
                           {lead.companyName.charAt(0).toUpperCase()}
                         </div>
@@ -216,8 +216,8 @@ export function LeadsTable({
                           e.stopPropagation();
                           setDealLead({ id: lead.id, companyName: lead.companyName });
                         }}
-                        className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-[8px] opacity-0 group-hover:opacity-100 transition-all ml-auto"
-                        style={{ background: "var(--accent)", color: "var(--bg)" }}
+                        className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-md opacity-0 group-hover:opacity-100 transition-all ml-auto"
+                        style={{ background: "var(--accent)", color: "var(--on-accent)" }}
                       >
                         <TrendingUp size={11} />
                         Skapa deal

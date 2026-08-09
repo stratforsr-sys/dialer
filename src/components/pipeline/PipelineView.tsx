@@ -37,7 +37,7 @@ export function PipelineView({ stages, deals }: { stages: Stage[]; deals: Deal[]
         style={{ background: "var(--surface)", borderColor: "var(--border)" }}
       >
         <div className="flex items-center gap-3">
-          <h1 className="text-[15px]" style={{ color: "var(--text)", fontFamily: "var(--font-serif)" }}>
+          <h1 className="text-[15px]" style={{ color: "var(--text)", fontFamily: "var(--font-display)" }}>
             Pipeline
           </h1>
           <span className="text-[12px] px-2 py-[2px] rounded-full font-medium"
@@ -54,7 +54,7 @@ export function PipelineView({ stages, deals }: { stages: Stage[]; deals: Deal[]
         </div>
 
         <div
-          className="flex items-center gap-[2px] p-[3px] rounded-[10px]"
+          className="flex items-center gap-[2px] p-[3px] rounded-md"
           style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}
         >
           {[
@@ -64,11 +64,11 @@ export function PipelineView({ stages, deals }: { stages: Stage[]; deals: Deal[]
             <button
               key={v.id}
               onClick={() => setView(v.id)}
-              className="flex items-center gap-1 px-3 py-[5px] text-[12px] font-medium rounded-[7px] transition-all duration-150"
+              className="flex items-center gap-1 px-3 py-[5px] text-[12px] font-medium rounded-sm transition-all duration-150"
               style={{
                 background: view === v.id ? "var(--surface)" : "transparent",
                 color: view === v.id ? "var(--text)" : "var(--text-dim)",
-                boxShadow: view === v.id ? "var(--shadow-xs)" : "none",
+                boxShadow: view === v.id ? "var(--shadow-1)" : "none",
                 border: view === v.id ? "1px solid var(--border)" : "1px solid transparent",
               }}
             >

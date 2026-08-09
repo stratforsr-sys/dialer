@@ -12,7 +12,7 @@ export default function ListsLoading() {
         {Array.from({ length: 6 }).map((_, i) => (
           <div
             key={i}
-            className="rounded-[18px] overflow-hidden"
+            className="rounded-lg overflow-hidden"
             style={{
               background: "var(--surface)",
               border: "1px solid var(--border)",

@@ -331,15 +331,15 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                 className="cursor-pointer flex flex-col items-center justify-center gap-4 transition-all"
                 style={{
                   border: `2px dashed ${dragOver ? "var(--accent)" : "var(--border-strong)"}`,
-                  borderRadius: "18px",
+                  borderRadius: "var(--r-lg)",
                   padding: "52px 24px",
                   background: dragOver ? "var(--accent-muted)" : "var(--surface-inset)",
                   transition: "all 0.15s ease",
                 }}
               >
                 <div
-                  className="w-12 h-12 rounded-[14px] flex items-center justify-center"
-                  style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", boxShadow: "var(--shadow-sm)" }}
+                  className="w-12 h-12 rounded-lg flex items-center justify-center"
+                  style={{ background: "var(--surface)", border: "1px solid var(--border-strong)" }}
                 >
                   <Upload size={20} style={{ color: "var(--text-muted)" }} />
                 </div>
@@ -365,7 +365,7 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                 </button>
               </div>
 
-              <div className="rounded-[16px] overflow-hidden mb-6" style={{ border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}>
+              <div className="rounded-lg overflow-hidden mb-6" style={{ border: "1px solid var(--border)" }}>
                 {csvData.headers.map((header, i) => (
                   <div key={header} className="flex items-center gap-4 px-4 py-3"
                     style={{ borderBottom: i < csvData.headers.length - 1 ? "1px solid var(--border-subtle)" : "none", background: i % 2 === 0 ? "var(--surface)" : "var(--surface-inset)" }}>
@@ -381,7 +381,7 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                       style={{
                         background: mapping[header] && mapping[header] !== "skip" ? "var(--accent-muted)" : "var(--surface-inset)",
                         border: "1px solid var(--border-strong)",
-                        borderRadius: "8px",
+                        borderRadius: "var(--r-md)",
                         color: mapping[header] && mapping[header] !== "skip" ? "var(--accent)" : "var(--text-muted)",
                         minWidth: "140px",
                       }}
@@ -391,7 +391,7 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                   </div>
                 ))}
               </div>
-              <button onClick={() => setStep("preview")} className="w-full py-3 text-[14px] font-semibold rounded-[12px]" style={{ background: "var(--accent)", color: "var(--bg)" }}>
+              <button onClick={() => setStep("preview")} className="w-full py-3 text-[14px] font-semibold rounded-lg" style={{ background: "var(--accent)", color: "var(--on-accent)" }}>
                 Förhandsgranska →
               </button>
             </motion.div>
@@ -410,7 +410,7 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                 </button>
               </div>
 
-              <div className="rounded-[16px] overflow-hidden mb-6" style={{ border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}>
+              <div className="rounded-lg overflow-hidden mb-6" style={{ border: "1px solid var(--border)" }}>
                 <table className="w-full border-collapse">
                   <thead>
                     <tr style={{ background: "var(--surface-inset)", borderBottom: "1px solid var(--border)" }}>
@@ -443,8 +443,8 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
 
               {/* ── Mapp + tilldelning ── */}
               <div
-                className="rounded-[16px] p-5 mb-6"
-                style={{ background: "var(--surface)", border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}
+                className="rounded-lg p-5 mb-6"
+                style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
               >
                 <div className="flex items-center gap-2 mb-4">
                   <FolderOpen size={15} style={{ color: "var(--accent)" }} />
@@ -460,7 +460,7 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                   value={listName}
                   onChange={(e) => setListName(e.target.value)}
                   placeholder="T.ex. Stockholm bygg — augusti"
-                  className="w-full px-3 py-2 text-[13px] rounded-[10px] focus:outline-none mb-5"
+                  className="w-full px-3 py-2 text-[13px] rounded-md focus:outline-none mb-5"
                   style={{
                     background: "var(--surface-inset)",
                     border: "1px solid var(--border-strong)",
@@ -488,7 +488,7 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                           key={u.id}
                           type="button"
                           onClick={() => toggleAssignee(u.id)}
-                          className="flex items-center gap-2 px-3 py-1.5 rounded-[10px] text-[12px] font-medium transition-all"
+                          className="flex items-center gap-2 px-3 py-1.5 rounded-md text-[12px] font-medium transition-all"
                           style={{
                             background: on ? "var(--accent-muted)" : "var(--surface-inset)",
                             border: `1px solid ${on ? "var(--accent)" : "var(--border-strong)"}`,
@@ -512,8 +512,8 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
               <button
                 onClick={handleImport}
                 disabled={totalRows === 0}
-                className="w-full py-3 text-[14px] font-semibold rounded-[12px]"
-                style={{ background: "var(--accent)", color: "var(--bg)", opacity: totalRows === 0 ? 0.5 : 1 }}
+                className="w-full py-3 text-[14px] font-semibold rounded-lg"
+                style={{ background: "var(--accent)", color: "var(--on-accent)", opacity: totalRows === 0 ? 0.5 : 1 }}
               >
                 Importera {totalRows} leads →
               </button>
@@ -529,7 +529,7 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
               </p>
 
               {/* Progress bar */}
-              <div className="rounded-[12px] overflow-hidden mb-3" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+              <div className="rounded-lg overflow-hidden mb-3" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
                 <motion.div
                   className="h-[6px]"
                   style={{ background: "var(--accent)" }}
@@ -552,7 +552,7 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                   { label: "Uppdaterade", value: progress.updated, color: "var(--info)" },
                   { label: "Skippade",    value: progress.skipped, color: "var(--text-dim)" },
                 ].map(({ label, value, color }) => (
-                  <div key={label} className="text-center p-4 rounded-[12px]" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                  <div key={label} className="text-center p-4 rounded-lg" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
                     <p className="text-[24px] font-bold tabular-nums" style={{ color, fontFamily: "var(--font-mono)" }}>{value}</p>
                     <p className="text-[11px] mt-1" style={{ color: "var(--text-muted)" }}>{label}</p>
                   </div>
@@ -590,7 +590,7 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                   { label: "Uppdaterade", value: progress.updated, color: "var(--info)" },
                   { label: "Skippade",    value: progress.skipped, color: "var(--text-dim)" },
                 ].map(({ label, value, color }) => (
-                  <div key={label} className="p-4 rounded-[14px]" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                  <div key={label} className="p-4 rounded-lg" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
                     <p className="text-[28px] font-bold tabular-nums" style={{ color, fontFamily: "var(--font-mono)" }}>{value}</p>
                     <p className="text-[12px] mt-1" style={{ color: "var(--text-muted)" }}>{label}</p>
                   </div>
@@ -598,7 +598,7 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
               </div>
 
               {progress.errors.length > 0 && (
-                <div className="text-left p-4 rounded-[12px] mb-6" style={{ background: "var(--danger-bg)", border: "1px solid var(--danger-border)" }}>
+                <div className="text-left p-4 rounded-lg mb-6" style={{ background: "var(--danger-bg)", border: "1px solid var(--danger-border)" }}>
                   <p className="text-[12px] font-semibold mb-2 flex items-center gap-1" style={{ color: "var(--danger)" }}>
                     <AlertCircle size={13} /> {progress.errors.length} fel
                   </p>
@@ -615,7 +615,7 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                     setFileName(""); setListName(""); setAssignees(new Set());
                     setStep("upload");
                   }}
-                  className="px-5 py-2 text-[13px] font-medium rounded-[10px]"
+                  className="px-5 py-2 text-[13px] font-medium rounded-md"
                   style={{ background: "var(--surface-inset)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)" }}
                 >
                   Importera fler
@@ -623,7 +623,7 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                 {progress.listId && (
                   <button
                     onClick={() => router.push(`/cockpit?listId=${progress.listId}`)}
-                    className="flex items-center gap-1.5 px-5 py-2 text-[13px] font-medium rounded-[10px]"
+                    className="flex items-center gap-1.5 px-5 py-2 text-[13px] font-medium rounded-md"
                     style={{ background: "var(--surface-inset)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)" }}
                   >
                     <Play size={12} fill="currentColor" />
@@ -632,8 +632,8 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                 )}
                 <button
                   onClick={() => router.push(progress.listId ? `/lists/${progress.listId}` : "/lists")}
-                  className="px-5 py-2 text-[13px] font-medium rounded-[10px]"
-                  style={{ background: "var(--accent)", color: "var(--bg)" }}
+                  className="px-5 py-2 text-[13px] font-medium rounded-md"
+                  style={{ background: "var(--accent)", color: "var(--on-accent)" }}
                 >
                   Öppna mappen →
                 </button>

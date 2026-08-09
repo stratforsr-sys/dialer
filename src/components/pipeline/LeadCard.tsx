@@ -51,13 +51,11 @@ export function LeadCard({
       className="group cursor-grab active:cursor-grabbing select-none"
     >
       <div
-        className="p-3 rounded-[10px] transition-shadow duration-150"
+        className="p-3 rounded-md transition-shadow duration-150"
         style={{
           background: "var(--surface)",
           border: "1px solid var(--border)",
-          boxShadow: isOverlay
-            ? "0 8px 24px rgba(0,0,0,0.15)"
-            : "var(--shadow-xs)",
+          boxShadow: isOverlay ? "var(--shadow-4)" : "var(--shadow-0)",
         }}
         onPointerUp={(e) => {
           // Only navigate on click (not after drag)
@@ -69,7 +67,7 @@ export function LeadCard({
         {/* Company name */}
         <div className="flex items-start gap-2 mb-2">
           <div
-            className="w-6 h-6 rounded-[6px] flex items-center justify-center text-[10px] font-bold shrink-0 mt-[1px]"
+            className="w-6 h-6 rounded-sm flex items-center justify-center text-[10px] font-bold shrink-0 mt-[1px]"
             style={{
               background: "var(--surface-inset)",
               color: "var(--text-secondary)",

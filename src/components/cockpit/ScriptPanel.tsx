@@ -33,7 +33,7 @@ export function ScriptPanel({ scripts }: { scripts: ResolvedScript[] }) {
     <div className="mb-3">
       {/* Öppningen — alltid synlig */}
       <div
-        className="rounded-[14px] px-4 py-3.5 mb-1.5"
+        className="rounded-lg px-4 py-3.5 mb-1.5"
         style={{ background: "var(--accent-muted)", border: "1px solid var(--border-strong)" }}
       >
         <p
@@ -57,7 +57,7 @@ export function ScriptPanel({ scripts }: { scripts: ResolvedScript[] }) {
         return (
           <div
             key={s.step}
-            className="rounded-[11px] mb-1 overflow-hidden"
+            className="rounded-md mb-1 overflow-hidden"
             style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}
           >
             <button

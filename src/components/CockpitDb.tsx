@@ -52,15 +52,15 @@ function IframePanel({ src, label, fallbackHref }: { src: string; label: string;
   if (failed) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4" style={{ background: "var(--surface-inset)" }}>
-        <div className="w-12 h-12 rounded-[14px] flex items-center justify-center" style={{ background: "var(--warning-bg)", border: "1px solid var(--warning-border)" }}>
+        <div className="w-12 h-12 rounded-lg flex items-center justify-center" style={{ background: "var(--warning-bg)", border: "1px solid var(--warning-border)" }}>
           <AlertTriangle size={20} style={{ color: "var(--warning)" }} />
         </div>
         <div className="text-center">
           <p className="text-[14px] font-medium mb-1" style={{ color: "var(--text)" }}>Kan inte bädda in sidan</p>
           <p className="text-[12px] mb-4" style={{ color: "var(--text-muted)" }}>Webbplatsen blockerar inbäddning</p>
           <a href={fallbackHref} target="_blank" rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-4 py-2 text-[13px] font-medium rounded-[10px]"
-            style={{ background: "var(--accent)", color: "var(--bg)" }}>
+            className="inline-flex items-center gap-2 px-4 py-2 text-[13px] font-medium rounded-md"
+            style={{ background: "var(--accent)", color: "var(--on-accent)" }}>
             <ExternalLink size={13} /> Öppna i ny flik
           </a>
         </div>
@@ -94,7 +94,7 @@ function EmailRow({ email }: { email: string }) {
     });
   }
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5 rounded-[12px]"
+    <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg"
       style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
       <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
         style={{ background: "var(--surface)", border: "1px solid var(--border-strong)" }}>
@@ -105,7 +105,7 @@ function EmailRow({ email }: { email: string }) {
         <p className="text-[13px] truncate" style={{ color: "var(--text)", fontFamily: "var(--font-mono)" }}>{email}</p>
       </div>
       <button onClick={copy} title="Kopiera e-post"
-        className="w-7 h-7 flex items-center justify-center rounded-[7px] transition-all shrink-0"
+        className="w-7 h-7 flex items-center justify-center rounded-sm transition-all shrink-0"
         style={{ background: copied ? "var(--success-bg)" : "var(--surface)", border: `1px solid ${copied ? "var(--success-border)" : "var(--border-strong)"}` }}>
         {copied ? <Check size={12} style={{ color: "var(--success)" }} /> : <Copy size={12} style={{ color: "var(--text-muted)" }} />}
       </button>
@@ -115,7 +115,84 @@ function EmailRow({ email }: { email: string }) {
 
 function formatIdle(s: number) {
   if (s < 60) return `${s}s`;
-  return `${Math.floor(s / 60)}m ${s % 60}s`;
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** Sekunder innan dödtiden räknas som full. Efter tre minuter mellan två
+ *  samtal har säljaren slutat ringa och börjat göra något annat. */
+const IDLE_CEILING = 180;
+
+/**
+ * Takten. Enda siffran i hela systemet som faktiskt driver samtalsvolym:
+ * tiden sedan förra dispositionen, och hur många samtal den takten ger
+ * per timme. Mätaren är avsiktligt placerad där blicken redan är — i
+ * headern, bredvid antalet samtal — och färgen eskalerar tyst.
+ *
+ * Samtal per timme visas först efter fem minuter. Dessförinnan är
+ * nämnaren så liten att talet studsar mellan 0 och 300 och bara blir brus.
+ */
+function PaceMeter({
+  totalCalls,
+  idleSeconds,
+  elapsedSeconds,
+}: {
+  totalCalls: number;
+  idleSeconds: number;
+  elapsedSeconds: number;
+}) {
+  const color =
+    idleSeconds >= IDLE_CEILING ? "var(--danger)"
+    : idleSeconds >= 90 ? "var(--warning)"
+    : idleSeconds >= 45 ? "var(--text-muted)"
+    : "var(--text-dim)";
+
+  const fill = Math.min(1, idleSeconds / IDLE_CEILING);
+  const perHour = elapsedSeconds >= 300 ? Math.round((totalCalls / elapsedSeconds) * 3600) : null;
+
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex items-center gap-1.5 text-[12px]" style={{ color: "var(--text-muted)" }}>
+        <Phone size={11} />
+        <span className="mono-nums">{totalCalls}</span>
+      </div>
+
+      {perHour !== null && (
+        <div
+          className="flex items-center gap-1 text-[12px]"
+          style={{ color: "var(--text-muted)" }}
+          title="Samtal per timme i den här sessionen"
+        >
+          <span className="mono-nums">{perHour}</span>
+          <span style={{ color: "var(--text-dim)" }}>/h</span>
+        </div>
+      )}
+
+      {/* Dödtid. Stapeln fylls mot tre minuter — en rörelse i ögonvrån
+          säger mer än siffran och kostar ingen uppmärksamhet. */}
+      <div
+        className="flex items-center gap-1.5"
+        title="Tid sedan senaste disposition"
+      >
+        <Clock size={11} style={{ color }} />
+        <span className="text-[12px] mono-nums tabular-nums" style={{ color, minWidth: 34 }}>
+          {formatIdle(idleSeconds)}
+        </span>
+        <span
+          className="hidden sm:block h-[3px] w-10 rounded-full overflow-hidden"
+          style={{ background: "var(--surface-inset)" }}
+        >
+          <span
+            className="block h-full rounded-full"
+            style={{
+              width: `${fill * 100}%`,
+              background: color,
+              transition: "width 1s linear, background-color 0.4s ease",
+            }}
+          />
+        </span>
+      </div>
+    </div>
+  );
 }
 
 /** Pitch-underlaget. Renderas bara för påståenden som faktiskt finns. */
@@ -142,7 +219,7 @@ function PitchPanel({ dossier }: { dossier: LeasedLead["dossier"] }) {
     : null;
 
   return (
-    <div className="rounded-[14px] p-3.5 mb-3"
+    <div className="rounded-lg p-3.5 mb-3"
       style={{ background: "var(--warning-bg)", border: "1px solid var(--warning-border)" }}>
       <div className="flex items-center justify-between mb-2">
         <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--warning)" }}>
@@ -221,7 +298,7 @@ function SeoPanel({ dossier }: { dossier: LeasedLead["dossier"] }) {
   const page = position != null ? Math.ceil(position / 10) : null;
 
   return (
-    <div className="rounded-[14px] p-3.5 mb-3"
+    <div className="rounded-lg p-3.5 mb-3"
       style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
       <div className="flex items-center justify-between mb-2.5">
         <div className="flex items-center gap-1.5">
@@ -444,6 +521,7 @@ export function CockpitDb({
   const [totalCalls, setTotalCalls] = useState(0);
   const [idleSeconds, setIdleSeconds] = useState(0);
   const [totalIdleSeconds, setTotalIdleSeconds] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>(null);
   const [notes, setNotes] = useState("");
   const [showDealModal, setShowDealModal] = useState(false);
@@ -462,6 +540,7 @@ export function CockpitDb({
 
   // ── Refs för värden som cleanup och tangentbord behöver färska ──────────
   const sessionIdRef = useRef<string | null>(null);
+  const sessionStartRef = useRef(Date.now());
   const totalCallsRef = useRef(0);
   const totalIdleRef = useRef(0);
   const leadsRef = useRef<LeasedLead[]>(initialLeads);
@@ -503,8 +582,13 @@ export function CockpitDb({
   }, []);
 
   // ── Idle-timer ─────────────────────────────────────────────────────────
+  // Samma tick driver både dödtiden och sessionslängden, så samtal/timme
+  // aldrig kan glida isär från klockan bredvid.
   useEffect(() => {
-    const t = setInterval(() => setIdleSeconds((s) => s + 1), 1000);
+    const t = setInterval(() => {
+      setIdleSeconds((s) => s + 1);
+      setElapsedSeconds(Math.round((Date.now() - sessionStartRef.current) / 1000));
+    }, 1000);
     return () => clearInterval(t);
   }, []);
 
@@ -784,7 +868,7 @@ export function CockpitDb({
           {totalCalls} samtal denna session.
           {exhausted && " Inga fler leads är ringbara just nu — resten väntar på sin tur i uppföljningen."}
         </p>
-        <button onClick={() => router.push(`/lists/${listId}`)} className="px-5 py-2 text-[13px] font-medium rounded-[10px] mt-2" style={{ background: "var(--accent)", color: "var(--bg)" }}>
+        <button onClick={() => router.push(`/lists/${listId}`)} className="px-5 py-2 text-[13px] font-medium rounded-md mt-2" style={{ background: "var(--accent)", color: "var(--on-accent)" }}>
           Tillbaka till listan
         </button>
       </div>
@@ -801,8 +885,8 @@ export function CockpitDb({
         {queue.failed.length > 0 && (
           <motion.div
             initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
-            className="absolute top-[62px] left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 rounded-[12px]"
-            style={{ background: "var(--danger-bg)", border: "1px solid var(--danger-border)", boxShadow: "var(--shadow-md)" }}
+            className="absolute top-[62px] left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 rounded-lg"
+            style={{ background: "var(--danger-bg)", border: "1px solid var(--danger-border)" }}
           >
             <AlertTriangle size={14} style={{ color: "var(--danger)" }} />
             <span className="text-[12px] font-medium" style={{ color: "var(--danger)" }}>
@@ -829,12 +913,11 @@ export function CockpitDb({
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1 text-[12px]" style={{ color: "var(--text-muted)" }}>
-            <Phone size={11} /> <span style={{ fontFamily: "var(--font-mono)" }}>{totalCalls}</span>
-          </div>
-          <div className="flex items-center gap-1 text-[12px]" style={{ color: idleSeconds > 120 ? "var(--warning)" : "var(--text-dim)" }}>
-            <Clock size={11} /> <span style={{ fontFamily: "var(--font-mono)" }}>{formatIdle(idleSeconds)}</span>
-          </div>
+          <PaceMeter
+            totalCalls={totalCalls}
+            idleSeconds={idleSeconds}
+            elapsedSeconds={elapsedSeconds}
+          />
           <span className="text-[12px] tabular-nums" style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
             {remaining} kvar
           </span>
@@ -863,12 +946,12 @@ export function CockpitDb({
             >
               {/* Bolagsrubrik */}
               <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-[12px] flex items-center justify-center text-[15px] font-bold shrink-0"
-                  style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text-secondary)", fontFamily: "var(--font-serif)" }}>
+                <div className="w-10 h-10 rounded-lg flex items-center justify-center text-[15px] font-bold shrink-0"
+                  style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text-secondary)", fontFamily: "var(--font-display)" }}>
                   {lead.companyName.charAt(0).toUpperCase()}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <h1 className="text-[20px] leading-tight truncate" style={{ color: "var(--text)", fontFamily: "var(--font-serif)" }}>
+                  <h1 className="text-[20px] leading-tight truncate" style={{ color: "var(--text)", fontFamily: "var(--font-display)" }}>
                     {lead.companyName}
                   </h1>
                   <div className="flex items-center gap-2 mt-[2px]">
@@ -914,7 +997,7 @@ export function CockpitDb({
                         {lead.contacts.map((c, i) => (
                           <button key={c.id} onClick={() => setContactIndex(i)}
                             className="w-5 h-5 rounded-full text-[9px] font-bold transition-all"
-                            style={{ background: i === contactIndex ? "var(--accent)" : "var(--surface-inset)", color: i === contactIndex ? "var(--bg)" : "var(--text-dim)", border: `1px solid ${i === contactIndex ? "var(--accent)" : "var(--border)"}` }}>
+                            style={{ background: i === contactIndex ? "var(--accent)" : "var(--surface-inset)", color: i === contactIndex ? "var(--on-accent)" : "var(--text-dim)", border: `1px solid ${i === contactIndex ? "var(--accent)" : "var(--border)"}` }}>
                             {c.name.charAt(0)}
                           </button>
                         ))}
@@ -923,7 +1006,7 @@ export function CockpitDb({
                   </div>
                 </div>
                 <button onClick={() => setShowDealModal(true)}
-                  className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-[9px] shrink-0"
+                  className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-md shrink-0"
                   style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text-muted)" }}
                   title="Skapa deal">
                   <TrendingUp size={11} /> Deal
@@ -970,8 +1053,8 @@ export function CockpitDb({
 
               {/* Kontaktkort */}
               {contact && (
-                <div className="rounded-[18px] p-5 mb-3"
-                  style={{ background: "var(--glass-bg)", backdropFilter: "var(--glass-blur)", WebkitBackdropFilter: "var(--glass-blur)", border: "1px solid var(--glass-border)", boxShadow: "var(--glass-shadow)" }}>
+                <div className="rounded-lg p-5 mb-3"
+                  style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
                   <div className="flex items-start justify-between mb-4">
                     <div>
                       {/* Förnamn + efternamn när importen har dem var för sig.
@@ -988,14 +1071,14 @@ export function CockpitDb({
                     <div className="flex items-center gap-1">
                       {websiteUrl && (
                         <button onClick={() => setDrawerTab("website")}
-                          className="w-7 h-7 flex items-center justify-center rounded-[7px]"
+                          className="w-7 h-7 flex items-center justify-center rounded-sm"
                           style={{ background: drawerTab === "website" ? "var(--accent-muted)" : "var(--surface-inset)", border: `1px solid ${drawerTab === "website" ? "var(--border-strong)" : "var(--border)"}` }}
                           title="Öppna hemsida">
                           <Globe size={12} style={{ color: drawerTab === "website" ? "var(--accent)" : "var(--text-muted)" }} />
                         </button>
                       )}
                       <button onClick={() => setDrawerTab("linkedin")}
-                        className="w-7 h-7 flex items-center justify-center rounded-[7px]"
+                        className="w-7 h-7 flex items-center justify-center rounded-sm"
                         style={{ background: drawerTab === "linkedin" ? "var(--accent-muted)" : "var(--surface-inset)", border: `1px solid ${drawerTab === "linkedin" ? "var(--border-strong)" : "var(--border)"}` }}
                         title="Öppna LinkedIn">
                         <Linkedin size={12} style={{ color: drawerTab === "linkedin" ? "var(--accent)" : "var(--text-muted)" }} />
@@ -1009,7 +1092,7 @@ export function CockpitDb({
                       saknar telefon, fast den står i filen. */}
                   <div className="flex flex-col gap-2">
                     {(contact.directPhoneE164 || contact.directPhone) && (
-                      <a href={`tel:${contact.directPhoneE164 ?? contact.directPhone}`} className="flex items-center gap-3 px-4 py-3 rounded-[12px]"
+                      <a href={`tel:${contact.directPhoneE164 ?? contact.directPhone}`} className="flex items-center gap-3 px-4 py-3 rounded-lg"
                         style={{ background: "var(--accent-muted)", border: "1px solid var(--border-strong)" }}>
                         <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--accent)" }}>
                           <Phone size={13} color="var(--bg)" />
@@ -1024,7 +1107,7 @@ export function CockpitDb({
                       </a>
                     )}
                     {(contact.switchboardE164 || contact.switchboard) && (
-                      <a href={`tel:${contact.switchboardE164 ?? contact.switchboard}`} className="flex items-center gap-3 px-4 py-3 rounded-[12px]"
+                      <a href={`tel:${contact.switchboardE164 ?? contact.switchboard}`} className="flex items-center gap-3 px-4 py-3 rounded-lg"
                         style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
                         <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--surface)", border: "1px solid var(--border-strong)" }}>
                           <Building2 size={12} style={{ color: "var(--text-muted)" }} />
@@ -1048,7 +1131,7 @@ export function CockpitDb({
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Anteckning — sparas med samtalet"
                 rows={2}
-                className="w-full resize-none text-[13px] px-4 py-3 rounded-[12px] outline-none mb-3"
+                className="w-full resize-none text-[13px] px-4 py-3 rounded-lg outline-none mb-3"
                 style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)", lineHeight: 1.5 }}
               />
 
@@ -1064,7 +1147,7 @@ export function CockpitDb({
 
               {/* Återuppringningsdatum */}
               {askCallback && (
-                <div className="rounded-[14px] p-4 mb-3" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+                <div className="rounded-lg p-4 mb-3" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
                   <p className="text-[11px] font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--text-dim)" }}>
                     När ska du ringa?
                   </p>
@@ -1074,13 +1157,13 @@ export function CockpitDb({
                       value={callbackAt}
                       onChange={(e) => setCallbackAt(e.target.value)}
                       autoFocus
-                      className="flex-1 px-3 py-2 text-[13px] rounded-[9px] outline-none"
+                      className="flex-1 px-3 py-2 text-[13px] rounded-md outline-none"
                       style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)" }}
                     />
                     <button
                       onClick={() => flow.result && commit({ result: flow.result, outcome: "CALLBACK_BOOKED", withGatekeeper: false })}
                       disabled={!callbackAt}
-                      className="px-4 py-2 text-[12px] font-semibold rounded-[9px]"
+                      className="px-4 py-2 text-[12px] font-semibold rounded-md"
                       style={{ background: callbackAt ? "var(--accent)" : "var(--surface)", color: callbackAt ? "var(--bg)" : "var(--text-dim)", border: "1px solid var(--border)" }}
                     >
                       Spara
@@ -1127,17 +1210,17 @@ export function CockpitDb({
               {flow.stage === "result" && (
                 <div className="flex items-center justify-between gap-2 mt-3">
                   <button onClick={prevLead} disabled={index === 0}
-                    className="flex items-center gap-1 text-[12px] px-3 py-2 rounded-[8px]"
+                    className="flex items-center gap-1 text-[12px] px-3 py-2 rounded-md"
                     style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)", opacity: index === 0 ? 0.4 : 1 }}>
                     <ChevronLeft size={13} /> Föregående
                   </button>
                   <button onClick={skipLead}
-                    className="flex items-center gap-1 text-[11px] px-3 py-2 rounded-[8px]"
+                    className="flex items-center gap-1 text-[11px] px-3 py-2 rounded-md"
                     style={{ color: "var(--text-dim)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
                     <SkipForward size={12} /> Skippa (S)
                   </button>
                   <button onClick={advance}
-                    className="flex items-center gap-1 text-[12px] px-3 py-2 rounded-[8px]"
+                    className="flex items-center gap-1 text-[12px] px-3 py-2 rounded-md"
                     style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
                     Nästa <ChevronRight size={13} />
                   </button>
@@ -1163,30 +1246,30 @@ export function CockpitDb({
             <motion.div key="drawer" initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
               transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
               className="fixed right-0 bottom-0 z-40 flex flex-col"
-              style={{ top: "52px", width: "62%", background: "var(--surface)", borderLeft: "1px solid var(--border)", boxShadow: "var(--shadow-xl)" }}>
+              style={{ top: "52px", width: "62%", background: "var(--surface)", borderLeft: "1px solid var(--border)", boxShadow: "var(--shadow-3)" }}>
               <div className="flex items-center justify-between px-4 h-[44px] border-b shrink-0" style={{ borderColor: "var(--border)" }}>
-                <div className="flex items-center gap-[2px] p-[2px] rounded-[8px]" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+                <div className="flex items-center gap-[2px] p-[2px] rounded-md" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
                   {websiteUrl && (
                     <button onClick={() => setDrawerTab("website")}
-                      className="flex items-center gap-1 px-2 py-[4px] text-[11px] font-medium rounded-[6px]"
+                      className="flex items-center gap-1 px-2 py-[4px] text-[11px] font-medium rounded-sm"
                       style={{ background: drawerTab === "website" ? "var(--surface)" : "transparent", color: drawerTab === "website" ? "var(--text)" : "var(--text-dim)" }}>
                       <Globe size={11} /> Hemsida
                     </button>
                   )}
                   <button onClick={() => setDrawerTab("linkedin")}
-                    className="flex items-center gap-1 px-2 py-[4px] text-[11px] font-medium rounded-[6px]"
+                    className="flex items-center gap-1 px-2 py-[4px] text-[11px] font-medium rounded-sm"
                     style={{ background: drawerTab === "linkedin" ? "var(--surface)" : "transparent", color: drawerTab === "linkedin" ? "var(--text)" : "var(--text-dim)" }}>
                     <Linkedin size={11} /> LinkedIn
                   </button>
                 </div>
                 <div className="flex items-center gap-2">
                   <a href={drawerTab === "website" ? websiteUrl ?? "#" : linkedinUrl} target="_blank" rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-[6px]"
+                    className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-sm"
                     style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
                     <ExternalLink size={11} /> Öppna
                   </a>
                   <button onClick={() => setDrawerTab(null)}
-                    className="w-7 h-7 flex items-center justify-center rounded-[7px]"
+                    className="w-7 h-7 flex items-center justify-center rounded-sm"
                     style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
                     <X size={13} />
                   </button>

@@ -116,7 +116,7 @@ export function ScriptEditor({
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <span className="text-[12px] font-semibold px-2 py-[3px] rounded-[7px]"
+            <span className="text-[12px] font-semibold px-2 py-[3px] rounded-sm"
               style={{
                 background: published ? "var(--success-bg)" : "var(--warning-bg)",
                 color: published ? "var(--success)" : "var(--warning)",
@@ -129,21 +129,21 @@ export function ScriptEditor({
           <div className="flex items-center gap-2">
             {readOnly ? (
               <button onClick={newDraft} disabled={saving}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold rounded-[9px]"
-                style={{ background: "var(--accent)", color: "var(--bg)" }}>
+                className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold rounded-md"
+                style={{ background: "var(--accent)", color: "var(--on-accent)" }}>
                 {saving ? <Loader2 size={11} className="animate-spin" /> : <FileText size={11} />}
                 Nytt utkast
               </button>
             ) : (
               <>
                 <button onClick={save} disabled={saving}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded-[9px]"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded-md"
                   style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text-muted)" }}>
                   {saved ? <><Check size={11} /> Sparat</> : "Spara utkast"}
                 </button>
                 <button onClick={publish} disabled={saving}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold rounded-[9px]"
-                  style={{ background: "var(--accent)", color: "var(--bg)" }}>
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold rounded-md"
+                  style={{ background: "var(--accent)", color: "var(--on-accent)" }}>
                   {saving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
                   Publicera
                 </button>
@@ -153,7 +153,7 @@ export function ScriptEditor({
         </div>
 
         {published && (
-          <p className="text-[12px] mb-3 px-3 py-2 rounded-[9px]"
+          <p className="text-[12px] mb-3 px-3 py-2 rounded-md"
             style={{ background: "var(--surface-inset)", color: "var(--text-muted)", border: "1px solid var(--border)" }}>
             Publicerade versioner går inte att ändra. Statistiken från varje samtal pekar på den
             text som faktiskt visades — ändrades den i efterhand skulle jämförelser mellan
@@ -162,7 +162,7 @@ export function ScriptEditor({
         )}
 
         {publishError.length > 0 && (
-          <div className="mb-3 px-3 py-2 rounded-[9px]"
+          <div className="mb-3 px-3 py-2 rounded-md"
             style={{ background: "var(--danger-bg)", border: "1px solid var(--danger-border)" }}>
             {publishError.map((p, i) => (
               <p key={i} className="text-[12px]" style={{ color: "var(--danger)" }}>{p}</p>
@@ -187,7 +187,7 @@ export function ScriptEditor({
 
         {!readOnly && (
           <button onClick={addVariant}
-            className="flex items-center gap-1.5 mt-3 px-3 py-2 text-[12px] rounded-[9px] w-full justify-center"
+            className="flex items-center gap-1.5 mt-3 px-3 py-2 text-[12px] rounded-md w-full justify-center"
             style={{ background: "var(--surface-inset)", border: "1px dashed var(--border-strong)", color: "var(--text-muted)" }}>
             <Plus size={12} /> Lägg till variant
           </button>
@@ -205,7 +205,7 @@ export function ScriptEditor({
             {previewing && <Loader2 size={10} className="animate-spin" style={{ color: "var(--text-dim)" }} />}
           </div>
 
-          <div className="rounded-[14px] p-4 mb-3"
+          <div className="rounded-lg p-4 mb-3"
             style={{ background: "var(--surface)", border: "1px solid var(--border-strong)" }}>
             {preview?.usedLead && (
               <p className="text-[10px] mb-2" style={{ color: "var(--text-dim)" }}>
@@ -233,7 +233,7 @@ export function ScriptEditor({
           </div>
 
           {preview && preview.problems.length > 0 && (
-            <div className="rounded-[12px] p-3 mb-3"
+            <div className="rounded-lg p-3 mb-3"
               style={{ background: "var(--warning-bg)", border: "1px solid var(--warning-border)" }}>
               {preview.problems.map((p, i) => (
                 <div key={i} className="flex items-start gap-1.5 mb-1 last:mb-0">
@@ -244,7 +244,7 @@ export function ScriptEditor({
             </div>
           )}
 
-          <div className="rounded-[12px] p-3" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+          <div className="rounded-lg p-3" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
             <p className="text-[10px] font-semibold uppercase tracking-widest mb-1.5" style={{ color: "var(--text-dim)" }}>
               Platshållare
             </p>
@@ -301,11 +301,11 @@ function VariantCard({
   const missing = used.filter((k) => !variant.requiredKeys.includes(k));
 
   return (
-    <div className="rounded-[14px] p-4"
+    <div className="rounded-lg p-4"
       style={{
         background: "var(--surface)",
         border: `1px solid ${isWinner ? "var(--accent)" : "var(--border)"}`,
-        boxShadow: isWinner ? "0 0 0 2px var(--accent-muted)" : "none",
+        boxShadow: isWinner ? "0 0 0 1px var(--accent-border)" : "none",
       }}>
       <div className="flex items-center gap-2 mb-2.5">
         <GripVertical size={13} style={{ color: "var(--text-dim)" }} />
@@ -318,7 +318,7 @@ function VariantCard({
         />
         {isWinner && (
           <span className="text-[10px] font-semibold px-2 py-[2px] rounded-full"
-            style={{ background: "var(--accent)", color: "var(--bg)" }}>
+            style={{ background: "var(--accent)", color: "var(--on-accent)" }}>
             Visas nu
           </span>
         )}
@@ -329,12 +329,12 @@ function VariantCard({
             value={variant.priority}
             onChange={(e) => onChange({ priority: Number(e.target.value) })}
             disabled={readOnly}
-            className="w-12 px-1.5 py-[2px] text-[11px] rounded-[6px] outline-none text-center"
+            className="w-12 px-1.5 py-[2px] text-[11px] rounded-sm outline-none text-center"
             style={{ background: "var(--surface-inset)", border: "1px solid var(--border)", color: "var(--text)" }}
           />
         </label>
         {!readOnly && index > 0 && (
-          <button onClick={onRemove} className="w-6 h-6 flex items-center justify-center rounded-[6px]"
+          <button onClick={onRemove} className="w-6 h-6 flex items-center justify-center rounded-sm"
             style={{ color: "var(--text-dim)" }}>
             <Trash2 size={12} />
           </button>
@@ -349,7 +349,7 @@ function VariantCard({
         placeholder={"Jag såg att ni ligger på plats {seo.rank} när folk googlar {seo.keyword} — vet ni om det?\n\nRadbrytningar och blankrader behålls exakt som du skriver dem."}
         // resize-y i stället för resize-none: ett manus med flera stycken ska
         // gå att se i sin helhet medan det skrivs.
-        className="w-full resize-y text-[13px] px-3 py-2.5 rounded-[10px] outline-none leading-relaxed"
+        className="w-full resize-y text-[13px] px-3 py-2.5 rounded-md outline-none leading-relaxed"
         style={{ background: "var(--surface-inset)", border: "1px solid var(--border)", color: "var(--text)" }}
       />
 
@@ -415,7 +415,7 @@ function VariantCard({
             value={variant.minConfidence}
             onChange={(e) => onChange({ minConfidence: Number(e.target.value) })}
             disabled={readOnly}
-            className="w-11 px-1.5 py-[2px] text-[10px] rounded-[6px] outline-none text-center"
+            className="w-11 px-1.5 py-[2px] text-[10px] rounded-sm outline-none text-center"
             style={{ background: "var(--surface-inset)", border: "1px solid var(--border)", color: "var(--text)" }}
           />
         </label>

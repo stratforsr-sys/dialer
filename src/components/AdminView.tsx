@@ -13,7 +13,7 @@ type Product = { id: string; name: string; description: string | null; basePrice
 
 function Section({ title, icon: Icon, children }: { title: string; icon: React.ElementType; children: React.ReactNode }) {
   return (
-    <div className="rounded-[16px] overflow-hidden" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+    <div className="rounded-lg overflow-hidden" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
       <div className="flex items-center gap-2 px-5 py-4 border-b" style={{ borderColor: "var(--border)" }}>
         <Icon size={15} style={{ color: "var(--text-muted)" }} />
         <h2 className="text-[14px] font-semibold" style={{ color: "var(--text)" }}>{title}</h2>
@@ -85,14 +85,14 @@ export function AdminView({ users, stages, products }: { users: UserRow[]; stage
       <div className="flex items-center justify-between px-6 h-[56px] border-b shrink-0"
         style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
         <h1 className="text-[15px] font-semibold" style={{ color: "var(--text)" }}>Admin</h1>
-        <div className="flex gap-1 p-1 rounded-[8px]" style={{ background: "var(--surface-inset)" }}>
+        <div className="flex gap-1 p-1 rounded-md" style={{ background: "var(--surface-inset)" }}>
           {(["users", "pipeline", "products"] as const).map((t) => (
             <button key={t} onClick={() => setTab(t)}
-              className="px-3 py-[5px] text-[12px] font-medium rounded-[6px] transition-colors"
+              className="px-3 py-[5px] text-[12px] font-medium rounded-sm transition-colors"
               style={{
                 background: tab === t ? "var(--surface)" : "transparent",
                 color: tab === t ? "var(--text)" : "var(--text-muted)",
-                boxShadow: tab === t ? "var(--shadow-xs)" : "none",
+                boxShadow: tab === t ? "var(--shadow-1)" : "none",
               }}>
               {t === "users" ? "Användare" : t === "pipeline" ? "Pipeline" : "Produkter"}
             </button>
@@ -109,10 +109,10 @@ export function AdminView({ users, stages, products }: { users: UserRow[]; stage
                 <Section title={`Användare (${users.length})`} icon={Users}>
                   <div className="flex flex-col gap-2 mb-4">
                     {users.map((u) => (
-                      <div key={u.id} className="flex items-center gap-3 px-3 py-2 rounded-[10px]"
+                      <div key={u.id} className="flex items-center gap-3 px-3 py-2 rounded-md"
                         style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
                         <div className="w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-bold shrink-0"
-                          style={{ background: "var(--accent)", color: "white" }}>
+                          style={{ background: "var(--accent)", color: "var(--on-accent)" }}>
                           {u.name.charAt(0).toUpperCase()}
                         </div>
                         <div className="flex-1 min-w-0">
@@ -122,7 +122,7 @@ export function AdminView({ users, stages, products }: { users: UserRow[]; stage
                         <select
                           value={u.role}
                           onChange={(e) => startTransition(() => updateUserRole(u.id, e.target.value as "ADMIN" | "SELLER"))}
-                          className="text-[11px] outline-none px-2 py-1 rounded-[6px]"
+                          className="text-[11px] outline-none px-2 py-1 rounded-sm"
                           style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text-muted)" }}>
                           <option value="SELLER">Säljare</option>
                           <option value="ADMIN">Admin</option>
@@ -140,7 +140,7 @@ export function AdminView({ users, stages, products }: { users: UserRow[]; stage
 
                   {!showNewUser ? (
                     <button onClick={() => setShowNewUser(true)}
-                      className="flex items-center gap-2 w-full py-2 text-[13px] font-medium rounded-[8px] transition-colors justify-center"
+                      className="flex items-center gap-2 w-full py-2 text-[13px] font-medium rounded-md transition-colors justify-center"
                       style={{ border: "1.5px dashed var(--border-strong)", color: "var(--text-muted)" }}>
                       <Plus size={14} /> Lägg till användare
                     </button>
@@ -156,22 +156,22 @@ export function AdminView({ users, stages, products }: { users: UserRow[]; stage
                           <input key={key} type={type} placeholder={placeholder} required
                             value={newUser[key as keyof typeof newUser]}
                             onChange={(e) => setNewUser((u) => ({ ...u, [key]: e.target.value }))}
-                            className={`text-[13px] outline-none px-3 py-2 rounded-[8px] ${key === "password" ? "col-span-2" : ""}`}
+                            className={`text-[13px] outline-none px-3 py-2 rounded-md ${key === "password" ? "col-span-2" : ""}`}
                             style={{ background: "var(--surface-inset)", border: "1px solid var(--border-strong)", color: "var(--text)" }} />
                         ))}
                         <select value={newUser.role} onChange={(e) => setNewUser((u) => ({ ...u, role: e.target.value as "ADMIN" | "SELLER" }))}
-                          className="text-[13px] outline-none px-3 py-2 rounded-[8px]"
+                          className="text-[13px] outline-none px-3 py-2 rounded-md"
                           style={{ background: "var(--surface-inset)", border: "1px solid var(--border-strong)", color: "var(--text)" }}>
                           <option value="SELLER">Säljare</option>
                           <option value="ADMIN">Admin</option>
                         </select>
                       </div>
-                      {error && <p className="text-[12px] px-3 py-2 rounded-[8px]" style={{ background: "var(--danger-bg)", color: "var(--danger)" }}>{error}</p>}
+                      {error && <p className="text-[12px] px-3 py-2 rounded-md" style={{ background: "var(--danger-bg)", color: "var(--danger)" }}>{error}</p>}
                       <div className="flex gap-2">
-                        <button type="button" onClick={() => setShowNewUser(false)} className="flex-1 py-2 text-[13px] rounded-[8px]"
+                        <button type="button" onClick={() => setShowNewUser(false)} className="flex-1 py-2 text-[13px] rounded-md"
                           style={{ background: "var(--surface-inset)", color: "var(--text-muted)", border: "1px solid var(--border)" }}>Avbryt</button>
-                        <button type="submit" disabled={isPending} className="flex-1 py-2 text-[13px] font-medium rounded-[8px]"
-                          style={{ background: "var(--accent)", color: "white" }}>Skapa</button>
+                        <button type="submit" disabled={isPending} className="flex-1 py-2 text-[13px] font-medium rounded-md"
+                          style={{ background: "var(--accent)", color: "var(--on-accent)" }}>Skapa</button>
                       </div>
                     </motion.form>
                   )}
@@ -184,7 +184,7 @@ export function AdminView({ users, stages, products }: { users: UserRow[]; stage
                 <Section title="Pipeline-steg" icon={Layers}>
                   <div className="flex flex-col gap-2 mb-4">
                     {stages.map((s) => (
-                      <div key={s.id} className="flex items-center gap-3 px-3 py-2 rounded-[10px]"
+                      <div key={s.id} className="flex items-center gap-3 px-3 py-2 rounded-md"
                         style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
                         <input type="color" value={s.color}
                           onChange={(e) => { const c = e.target.value; startTransition(async () => { await updateStage(s.id, { color: c }); }); }}
@@ -210,7 +210,7 @@ export function AdminView({ users, stages, products }: { users: UserRow[]; stage
 
                   {!showNewStage ? (
                     <button onClick={() => setShowNewStage(true)}
-                      className="flex items-center gap-2 w-full py-2 text-[13px] font-medium rounded-[8px] justify-center"
+                      className="flex items-center gap-2 w-full py-2 text-[13px] font-medium rounded-md justify-center"
                       style={{ border: "1.5px dashed var(--border-strong)", color: "var(--text-muted)" }}>
                       <Plus size={14} /> Lägg till steg
                     </button>
@@ -218,14 +218,14 @@ export function AdminView({ users, stages, products }: { users: UserRow[]; stage
                     <motion.form initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
                       onSubmit={handleCreateStage} className="flex gap-2 overflow-hidden">
                       <input type="color" value={newStage.color} onChange={(e) => setNewStage((s) => ({ ...s, color: e.target.value }))}
-                        className="w-10 h-9 rounded-[8px] cursor-pointer border-0 shrink-0" style={{ background: "var(--surface-inset)", border: "1px solid var(--border-strong)" }} />
+                        className="w-10 h-9 rounded-md cursor-pointer border-0 shrink-0" style={{ background: "var(--surface-inset)", border: "1px solid var(--border-strong)" }} />
                       <input value={newStage.name} onChange={(e) => setNewStage((s) => ({ ...s, name: e.target.value }))}
-                        placeholder="Stegnamn" required className="flex-1 text-[13px] outline-none px-3 py-2 rounded-[8px]"
+                        placeholder="Stegnamn" required className="flex-1 text-[13px] outline-none px-3 py-2 rounded-md"
                         style={{ background: "var(--surface-inset)", border: "1px solid var(--border-strong)", color: "var(--text)" }} />
-                      <button type="button" onClick={() => setShowNewStage(false)} className="px-3 py-2 text-[12px] rounded-[8px]"
+                      <button type="button" onClick={() => setShowNewStage(false)} className="px-3 py-2 text-[12px] rounded-md"
                         style={{ background: "var(--surface-inset)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>Avbryt</button>
-                      <button type="submit" disabled={isPending} className="px-3 py-2 text-[12px] font-medium rounded-[8px]"
-                        style={{ background: "var(--accent)", color: "white" }}>Skapa</button>
+                      <button type="submit" disabled={isPending} className="px-3 py-2 text-[12px] font-medium rounded-md"
+                        style={{ background: "var(--accent)", color: "var(--on-accent)" }}>Skapa</button>
                     </motion.form>
                   )}
                 </Section>
@@ -237,7 +237,7 @@ export function AdminView({ users, stages, products }: { users: UserRow[]; stage
                 <Section title={`Produktkatalog (${products.filter(p => p.active).length})`} icon={Package}>
                   <div className="flex flex-col gap-2 mb-4">
                     {products.map((p) => (
-                      <div key={p.id} className="flex items-center gap-3 px-3 py-2 rounded-[10px]"
+                      <div key={p.id} className="flex items-center gap-3 px-3 py-2 rounded-md"
                         style={{ background: "var(--surface-inset)", border: "1px solid var(--border)", opacity: p.active ? 1 : 0.5 }}>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
@@ -272,7 +272,7 @@ export function AdminView({ users, stages, products }: { users: UserRow[]; stage
 
                   {!showNewProduct ? (
                     <button onClick={() => setShowNewProduct(true)}
-                      className="flex items-center gap-2 w-full py-2 text-[13px] font-medium rounded-[8px] justify-center"
+                      className="flex items-center gap-2 w-full py-2 text-[13px] font-medium rounded-md justify-center"
                       style={{ border: "1.5px dashed var(--border-strong)", color: "var(--text-muted)" }}>
                       <Plus size={14} /> Lägg till produkt
                     </button>
@@ -281,28 +281,28 @@ export function AdminView({ users, stages, products }: { users: UserRow[]; stage
                       onSubmit={handleCreateProduct} className="flex flex-col gap-2 overflow-hidden">
                       <div className="grid grid-cols-2 gap-2">
                         <input value={newProduct.name} onChange={(e) => setNewProduct((p) => ({ ...p, name: e.target.value }))}
-                          placeholder="Produktnamn" required className="col-span-2 text-[13px] outline-none px-3 py-2 rounded-[8px]"
+                          placeholder="Produktnamn" required className="col-span-2 text-[13px] outline-none px-3 py-2 rounded-md"
                           style={{ background: "var(--surface-inset)", border: "1px solid var(--border-strong)", color: "var(--text)" }} />
                         <input value={newProduct.description} onChange={(e) => setNewProduct((p) => ({ ...p, description: e.target.value }))}
-                          placeholder="Beskrivning (valfri)" className="col-span-2 text-[13px] outline-none px-3 py-2 rounded-[8px]"
+                          placeholder="Beskrivning (valfri)" className="col-span-2 text-[13px] outline-none px-3 py-2 rounded-md"
                           style={{ background: "var(--surface-inset)", border: "1px solid var(--border-strong)", color: "var(--text)" }} />
                         <input type="number" value={newProduct.basePrice} onChange={(e) => setNewProduct((p) => ({ ...p, basePrice: e.target.value }))}
-                          placeholder="Baspris (kr)" className="text-[13px] outline-none px-3 py-2 rounded-[8px]"
+                          placeholder="Baspris (kr)" className="text-[13px] outline-none px-3 py-2 rounded-md"
                           style={{ background: "var(--surface-inset)", border: "1px solid var(--border-strong)", color: "var(--text)" }} />
                         <input value={newProduct.unit} onChange={(e) => setNewProduct((p) => ({ ...p, unit: e.target.value }))}
-                          placeholder="Enhet (t.ex. mån, år)" className="text-[13px] outline-none px-3 py-2 rounded-[8px]"
+                          placeholder="Enhet (t.ex. mån, år)" className="text-[13px] outline-none px-3 py-2 rounded-md"
                           style={{ background: "var(--surface-inset)", border: "1px solid var(--border-strong)", color: "var(--text)" }} />
                       </div>
                       <label className="flex items-center gap-2 cursor-pointer text-[13px]" style={{ color: "var(--text-muted)" }}>
                         <input type="checkbox" checked={newProduct.isRecurring} onChange={(e) => setNewProduct((p) => ({ ...p, isRecurring: e.target.checked }))} />
                         Återkommande (ARR)
                       </label>
-                      {error && <p className="text-[12px] px-3 py-2 rounded-[8px]" style={{ background: "var(--danger-bg)", color: "var(--danger)" }}>{error}</p>}
+                      {error && <p className="text-[12px] px-3 py-2 rounded-md" style={{ background: "var(--danger-bg)", color: "var(--danger)" }}>{error}</p>}
                       <div className="flex gap-2">
-                        <button type="button" onClick={() => setShowNewProduct(false)} className="flex-1 py-2 text-[13px] rounded-[8px]"
+                        <button type="button" onClick={() => setShowNewProduct(false)} className="flex-1 py-2 text-[13px] rounded-md"
                           style={{ background: "var(--surface-inset)", color: "var(--text-muted)", border: "1px solid var(--border)" }}>Avbryt</button>
-                        <button type="submit" disabled={isPending} className="flex-1 py-2 text-[13px] font-medium rounded-[8px]"
-                          style={{ background: "var(--accent)", color: "white" }}>Skapa</button>
+                        <button type="submit" disabled={isPending} className="flex-1 py-2 text-[13px] font-medium rounded-md"
+                          style={{ background: "var(--accent)", color: "var(--on-accent)" }}>Skapa</button>
                       </div>
                     </motion.form>
                   )}

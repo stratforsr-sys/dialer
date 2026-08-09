@@ -17,7 +17,7 @@ export default function StatsLoading() {
           {Array.from({ length: 4 }).map((_, i) => (
             <div
               key={i}
-              className="rounded-[16px] p-5 flex flex-col gap-3"
+              className="rounded-lg p-5 flex flex-col gap-3"
               style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
             >
               <Bar w={104} h={11} />
@@ -29,7 +29,7 @@ export default function StatsLoading() {
 
         {/* Diagramytan */}
         <div
-          className="rounded-[16px] p-5 flex flex-col gap-4"
+          className="rounded-lg p-5 flex flex-col gap-4"
           style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
         >
           <Bar w={150} h={13} />

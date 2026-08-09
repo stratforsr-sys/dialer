@@ -60,8 +60,8 @@ export default function LoginPage() {
           style={{
             background: "var(--surface)",
             border: "1px solid var(--border-strong)",
-            borderRadius: "22px",
-            boxShadow: "var(--shadow-lg)",
+            borderRadius: "var(--r-lg)",
+            boxShadow: "var(--shadow-3)",
             padding: "40px",
           }}
         >
@@ -78,13 +78,13 @@ export default function LoginPage() {
           <div className="mb-10">
             <div className="flex items-center gap-3 mb-2">
               <div
-                className="w-8 h-8 rounded-[8px] flex items-center justify-center"
+                className="w-8 h-8 rounded-md flex items-center justify-center"
                 style={{ background: "var(--accent)", flexShrink: 0 }}
               >
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                   <path
                     d="M3 8a5 5 0 0 1 5-5m0 0a5 5 0 0 1 5 5m-5-5V2m5 6h1M2 8H1m2.636-3.364-.707-.707M12.07 4.636l.707-.707M8 13v1m-3.364-2.636-.707.707M11.364 11.364l.707.707"
-                    stroke="white"
+                    stroke="var(--on-accent)"
                     strokeWidth="1.5"
                     strokeLinecap="round"
                   />
@@ -125,7 +125,7 @@ export default function LoginPage() {
                 style={{
                   background: "var(--surface-inset)",
                   border: "1px solid var(--border-strong)",
-                  borderRadius: "10px",
+                  borderRadius: "var(--r-md)",
                   padding: "10px 14px",
                   color: "var(--text)",
                 }}
@@ -155,7 +155,7 @@ export default function LoginPage() {
                 style={{
                   background: "var(--surface-inset)",
                   border: "1px solid var(--border-strong)",
-                  borderRadius: "10px",
+                  borderRadius: "var(--r-md)",
                   padding: "10px 14px",
                   color: "var(--text)",
                 }}
@@ -173,7 +173,7 @@ export default function LoginPage() {
               <motion.div
                 initial={{ opacity: 0, y: -4 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="text-[13px] px-3 py-2 rounded-[8px]"
+                className="text-[13px] px-3 py-2 rounded-md"
                 style={{
                   background: "var(--danger-bg)",
                   border: "1px solid var(--danger-border)",
@@ -192,7 +192,7 @@ export default function LoginPage() {
               style={{
                 background: loading ? "var(--accent-muted)" : "var(--accent)",
                 color: "white",
-                borderRadius: "10px",
+                borderRadius: "var(--r-md)",
                 padding: "11px",
                 border: "none",
                 cursor: loading ? "not-allowed" : "pointer",

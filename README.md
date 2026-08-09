@@ -78,32 +78,45 @@ npm run dev
 ```
 src/
 ├── app/
-│   ├── globals.css      # Brand styles, animations, scrollbars
-│   ├── layout.tsx        # Root layout with fonts
-│   └── page.tsx          # Main orchestrator (state management)
+│   ├── globals.css       # Designsystem: tokens, elevation, komponentklasser
+│   ├── layout.tsx        # Root layout, fonter
+│   ├── cockpit/          # Power-dialing
+│   ├── lists/            # Ringlistor
+│   ├── leads/            # Leads + leaddetalj
+│   ├── pipeline/         # Kanban
+│   ├── stats/            # Statistik
+│   ├── import/           # Import av lead-filer
+│   └── admin/            # Golvet, manus, dialerinställningar, användare
 ├── components/
-│   ├── Sidebar.tsx       # Navigation sidebar
-│   ├── ImportView.tsx    # CSV upload with drag & drop
-│   ├── MappingView.tsx   # Column-to-field mapper
-│   ├── DashboardView.tsx # Stats, progress, daily goal
-│   ├── ListView.tsx      # Sortable contact table
-│   └── CockpitView.tsx   # Focus mode with research engine
+│   ├── AppSidebar.tsx    # Navigationsskena, expanderbar och pinnbar
+│   ├── CockpitDb.tsx     # Cockpit
+│   ├── cockpit/          # Disposition, ramverk, växel, manuspanel
+│   ├── lists/ leads/ pipeline/ stats/ scripts/ admin/ deals/
+│   └── skeletons/
 ├── lib/
-│   ├── constants.ts      # Brand, status defs, demo data
-│   └── csv-parser.ts     # CSV parsing + auto-mapping
+│   ├── scheduler.ts      # Uppföljningsmotorn
+│   ├── script-resolver.ts
+│   ├── enrichment/       # Berikning av leads
+│   └── research/         # Researchmotorn
 └── types/
-    └── index.ts          # TypeScript interfaces
 ```
 
-## Brand Colors
+## Designsystem
 
-| Token | Hex | Usage |
-|-------|-----|-------|
-| `bg` | `#0a0f1a` | Page background |
-| `surface` | `#0f1c2e` | Cards, panels |
-| `green` | `#3DD68C` | Primary accent (Clicknet green) |
-| `text` | `#e8edf4` | Primary text |
-| `muted` | `#8899aa` | Secondary text |
+Doktrin och tokens ligger överst i `src/app/globals.css`, reglerna i `CLAUDE.md`.
+Kort version: lager separeras med yta och linje, skuggan har fem nivåer och
+betyder en relation, accenten är en ficklampa.
+
+| Token | Ljus | Mörk | Användning |
+|-------|------|------|------------|
+| `--bg` | `#F1F3F6` | `#0C0E12` | Sidbotten |
+| `--surface` | `#FFFFFF` | `#161A20` | Kort, paneler |
+| `--accent` | `#0B7F6E` | `#2FC08F` | Primär åtgärd, aktivt läge, fokusring |
+| `--text` | `#101828` | `#ECEFF4` | Brödtext |
+| `--text-muted` | `#667085` | `#8A93A3` | Sekundär text |
+
+Clicknet-grönt `#3DD68C` bor kvar i `--accent-bright` för grafik på mörk yta.
+Som knappyta i ljust läge ger det 1,7:1 mot vit text, därav den sänkta valören.
 
 ---
 

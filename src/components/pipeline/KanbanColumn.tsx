@@ -40,7 +40,7 @@ export function KanbanColumn({
     >
       {/* Column header */}
       <div
-        className="flex items-center justify-between px-3 py-2 mb-2 rounded-[10px]"
+        className="flex items-center justify-between px-3 py-2 mb-2 rounded-md"
         style={{
           background: stage.color + "14",
           border: `1px solid ${stage.color}28`,
@@ -72,7 +72,7 @@ export function KanbanColumn({
       {/* Drop zone */}
       <div
         ref={setNodeRef}
-        className="flex flex-col gap-2 flex-1 min-h-[200px] rounded-[12px] p-2 transition-colors duration-150"
+        className="flex flex-col gap-2 flex-1 min-h-[200px] rounded-lg p-2 transition-colors duration-150"
         style={{
           background: isOver
             ? stage.color + "0e"

@@ -24,8 +24,7 @@ const config: Config = {
           dim: "var(--text-dim)",
           accent: "var(--accent)",
           "accent-muted": "var(--accent-muted)",
-          "accent-hover": "var(--success)",
-          violet: "#8b5cf6",
+          "accent-hover": "var(--accent-hover)",
         },
         // ELITE ENGINEER - Theme-aware using CSS variables
         // These follow the light/dark theme automatically
@@ -73,11 +72,15 @@ const config: Config = {
           // Accent - Single brand accent
           accent: "var(--accent)",
           "accent-muted": "var(--accent-muted)",
+          "accent-hover": "var(--accent-hover)",
+          "accent-border": "var(--accent-border)",
+          "on-accent": "var(--on-accent)",
         },
       },
       fontFamily: {
-        sans: ['"Geist"', '"Inter"', "system-ui", "-apple-system", "BlinkMacSystemFont", "sans-serif"],
-        mono: ['"Geist Mono"', '"JetBrains Mono"', "Menlo", "Monaco", "monospace"],
+        sans: ["var(--font-sans)", '"Inter"', "system-ui", "-apple-system", "sans-serif"],
+        display: ["var(--font-display)", "var(--font-sans)", "system-ui", "sans-serif"],
+        mono: ["var(--font-mono)", '"JetBrains Mono"', "Menlo", "Monaco", "monospace"],
       },
       fontSize: {
         "2xs": ["0.65rem", { lineHeight: "1rem" }],
@@ -88,38 +91,36 @@ const config: Config = {
         "tight-pro": "-0.02em",
         "tight-body": "-0.011em",
       },
+      // Fyra radier. Fler går inte att hålla ihop över 34 komponenter —
+      // tidigare fanns tretton hårdkodade värden mellan 3px och 20px.
       borderRadius: {
-        DEFAULT: "6px",
-        sm: "4px",
-        md: "8px",
-        lg: "10px",
-        xl: "12px",
-        "2xl": "16px",
+        DEFAULT: "var(--r-md)",
+        none: "0",
+        sm: "var(--r-sm)",   // 6px  — badge, kbd, tagg, progress
+        md: "var(--r-md)",   // 10px — knapp, input, nav-item, rad
+        lg: "var(--r-lg)",   // 14px — kort, panel, modal
+        xl: "var(--r-lg)",
+        "2xl": "var(--r-lg)",
+        "3xl": "var(--r-lg)",
+        full: "var(--r-full)",
       },
+      // Elevation är en relation, inte dekoration. Se doktrinen överst
+      // i globals.css. Tailwinds egna sm/md/lg/xl pekas om hit så att
+      // en klass aldrig kan smita förbi skalan.
       boxShadow: {
-        // Ambient occlusion - Double shadows for depth
-        "elevation-1": "0 1px 2px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.3)",
-        "elevation-2": "0 2px 4px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.3)",
-        "elevation-3": "0 4px 8px rgba(0, 0, 0, 0.4), 0 8px 16px rgba(0, 0, 0, 0.25)",
-        "elevation-4": "0 8px 16px rgba(0, 0, 0, 0.4), 0 16px 32px rgba(0, 0, 0, 0.2)",
-
-        // Card shadows - Subtle glow
-        "card": "0 0 0 1px rgba(255, 255, 255, 0.03), 0 1px 2px rgba(0, 0, 0, 0.5)",
-        "card-hover": "0 0 0 1px rgba(255, 255, 255, 0.06), 0 4px 12px rgba(0, 0, 0, 0.4)",
-        "card-active": "0 0 0 1px rgba(34, 197, 94, 0.3), 0 0 12px rgba(34, 197, 94, 0.1)",
-
-        // Glow effects
-        "glow-success": "0 0 20px rgba(34, 197, 94, 0.15)",
-        "glow-danger": "0 0 20px rgba(239, 68, 68, 0.15)",
-        "glow-info": "0 0 20px rgba(59, 130, 246, 0.15)",
-
-        // Inner shadows
-        "inner-glow": "inset 0 1px 0 0 rgba(255, 255, 255, 0.03)",
-        "inner-shadow": "inset 0 2px 4px 0 rgba(0, 0, 0, 0.3)",
-
-        // Focus ring
-        "ring": "0 0 0 2px rgba(34, 197, 94, 0.3)",
-        "ring-white": "0 0 0 2px rgba(255, 255, 255, 0.1)",
+        none: "none",
+        "elevation-0": "none",
+        "elevation-1": "var(--shadow-1)",
+        "elevation-2": "var(--shadow-2)",
+        "elevation-3": "var(--shadow-3)",
+        "elevation-4": "var(--shadow-4)",
+        sm: "var(--shadow-1)",
+        DEFAULT: "var(--shadow-1)",
+        md: "var(--shadow-2)",
+        lg: "var(--shadow-3)",
+        xl: "var(--shadow-4)",
+        "2xl": "var(--shadow-4)",
+        inner: "var(--shadow-inset)",
       },
       animation: {
         "fade-in": "fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1)",
@@ -164,8 +165,8 @@ const config: Config = {
           "50%": { opacity: "0.6" }
         },
         pulseGlow: {
-          "0%, 100%": { boxShadow: "0 0 20px rgba(34, 197, 94, 0.1)" },
-          "50%": { boxShadow: "0 0 30px rgba(34, 197, 94, 0.2)" }
+          "0%, 100%": { boxShadow: "0 0 0 0 var(--accent-ring)" },
+          "50%": { boxShadow: "0 0 0 4px transparent" }
         },
         shimmer: {
           "0%": { backgroundPosition: "-200% 0" },

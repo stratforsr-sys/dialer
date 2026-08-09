@@ -8,6 +8,111 @@ Nyast först.
 
 ---
 
+## 2026-08-09 — Designsystem: elevation, tokens, och 4 300 rader död kod
+
+Utgångspunkten var att gränssnittet kändes "för lätt och för grått för ett
+företagssystem". Det var inte smak — det fanns tre mätbara orsaker.
+
+**Accentfärgen var svart.** `--accent: #1A1A18`. Clicknet-grönt stod i README
+men användes inte i en enda variabel. Allt var gråskala plus fyra statusfärger.
+
+**Skuggorna bar ingen information.** Kort, knappar, tabs och statmoduler hade
+alla `--shadow-sm`. När allt är lyft är inget lyft. Dessutom fanns två
+parallella skuggsystem: `--shadow-xs..xl` i CSS och `elevation-1..4` plus
+`glow-*` i Tailwind, där det senare var byggt för mörkt läge
+(`rgba(0,0,0,0.5)`) men kördes på vit bakgrund. `shadow-button`,
+`shadow-glow-sm/md/lg` användes i komponenterna men fanns inte i configen —
+de renderade ingenting alls.
+
+**Lagerkontrasten var ~2%.** `#F8F8F7` botten mot `#FFFFFF` yta. Ögat läser det
+som en enda platt yta. Nu är det ~4% (`#F1F3F6`), och det ensamt gjorde mest.
+
+### Det stora fyndet: tio komponenter var inte kopplade till något
+
+`CockpitView` (1 206 rader), `DashboardView`, `ListsView`, `ListView`,
+`ImportView`, `Sidebar`, `SettingsView`, `ResearchView`, `MappingView` och
+`StatsView` i roten refererades av **ingen route** — bara av trädskissen i
+README. Cirka 4 300 rader. Där låg också samtliga nio gradientknappar
+(`from-clicknet-accent via-pink-500 to-clicknet-violet`), alla trasiga
+`shadow-glow`-klasser och 211 av 1 011 inline-stilar.
+
+De är raderade. Det var billigare än att koda om dem, och utan raderingen hade
+designsystemet fått gälla kod som ingen ser. Den levande appen består av 34
+komponenter. **`stats/StatsView.tsx` är den riktiga statistikvyn**, inte
+`StatsView.tsx` i roten som nu är borta.
+
+### Vad som gäller nu
+
+Doktrinen står överst i `src/app/globals.css` och reglerna i `CLAUDE.md`, som
+skrevs om helt — det gamla avsnittet föreskrev "Sophisticated Glassmorphism",
+serif-rubriker och `border-radius: 22px`, alltså raka motsatsen.
+
+Fem elevationsnivåer, `--shadow-0` till `--shadow-4`. Kort ligger på 0,
+dropdowns på 2, modaler på 3, drag och toast på 4. Alla skuggor är lagrade i
+tre steg och kalltonade `rgba(16, 24, 40, …)` — aldrig ren svart. Tailwinds
+`shadow-sm/md/lg/xl` är ompekade till samma skala så en klass inte kan smita
+förbi den.
+
+Radien gick från tretton hårdkodade värden (3–22px, 208 förekomster) till fyra
+tokens: 6 / 10 / 14 / full.
+
+Accenten är `#0B7F6E`. Clicknet-grönt `#3DD68C` ger 1,7:1 mot vitt och duger
+inte till knappyta eller text; den ljusa valören finns kvar i `--accent-bright`.
+Text på färgad yta använder `--on-accent` och `--on-danger`, som vänder med
+temat — vit text på ljusröd yta gav 2,6:1 i mörkt läge.
+
+Instrument Serif är borta. **Inter** bär gränssnittet och tabellerna,
+**Space Grotesk** bär h1–h3 och stora mätvärden. Space Grotesk i 13px
+tabellceller var bred och svårläst, och det är där säljaren tillbringar dagen.
+
+Glassmorphism-blocket i CSS var död kod och de två kvarvarande inline-
+användningarna satt på kort som inte svävar — båda är vanliga ytor nu.
+`prefers-reduced-motion` respekteras. Fokusringen är en enda regel i accentfärg,
+via `box-shadow` så den inte klipps av `overflow: hidden`.
+
+### Två UX-ändringar
+
+**Sidebaren är expanderbar.** 56px → 216px, breddar sig vid hover och kan
+pinnas. Pinningen ligger i `localStorage` under `saleshub.sidebar.pinned` —
+det rör bara den datorn och är inte värt en serverrundtur. Opinnad skena
+lägger sig **ovanpå** innehållet vid hover i stället för att skjuta det.
+
+**Dödtidsmätaren i cockpit-headern.** `idleSeconds` fanns redan men visades som
+en siffra som skiftade till gult vid 120s. Nu är den en `PaceMeter`: tid sedan
+förra dispositionen, samtal per timme, och en stapel som fylls mot tre minuter.
+Färgen eskalerar vid 45 / 90 / 180 sekunder. Samtal/timme visas först efter fem
+minuter — dessförinnan är nämnaren så liten att talet studsar mellan 0 och 300.
+
+### Fallgropar
+
+**Ingen av CSS-komponentklasserna användes.** `.card`, `.btn-primary`,
+`.stat-module`, `.nav-rail` — varenda användning låg i de döda filerna. Den
+levande appen är byggd på 800 inline-stilar mot `var(--)`. Det är också
+räddningen: eftersom de pekar på tokens slog nya värden igenom överallt utan
+att komponenterna rördes. Klasserna finns nu och är verifierade, men de
+levande vyerna är ännu inte konverterade till dem. Det är nästa steg och det
+är rent hantverk, ingen risk.
+
+**Zsh ordsplittar inte `$(...)` i en for-loop.** Första codemod-körningen
+skickade hela fillistan som ett enda filnamn. Använd `| tr '\n' '\0' | xargs -0`.
+
+### Öppna punkter från det här passet
+
+- [ ] **`/research` i sidebarens meny leder till 404.** Det finns ingen
+      `src/app/research/`. Routen har funnits — `.next/types` bar kvar en
+      referens — men är borttagen. Länken ligger kvar orörd: antingen ska
+      vyn tillbaka eller så ska raden bort ur `NAV` i `AppSidebar.tsx`.
+      Beslutet är produktens, inte designsystemets.
+- [ ] **800 inline-stilar kvar i levande komponenter.** De fungerar och pekar
+      rätt, men varje ny yta som skrivs för hand är en yta som kan glida.
+      Konvertera vy för vy till `.card` / `.panel` / `.menu` / `.modal` / `.btn-*`.
+- [ ] **Ingen inloggad vy är visuellt granskad.** Verifieringen gjordes mot
+      `/login` och en tillfällig förhandsvisning som renderade sidebaren och
+      komponentklasserna med påhittad data. Den är raderad. Cockpit, pipeline
+      och leaddetaljen är sedda i kod men inte i drift.
+
+---
+
 ## 2026-08-08 — Läget efter importen
 
     leads totalt                          9 094   (var 3 426)

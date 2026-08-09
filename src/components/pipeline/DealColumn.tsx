@@ -67,7 +67,7 @@ export function DealColumn({
     <div className="flex flex-col shrink-0 h-full" style={{ width: "272px" }}>
       {/* Sticky header */}
       <div
-        className="flex items-center justify-between px-3 py-2 mb-1 rounded-[10px] shrink-0"
+        className="flex items-center justify-between px-3 py-2 mb-1 rounded-md shrink-0"
         style={{ background: stage.color + "14", border: `1px solid ${stage.color}28` }}
       >
         <div className="flex items-center gap-2 min-w-0">
@@ -94,7 +94,7 @@ export function DealColumn({
       {/* Virtualized drop zone */}
       <div
         ref={setRefs}
-        className="flex-1 overflow-y-auto min-h-0 rounded-[12px] p-2 transition-colors duration-150"
+        className="flex-1 overflow-y-auto min-h-0 rounded-lg p-2 transition-colors duration-150"
         style={{
           background: isOver
             ? stage.color + "0e"

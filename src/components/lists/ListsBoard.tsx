@@ -189,8 +189,8 @@ export function ListsBoard({
           {isAdmin && (
             <button
               onClick={() => router.push("/import")}
-              className="flex items-center gap-2 px-4 py-2 text-[13px] font-semibold rounded-[10px]"
-              style={{ background: "var(--accent)", color: "var(--bg)" }}
+              className="flex items-center gap-2 px-4 py-2 text-[13px] font-semibold rounded-md"
+              style={{ background: "var(--accent)", color: "var(--on-accent)" }}
             >
               <Upload size={14} />
               Ladda upp lista
@@ -210,7 +210,7 @@ export function ListsBoard({
               placeholder="Sök mapp…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-8 py-2 text-[13px] rounded-[10px] focus:outline-none"
+              className="w-full pl-9 pr-8 py-2 text-[13px] rounded-md focus:outline-none"
               style={{
                 background: "var(--surface)",
                 border: "1px solid var(--border)",
@@ -233,7 +233,7 @@ export function ListsBoard({
               <button
                 key={f.key}
                 onClick={() => setStatusFilter(f.key)}
-                className="px-3 py-1.5 rounded-[9px] text-[12px] font-medium transition-all"
+                className="px-3 py-1.5 rounded-md text-[12px] font-medium transition-all"
                 style={{
                   background: statusFilter === f.key ? "var(--surface)" : undefined,
                   border: `1px solid ${statusFilter === f.key ? "var(--border-strong)" : "transparent"}`,
@@ -252,7 +252,7 @@ export function ListsBoard({
         {lists.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-5 px-8">
             <div
-              className="w-16 h-16 rounded-[20px] flex items-center justify-center"
+              className="w-16 h-16 rounded-lg flex items-center justify-center"
               style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
             >
               <FolderOpen size={26} style={{ color: "var(--text-dim)" }} />
@@ -296,18 +296,17 @@ export function ListsBoard({
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.22, delay: Math.min(i * 0.03, 0.3) }}
-                  className="group relative flex flex-col rounded-[18px] overflow-hidden"
+                  className="group relative flex flex-col rounded-lg overflow-hidden"
                   style={{
                     background: "var(--surface)",
                     border: "1px solid var(--border)",
-                    boxShadow: "var(--shadow-sm)",
                   }}
                 >
                   {/* Kort-header */}
                   <div className="p-5 pb-4">
                     <div className="flex items-start gap-3">
                       <div
-                        className="w-9 h-9 rounded-[11px] flex items-center justify-center shrink-0"
+                        className="w-9 h-9 rounded-md flex items-center justify-center shrink-0"
                         style={{
                           background: status === "active" ? "var(--accent-muted)" : "var(--surface-inset)",
                           color: status === "active" ? "var(--accent)" : "var(--text-muted)",
@@ -327,7 +326,7 @@ export function ListsBoard({
                               if (e.key === "Enter") saveRename();
                               if (e.key === "Escape") setEditingId(null);
                             }}
-                            className="w-full px-2 py-1 rounded-[7px] text-[14px] focus:outline-none"
+                            className="w-full px-2 py-1 rounded-sm text-[14px] focus:outline-none"
                             style={{
                               background: "var(--surface-inset)",
                               border: "1px solid var(--accent)",
@@ -358,7 +357,7 @@ export function ListsBoard({
                               e.stopPropagation();
                               setMenuOpen(menuOpen === list.id ? null : list.id);
                             }}
-                            className="p-1.5 rounded-[7px] opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="p-1.5 rounded-sm opacity-0 group-hover:opacity-100 transition-opacity"
                             style={{ color: "var(--text-dim)" }}
                           >
                             <MoreHorizontal size={15} />
@@ -367,11 +366,11 @@ export function ListsBoard({
                           {menuOpen === list.id && (
                             <div
                               ref={menuRef}
-                              className="absolute right-0 top-full mt-1 w-44 py-1 rounded-[11px] z-50"
+                              className="absolute right-0 top-full mt-1 w-44 py-1 rounded-md z-50"
                               style={{
                                 background: "var(--surface)",
                                 border: "1px solid var(--border-strong)",
-                                boxShadow: "var(--shadow-md)",
+                                boxShadow: "var(--shadow-2)",
                               }}
                             >
                               <button
@@ -449,7 +448,7 @@ export function ListsBoard({
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => router.push(`/lists/${list.id}`)}
-                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-[9px] text-[12px] font-medium"
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[12px] font-medium"
                         style={{ color: "var(--text-secondary)" }}
                       >
                         Öppna
@@ -459,7 +458,7 @@ export function ListsBoard({
                         onClick={() => router.push(`/cockpit?listId=${list.id}`)}
                         disabled={list.freeLeads === 0}
                         title={list.freeLeads === 0 ? "Inga lediga leads kvar i mappen" : undefined}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-[9px] text-[12px] font-semibold transition-opacity"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-semibold transition-opacity"
                         style={{
                           background: "var(--accent)",
                           color: "var(--bg)",
@@ -481,8 +480,8 @@ export function ListsBoard({
 
       {/* ── Bekräfta borttagning ── */}
       {deleteResult && (
-        <div className="fixed bottom-6 right-6 z-50 max-w-sm px-4 py-3 rounded-[14px]"
-          style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", boxShadow: "var(--shadow-lg, 0 8px 30px rgba(0,0,0,.35))" }}>
+        <div className="fixed bottom-6 right-6 z-50 max-w-sm px-4 py-3 rounded-lg"
+          style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", boxShadow: "var(--shadow-4)" }}>
           <p className="text-[13px] font-semibold mb-1" style={{ color: "var(--text)" }}>
             ”{deleteResult.name}” borttagen
           </p>
@@ -507,7 +506,7 @@ export function ListsBoard({
           onClick={(e) => { if (e.target === e.currentTarget) setConfirmDelete(null); }}
         >
           <div
-            className="w-full max-w-sm mx-4 p-6 rounded-[20px]"
+            className="w-full max-w-sm mx-4 p-6 rounded-lg"
             style={{ background: "var(--surface)", border: "1px solid var(--border-strong)" }}
           >
             <h3 className="text-[16px] font-semibold mb-2" style={{ color: "var(--text)" }}>
@@ -525,14 +524,14 @@ export function ListsBoard({
             <div className="flex items-center justify-end gap-3">
               <button
                 onClick={() => setConfirmDelete(null)}
-                className="px-4 py-2 rounded-[10px] text-[13px] font-medium"
+                className="px-4 py-2 rounded-md text-[13px] font-medium"
                 style={{ background: "var(--surface-inset)", color: "var(--text-secondary)", border: "1px solid var(--border-strong)" }}
               >
                 Avbryt
               </button>
               <button
                 onClick={confirmDeleteList}
-                className="px-4 py-2 rounded-[10px] text-[13px] font-medium"
+                className="px-4 py-2 rounded-md text-[13px] font-medium"
                 style={{ background: "var(--danger)", color: "white" }}
               >
                 Ta bort mapp

@@ -65,10 +65,10 @@ export function FloorView({ initial }: { initial: Floor }) {
   const totalSold = floor.sellers.reduce((n, s) => n + s.todaySold, 0);
 
   return (
-    <div className="px-8 py-7 max-w-[1200px]">
+    <div className="px-8 py-7 max-w-[1600px]">
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-[26px] mb-1" style={{ color: "var(--text)", fontFamily: "var(--font-serif)" }}>
+          <h1 className="text-[26px] mb-1" style={{ color: "var(--text)", fontFamily: "var(--font-display)" }}>
             Golvet
           </h1>
           <p className="text-[13px]" style={{ color: "var(--text-muted)" }}>
@@ -83,7 +83,7 @@ export function FloorView({ initial }: { initial: Floor }) {
       </div>
 
       {floor.sellers.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 rounded-[16px]"
+        <div className="flex flex-col items-center justify-center py-16 rounded-lg"
           style={{ background: "var(--surface-inset)", border: "1px dashed var(--border-strong)" }}>
           <Users size={28} style={{ color: "var(--text-dim)" }} />
           <p className="text-[14px] mt-3" style={{ color: "var(--text-muted)" }}>
@@ -110,7 +110,7 @@ export function FloorView({ initial }: { initial: Floor }) {
                 layout
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="rounded-[14px] p-4"
+                className="rounded-lg p-4"
                 style={{
                   background: "var(--surface)",
                   border: `1px solid ${s.status === "ON_CALL" ? meta.color + "55" : "var(--border)"}`,

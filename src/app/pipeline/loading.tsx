@@ -29,7 +29,7 @@ export default function PipelineLoading() {
             {Array.from({ length: 3 - (col % 2) }).map((_, card) => (
               <div
                 key={card}
-                className="rounded-[14px] p-4 flex flex-col gap-2.5"
+                className="rounded-lg p-4 flex flex-col gap-2.5"
                 style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
               >
                 <Bar w="72%" h={13} />

@@ -83,7 +83,7 @@ export function DialerSettingsView({
     <div className="px-8 py-7 max-w-[980px]">
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-[26px] mb-1" style={{ color: "var(--text)", fontFamily: "var(--font-serif)" }}>
+          <h1 className="text-[26px] mb-1" style={{ color: "var(--text)", fontFamily: "var(--font-display)" }}>
             Uppföljningsmotorn
           </h1>
           <p className="text-[13px] max-w-[640px] leading-relaxed" style={{ color: "var(--text-muted)" }}>
@@ -93,8 +93,8 @@ export function DialerSettingsView({
         <button
           onClick={save}
           disabled={saving}
-          className="flex items-center gap-1.5 px-4 py-2 text-[13px] font-semibold rounded-[10px] shrink-0"
-          style={{ background: "var(--accent)", color: "var(--bg)" }}
+          className="flex items-center gap-1.5 px-4 py-2 text-[13px] font-semibold rounded-md shrink-0"
+          style={{ background: "var(--accent)", color: "var(--on-accent)" }}
         >
           {saving ? <Loader2 size={12} className="animate-spin" /> : saved ? <Check size={12} /> : null}
           {saved ? "Sparat" : "Spara"}
@@ -102,7 +102,7 @@ export function DialerSettingsView({
       </div>
 
       {/* Leadförsörjning — den siffra som avgör allt annat */}
-      <div className="rounded-[16px] p-5 mb-6"
+      <div className="rounded-lg p-5 mb-6"
         style={{
           background: projectedDays !== null && projectedDays < 20 ? "var(--danger-bg)" : "var(--surface-inset)",
           border: `1px solid ${projectedDays !== null && projectedDays < 20 ? "var(--danger-border)" : "var(--border)"}`,
@@ -185,14 +185,14 @@ export function DialerSettingsView({
               <input
                 value={s.name}
                 onChange={(e) => setSlots((p) => p.map((x, idx) => (idx === i ? { ...x, name: e.target.value } : x)))}
-                className="flex-1 px-3 py-2 text-[13px] rounded-[9px] outline-none"
+                className="flex-1 px-3 py-2 text-[13px] rounded-md outline-none"
                 style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)" }}
               />
               <input
                 type="time"
                 value={toTime(s.startMinute)}
                 onChange={(e) => setSlots((p) => p.map((x, idx) => (idx === i ? { ...x, startMinute: toMinutes(e.target.value) } : x)))}
-                className="px-2 py-2 text-[13px] rounded-[9px] outline-none"
+                className="px-2 py-2 text-[13px] rounded-md outline-none"
                 style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)" }}
               />
               <span style={{ color: "var(--text-dim)" }}>–</span>
@@ -200,12 +200,12 @@ export function DialerSettingsView({
                 type="time"
                 value={toTime(s.endMinute)}
                 onChange={(e) => setSlots((p) => p.map((x, idx) => (idx === i ? { ...x, endMinute: toMinutes(e.target.value) } : x)))}
-                className="px-2 py-2 text-[13px] rounded-[9px] outline-none"
+                className="px-2 py-2 text-[13px] rounded-md outline-none"
                 style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)" }}
               />
               <button
                 onClick={() => setSlots((p) => p.map((x, idx) => (idx === i ? { ...x, active: !x.active } : x)))}
-                className="px-2.5 py-2 text-[11px] rounded-[9px]"
+                className="px-2.5 py-2 text-[11px] rounded-md"
                 style={{
                   background: s.active ? "var(--success-bg)" : "var(--surface-inset)",
                   color: s.active ? "var(--success)" : "var(--text-dim)",
@@ -216,7 +216,7 @@ export function DialerSettingsView({
               </button>
               <button
                 onClick={() => setSlots((p) => p.filter((_, idx) => idx !== i))}
-                className="w-8 h-8 flex items-center justify-center rounded-[8px]"
+                className="w-8 h-8 flex items-center justify-center rounded-md"
                 style={{ color: "var(--text-dim)" }}
               >
                 <Trash2 size={12} />
@@ -227,7 +227,7 @@ export function DialerSettingsView({
 
         <button
           onClick={() => setSlots((p) => [...p, { name: "Nytt pass", startMinute: 600, endMinute: 660, order: p.length + 1, active: true }])}
-          className="flex items-center gap-1.5 mt-2 px-3 py-2 text-[12px] rounded-[9px] w-full justify-center"
+          className="flex items-center gap-1.5 mt-2 px-3 py-2 text-[12px] rounded-md w-full justify-center"
           style={{ background: "var(--surface-inset)", border: "1px dashed var(--border-strong)", color: "var(--text-muted)" }}
         >
           <Plus size={12} /> Lägg till pass
@@ -245,7 +245,7 @@ export function DialerSettingsView({
             <button
               key={d}
               onClick={() => setBlockedDates((p) => p.filter((x) => x !== d))}
-              className="text-[11px] px-2 py-1 rounded-[7px]"
+              className="text-[11px] px-2 py-1 rounded-sm"
               style={{ background: "var(--surface)", color: "var(--text-muted)", border: "1px solid var(--border-strong)", fontFamily: "var(--font-mono)" }}
             >
               {d} ×
@@ -260,7 +260,7 @@ export function DialerSettingsView({
             type="date"
             value={newDate}
             onChange={(e) => setNewDate(e.target.value)}
-            className="px-3 py-2 text-[13px] rounded-[9px] outline-none"
+            className="px-3 py-2 text-[13px] rounded-md outline-none"
             style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)" }}
           />
           <button
@@ -270,7 +270,7 @@ export function DialerSettingsView({
                 setNewDate("");
               }
             }}
-            className="px-3 py-2 text-[12px] font-semibold rounded-[9px]"
+            className="px-3 py-2 text-[12px] font-semibold rounded-md"
             style={{ background: "var(--surface-inset)", color: "var(--text-muted)", border: "1px solid var(--border-strong)" }}
           >
             Lägg till
@@ -313,7 +313,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <h2 className="text-[11px] font-semibold uppercase tracking-widest mb-2.5" style={{ color: "var(--text-dim)" }}>
         {title}
       </h2>
-      <div className="rounded-[14px] p-4" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+      <div className="rounded-lg p-4" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
         {children}
       </div>
     </div>
@@ -349,7 +349,7 @@ function NumberField({
         type="number"
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full mt-1 px-3 py-2 text-[13px] rounded-[9px] outline-none"
+        className="w-full mt-1 px-3 py-2 text-[13px] rounded-md outline-none"
         style={{ background: "var(--surface-inset)", border: "1px solid var(--border-strong)", color: "var(--text)" }}
       />
       {hint && (

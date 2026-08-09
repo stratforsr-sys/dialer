@@ -24,12 +24,12 @@ function BarChart({ data, valueKey, color }: { data: DailyRow[]; valueKey: "call
         return (
           <div key={d.date} className="flex flex-col items-center gap-[3px] flex-1 group relative">
             <div
-              className="w-full rounded-[3px] transition-all"
+              className="w-full rounded-sm transition-all"
               style={{ height: `${h}%`, background: isWeekend ? "var(--border-strong)" : color, opacity: d[valueKey] === 0 ? 0.2 : 1, minHeight: "3px" }}
             />
             <span className="text-[8px]" style={{ color: "var(--text-dim)" }}>{label}</span>
             {d[valueKey] > 0 && (
-              <div className="absolute bottom-full mb-1 px-2 py-1 text-[10px] rounded-[5px] whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-10 transition-opacity"
+              <div className="absolute bottom-full mb-1 px-2 py-1 text-[10px] rounded-sm whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-10 transition-opacity"
                 style={{ background: "var(--text)", color: "var(--bg)" }}>
                 {d[valueKey]} {valueKey === "calls" ? "samtal" : "möten"}
               </div>
@@ -43,8 +43,8 @@ function BarChart({ data, valueKey, color }: { data: DailyRow[]; valueKey: "call
 
 function KpiCard({ label, value, sub, icon }: { label: string; value: string | number; sub?: string; icon: React.ReactNode }) {
   return (
-    <div className="p-4 rounded-[16px]" style={{ background: "var(--glass-bg)", backdropFilter: "var(--glass-blur)", WebkitBackdropFilter: "var(--glass-blur)", border: "1px solid var(--glass-border)", boxShadow: "var(--glass-shadow)" }}>
-      <div className="w-8 h-8 rounded-[9px] flex items-center justify-center mb-3" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+    <div className="p-4 rounded-lg" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+      <div className="w-8 h-8 rounded-md flex items-center justify-center mb-3" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
         {icon}
       </div>
       <p className="text-[28px] font-bold tabular-nums leading-none mb-1" style={{ color: "var(--text)", fontFamily: "var(--font-mono)" }}>{value}</p>
@@ -63,11 +63,11 @@ function PipelineFunnel({ stages }: { stages: PipelineStage[] }) {
         return (
           <div key={stage.id} className="flex items-center gap-3">
             <span className="text-[12px] font-medium w-[120px] text-right truncate" style={{ color: "var(--text)" }}>{stage.name}</span>
-            <div className="flex-1 h-[28px] rounded-[6px] overflow-hidden" style={{ background: "var(--surface-inset)" }}>
+            <div className="flex-1 h-[28px] rounded-sm overflow-hidden" style={{ background: "var(--surface-inset)" }}>
               <motion.div
                 initial={{ width: 0 }} animate={{ width: `${pct}%` }}
                 transition={{ duration: 0.6, ease: "easeOut" }}
-                className="h-full rounded-[6px] flex items-center px-2"
+                className="h-full rounded-sm flex items-center px-2"
                 style={{ background: stage.color + "30", border: `1px solid ${stage.color}40` }}
               >
                 {stage.leadCount > 0 && (
@@ -110,17 +110,17 @@ export function StatsView({
     <div className="flex flex-col h-screen overflow-hidden" style={{ background: "var(--bg)" }}>
       {/* Header */}
       <div className="flex items-center justify-between px-6 h-[52px] border-b shrink-0" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
-        <h1 className="text-[16px]" style={{ color: "var(--text)", fontFamily: "var(--font-serif)" }}>Statistik</h1>
-        <div className="flex items-center gap-[2px] p-[3px] rounded-[10px]" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+        <h1 className="text-[16px]" style={{ color: "var(--text)", fontFamily: "var(--font-display)" }}>Statistik</h1>
+        <div className="flex items-center gap-[2px] p-[3px] rounded-md" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
           {tabs.map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className="flex items-center gap-[5px] px-3 py-[5px] text-[12px] font-medium rounded-[7px] transition-all duration-150"
+              className="flex items-center gap-[5px] px-3 py-[5px] text-[12px] font-medium rounded-sm transition-all duration-150"
               style={{
                 background: tab === t.id ? "var(--surface)" : "transparent",
                 color: tab === t.id ? "var(--text)" : "var(--text-dim)",
-                boxShadow: tab === t.id ? "var(--shadow-xs)" : "none",
+                boxShadow: tab === t.id ? "var(--shadow-1)" : "none",
                 border: tab === t.id ? "1px solid var(--border)" : "1px solid transparent",
               }}
             >
@@ -137,7 +137,7 @@ export function StatsView({
           {/* ── Aktivitet ─────────────────────────────────────────────────── */}
           {tab === "activity" && (
             <motion.div key="activity" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.18 }} className="p-6">
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              <div className="grid grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8 gap-4 mb-6">
                 <KpiCard label="Samtal (7d)" value={totalCallsWeek} sub={`Snitt ${avgCalls}/dag`} icon={<Phone size={14} style={{ color: "var(--text-muted)" }} />} />
                 <KpiCard label="Sålt (7d)" value={totalSoldWeek} icon={<Calendar size={14} style={{ color: "var(--text-muted)" }} />} />
                 <KpiCard label="Svarsfrekvens" value={`${conversion.connectRate}%`} sub={`${conversion.totalCalls} samtal`} icon={<Target size={14} style={{ color: "var(--text-muted)" }} />} />
@@ -149,7 +149,7 @@ export function StatsView({
                   { key: "calls" as const, label: "Samtal senaste 14 dagar", color: "var(--accent)" },
                   { key: "sold" as const, label: "Avslut senaste 14 dagar", color: "var(--success)" },
                 ].map(({ key, label, color }) => (
-                  <div key={key} className="p-5 rounded-[18px]" style={{ background: "var(--surface)", border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}>
+                  <div key={key} className="p-5 rounded-lg" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
                     <div className="flex items-center justify-between mb-4">
                       <p className="text-[13px] font-semibold" style={{ color: "var(--text)" }}>{label}</p>
                       <span className="text-[11px] px-2 py-[2px] rounded-full" style={{ background: "var(--surface-inset)", color: "var(--text-dim)" }}>
@@ -161,7 +161,7 @@ export function StatsView({
                 ))}
               </div>
 
-              <div className="p-5 rounded-[18px]" style={{ background: "var(--surface)", border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}>
+              <div className="p-5 rounded-lg" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
                 <p className="text-[13px] font-semibold mb-5" style={{ color: "var(--text)" }}>Konverteringsfunnel</p>
                 <div className="flex items-center gap-4">
                   {[
@@ -191,18 +191,18 @@ export function StatsView({
           {/* ── Forecasting ────────────────────────────────────────────────── */}
           {tab === "forecasting" && (
             <motion.div key="forecasting" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.18 }} className="p-6">
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+              <div className="grid grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-4 mb-6">
                 <KpiCard label="Aktiva leads" value={totalPipelineLeads} sub="I alla stadier" icon={<Target size={14} style={{ color: "var(--text-muted)" }} />} />
                 <KpiCard label="Pipeline value" value={`${pipeline.reduce((s, p) => s + p.totalValue, 0).toLocaleString("sv-SE")} kr`} sub="Vunna deals" icon={<TrendingUp size={14} style={{ color: "var(--text-muted)" }} />} />
                 <KpiCard label="Stängningsgrad" value={`${conversion.closeRate}%`} sub="Samtal → Såld" icon={<Trophy size={14} style={{ color: "var(--text-muted)" }} />} />
               </div>
 
-              <div className="p-5 rounded-[18px] mb-6" style={{ background: "var(--surface)", border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}>
+              <div className="p-5 rounded-lg mb-6" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
                 <p className="text-[13px] font-semibold mb-5" style={{ color: "var(--text)" }}>Pipeline per stadium</p>
                 <PipelineFunnel stages={pipeline} />
               </div>
 
-              <div className="p-5 rounded-[18px]" style={{ background: "var(--surface)", border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}>
+              <div className="p-5 rounded-lg" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
                 <p className="text-[13px] font-semibold mb-4" style={{ color: "var(--text)" }}>Stadium-till-stadium konvertering</p>
                 <div className="flex flex-col gap-3">
                   {pipeline.filter((_, i) => i < pipeline.length - 1).map((stage, i) => {
@@ -254,7 +254,7 @@ export function StatsView({
                     />
                   </div>
 
-                  <div className="rounded-[18px] overflow-hidden" style={{ border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}>
+                  <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
                     <table className="w-full">
                       <thead>
                         <tr style={{ background: "var(--surface-inset)", borderBottom: "1px solid var(--border)" }}>

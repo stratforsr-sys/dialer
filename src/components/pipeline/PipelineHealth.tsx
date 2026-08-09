@@ -61,12 +61,11 @@ function HealthCard({ lead }: { lead: Lead }) {
       whileHover={{ y: -2 }}
       transition={{ duration: 0.15 }}
       onClick={() => router.push(`/leads/${lead.id}`)}
-      className="cursor-pointer p-3 rounded-[14px] transition-all"
+      className="cursor-pointer p-3 rounded-lg transition-all"
       style={{
         background: "var(--surface)",
         border: "1px solid var(--border)",
-        boxShadow: "var(--shadow-xs)",
-      }}
+              }}
     >
       <div className="flex items-start justify-between mb-2">
         <div className="flex-1 min-w-0">

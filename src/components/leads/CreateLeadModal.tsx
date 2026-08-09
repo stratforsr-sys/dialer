@@ -84,8 +84,8 @@ export function CreateLeadModal({ onClose }: { onClose: () => void }) {
         style={{
           background: "var(--surface)",
           border: "1px solid var(--border-strong)",
-          borderRadius: "18px",
-          boxShadow: "var(--shadow-lg)",
+          borderRadius: "var(--r-lg)",
+          boxShadow: "var(--shadow-3)",
         }}
       >
         {/* Header */}
@@ -125,7 +125,7 @@ export function CreateLeadModal({ onClose }: { onClose: () => void }) {
                 style={{
                   background: "var(--surface-inset)",
                   border: "1px solid var(--border-strong)",
-                  borderRadius: "8px",
+                  borderRadius: "var(--r-md)",
                   padding: "8px 12px",
                   color: "var(--text)",
                 }}
@@ -145,7 +145,7 @@ export function CreateLeadModal({ onClose }: { onClose: () => void }) {
                   style={{
                     background: "var(--surface-inset)",
                     border: "1px solid var(--border-strong)",
-                    borderRadius: "8px",
+                    borderRadius: "var(--r-md)",
                     padding: "8px 12px",
                     color: "var(--text)",
                   }}
@@ -163,7 +163,7 @@ export function CreateLeadModal({ onClose }: { onClose: () => void }) {
                   style={{
                     background: "var(--surface-inset)",
                     border: "1px solid var(--border-strong)",
-                    borderRadius: "8px",
+                    borderRadius: "var(--r-md)",
                     padding: "8px 12px",
                     color: "var(--text)",
                   }}
@@ -191,7 +191,7 @@ export function CreateLeadModal({ onClose }: { onClose: () => void }) {
                 {contacts.map((c, i) => (
                   <div
                     key={i}
-                    className="p-3 rounded-[10px] flex flex-col gap-2"
+                    className="p-3 rounded-md flex flex-col gap-2"
                     style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}
                   >
                     <div className="grid grid-cols-2 gap-2">
@@ -199,28 +199,28 @@ export function CreateLeadModal({ onClose }: { onClose: () => void }) {
                         value={c.name}
                         onChange={(e) => updateContact(i, "name", e.target.value)}
                         placeholder="Namn"
-                        className="text-[12px] outline-none px-2 py-[6px] rounded-[6px]"
+                        className="text-[12px] outline-none px-2 py-[6px] rounded-sm"
                         style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)" }}
                       />
                       <input
                         value={c.role}
                         onChange={(e) => updateContact(i, "role", e.target.value)}
                         placeholder="Roll (VD, etc.)"
-                        className="text-[12px] outline-none px-2 py-[6px] rounded-[6px]"
+                        className="text-[12px] outline-none px-2 py-[6px] rounded-sm"
                         style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)" }}
                       />
                       <input
                         value={c.directPhone}
                         onChange={(e) => updateContact(i, "directPhone", e.target.value)}
                         placeholder="Telefon"
-                        className="text-[12px] outline-none px-2 py-[6px] rounded-[6px]"
+                        className="text-[12px] outline-none px-2 py-[6px] rounded-sm"
                         style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)" }}
                       />
                       <input
                         value={c.email}
                         onChange={(e) => updateContact(i, "email", e.target.value)}
                         placeholder="Email"
-                        className="text-[12px] outline-none px-2 py-[6px] rounded-[6px]"
+                        className="text-[12px] outline-none px-2 py-[6px] rounded-sm"
                         style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)" }}
                       />
                     </div>
@@ -240,7 +240,7 @@ export function CreateLeadModal({ onClose }: { onClose: () => void }) {
             </div>
 
             {error && (
-              <p className="text-[12px] px-3 py-2 rounded-[8px]" style={{ background: "var(--danger-bg)", color: "var(--danger)" }}>
+              <p className="text-[12px] px-3 py-2 rounded-md" style={{ background: "var(--danger-bg)", color: "var(--danger)" }}>
                 {error}
               </p>
             )}
@@ -254,7 +254,7 @@ export function CreateLeadModal({ onClose }: { onClose: () => void }) {
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-[13px] font-medium rounded-[8px] transition-colors"
+              className="px-4 py-2 text-[13px] font-medium rounded-md transition-colors"
               style={{ background: "var(--surface-inset)", color: "var(--text-secondary)" }}
             >
               Avbryt
@@ -262,7 +262,7 @@ export function CreateLeadModal({ onClose }: { onClose: () => void }) {
             <button
               type="submit"
               disabled={isPending || !company.trim()}
-              className="px-4 py-2 text-[13px] font-medium rounded-[8px] transition-opacity"
+              className="px-4 py-2 text-[13px] font-medium rounded-md transition-opacity"
               style={{
                 background: "var(--accent)",
                 color: "white",

@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
+import { useEffect, useState } from "react";
 import {
   Users, LayoutGrid, Upload, BarChart2, ShieldCheck, LogOut, Zap, Search,
-  FolderOpen, Radio, MessageSquare, SlidersHorizontal,
+  FolderOpen, Radio, MessageSquare, SlidersHorizontal, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
 
 // Dialern har medvetet ingen egen meny-ingång: man ringer alltid inifrån en
@@ -23,104 +24,195 @@ const NAV = [
   { href: "/admin",         label: "Admin",      icon: ShieldCheck, adminOnly: true },
 ];
 
+const RAIL = 56;
+const OPEN = 216;
+const STORAGE_KEY = "saleshub.sidebar.pinned";
+
 export function AppSidebar({
   user,
 }: {
   user: { id: string; name: string; email: string; role: string };
 }) {
   const pathname = usePathname();
+
+  // Pinnad bredd sparas per webbläsare. En säljare utan erfarenhet behöver
+  // etiketterna första veckan; någon som kan systemet vill ha pixlarna.
+  // Ingen serverrundtur för ett val som bara rör den här datorn.
+  const [pinned, setPinned] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setPinned(localStorage.getItem(STORAGE_KEY) === "1");
+    setMounted(true);
+  }, []);
+
+  function togglePinned() {
+    setPinned((p) => {
+      localStorage.setItem(STORAGE_KEY, p ? "0" : "1");
+      return !p;
+    });
+  }
+
+  // Opinnad skena breddar sig vid hover men skjuter aldrig innehållet —
+  // den lägger sig ovanpå. Pinnad tar plats i flödet.
+  const expanded = pinned || hovered;
+
   const navItems = NAV.filter((n) => !("adminOnly" in n) || !n.adminOnly || user.role === "ADMIN");
 
-  return (
-    <aside
-      className="flex flex-col items-center w-[56px] shrink-0 h-screen border-r py-4 gap-1"
-      style={{ background: "var(--surface)", borderColor: "var(--border)" }}
-    >
-      {/* Logo mark */}
-      <div className="mb-4 flex items-center justify-center">
-        <div
-          className="w-8 h-8 rounded-[9px] flex items-center justify-center"
-          style={{ background: "var(--accent)" }}
-        >
-          <Zap size={14} color="var(--bg)" strokeWidth={2.5} />
-        </div>
-      </div>
+  // Mest specifika träffen vinner — annars lyser /admin även när man
+  // står på /admin/floor, och två rader ser aktiva ut samtidigt.
+  const activeHref = navItems
+    .filter((n) => pathname === n.href || pathname.startsWith(n.href + "/"))
+    .sort((a, b) => b.href.length - a.href.length)[0]?.href;
 
-      {/* Nav icons */}
-      <nav className="flex flex-col items-center gap-[3px] flex-1">
-        {navItems.map(({ href, label, icon: Icon }) => {
-          // Mest specifika träffen vinner — annars lyser /admin även när man
-          // står på /admin/floor, och två ikoner ser aktiva ut samtidigt.
-          const matches = navItems
-            .filter((n) => pathname === n.href || pathname.startsWith(n.href + "/"))
-            .sort((a, b) => b.href.length - a.href.length);
-          const active = matches[0]?.href === href;
-          return (
-            <Link
-              key={href}
-              href={href}
-              title={label}
-              className="relative group flex items-center justify-center w-9 h-9 transition-all duration-150"
+  return (
+    // Yttre elementet håller bara ut layoutbredden. Skenan inuti är
+    // absolut positionerad så hover-expansionen inte flyttar sidan.
+    <div
+      className="relative shrink-0 h-screen"
+      style={{ width: pinned ? OPEN : RAIL, transition: "width 0.18s var(--ease-out-expo)" }}
+    >
+      <aside
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        className="absolute inset-y-0 left-0 flex flex-col overflow-hidden z-40"
+        style={{
+          width: expanded ? OPEN : RAIL,
+          background: "var(--surface)",
+          borderRight: "1px solid var(--border)",
+          boxShadow: hovered && !pinned ? "var(--shadow-2)" : "none",
+          transition: "width 0.18s var(--ease-out-expo), box-shadow 0.18s ease",
+        }}
+      >
+        {/* Logotyp + pinne */}
+        <div className="flex items-center h-14 px-3 shrink-0">
+          <div
+            className="w-8 h-8 rounded-md flex items-center justify-center shrink-0"
+            style={{ background: "var(--accent)" }}
+          >
+            <Zap size={14} color="var(--on-accent)" strokeWidth={2.5} />
+          </div>
+
+          <span
+            className="ml-2.5 text-[13px] font-semibold whitespace-nowrap"
+            style={{
+              color: "var(--text)",
+              fontFamily: "var(--font-display)",
+              letterSpacing: "-0.02em",
+              opacity: expanded ? 1 : 0,
+              transition: "opacity 0.14s ease",
+            }}
+          >
+            Sales Hub
+          </span>
+
+          {mounted && (
+            <button
+              onClick={togglePinned}
+              title={pinned ? "Fäll ihop menyn" : "Lås menyn öppen"}
+              className="ml-auto flex items-center justify-center w-7 h-7 rounded-sm shrink-0"
               style={{
-                borderRadius: "10px",
-                background: active ? "var(--accent)" : "transparent",
-                color: active ? "var(--bg)" : "var(--text-dim)",
+                color: "var(--text-dim)",
+                opacity: expanded ? 1 : 0,
+                pointerEvents: expanded ? "auto" : "none",
+                transition: "opacity 0.14s ease",
               }}
             >
-              <Icon size={16} strokeWidth={active ? 2.2 : 1.8} />
-
-              {/* Tooltip */}
-              <span
-                className="pointer-events-none absolute left-full ml-3 whitespace-nowrap px-2 py-1 text-[11px] font-medium rounded-[6px] opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-50"
-                style={{
-                  background: "var(--text)",
-                  color: "var(--bg)",
-                  boxShadow: "var(--shadow-md)",
-                }}
-              >
-                {label}
-              </span>
-            </Link>
-          );
-        })}
-      </nav>
-
-      {/* User avatar + signout */}
-      <div className="flex flex-col items-center gap-[3px] mt-auto">
-        {/* Avatar */}
-        <div
-          className="group relative flex items-center justify-center w-9 h-9 rounded-[10px] text-[12px] font-bold"
-          style={{ background: "var(--surface-inset)", color: "var(--text-muted)", border: "1px solid var(--border-strong)" }}
-          title={user.name}
-        >
-          {user.name.charAt(0).toUpperCase()}
-          {/* Tooltip */}
-          <span
-            className="pointer-events-none absolute left-full ml-3 whitespace-nowrap px-2 py-1 text-[11px] font-medium rounded-[6px] opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-50"
-            style={{ background: "var(--text)", color: "var(--bg)", boxShadow: "var(--shadow-md)" }}
-          >
-            {user.name} · {user.role === "ADMIN" ? "Admin" : "Säljare"}
-          </span>
+              {pinned ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
+            </button>
+          )}
         </div>
 
-        {/* Signout */}
-        <button
-          onClick={() => signOut({ callbackUrl: "/login" })}
-          title="Logga ut"
-          className="group relative flex items-center justify-center w-9 h-9 transition-all duration-150"
-          style={{ borderRadius: "10px", color: "var(--text-dim)" }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "var(--danger)"; (e.currentTarget as HTMLButtonElement).style.background = "var(--danger-bg)"; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "var(--text-dim)"; (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
-        >
-          <LogOut size={15} strokeWidth={1.8} />
-          <span
-            className="pointer-events-none absolute left-full ml-3 whitespace-nowrap px-2 py-1 text-[11px] font-medium rounded-[6px] opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-50"
-            style={{ background: "var(--text)", color: "var(--bg)", boxShadow: "var(--shadow-md)" }}
+        {/* Navigation */}
+        <nav className="flex flex-col gap-[2px] flex-1 px-2 overflow-y-auto overflow-x-hidden">
+          {navItems.map(({ href, label, icon: Icon }) => {
+            const active = activeHref === href;
+            return (
+              <Link
+                key={href}
+                href={href}
+                title={expanded ? undefined : label}
+                className="flex items-center h-[34px] rounded-md shrink-0 pr-[10px]"
+                style={{
+                  // Hopfälld skena: 8px nav-padding + 12px + halva ikonen (8px)
+                  // = 28px, exakt mitten av 56px. Utan det står ikonraden
+                  // två pixlar vänster om logotypen ovanför.
+                  paddingLeft: expanded ? 10 : 12,
+                  background: active ? "var(--accent-muted)" : "transparent",
+                  color: active ? "var(--accent)" : "var(--text-muted)",
+                  transition: "background-color 0.12s ease, color 0.12s ease",
+                }}
+                onMouseEnter={(e) => {
+                  if (!active) e.currentTarget.style.background = "var(--surface-inset)";
+                }}
+                onMouseLeave={(e) => {
+                  if (!active) e.currentTarget.style.background = "transparent";
+                }}
+              >
+                <span className="w-4 flex items-center justify-center shrink-0">
+                  <Icon size={16} strokeWidth={active ? 2.2 : 1.8} />
+                </span>
+                <span
+                  className="ml-3 text-[13px] font-medium whitespace-nowrap"
+                  style={{ opacity: expanded ? 1 : 0, transition: "opacity 0.14s ease" }}
+                >
+                  {label}
+                </span>
+              </Link>
+            );
+          })}
+        </nav>
+
+        {/* Användare + utloggning */}
+        <div className="px-2 pb-3 pt-2 shrink-0" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+          <div className="flex items-center h-[34px] px-[10px] rounded-md">
+            <span
+              className="w-4 h-4 flex items-center justify-center shrink-0 rounded-sm text-[10px] font-bold"
+              style={{ background: "var(--surface-inset)", color: "var(--text-muted)" }}
+              title={user.name}
+            >
+              {user.name.charAt(0).toUpperCase()}
+            </span>
+            <span
+              className="ml-3 min-w-0 whitespace-nowrap"
+              style={{ opacity: expanded ? 1 : 0, transition: "opacity 0.14s ease" }}
+            >
+              <span className="block text-[12px] font-medium truncate" style={{ color: "var(--text-secondary)" }}>
+                {user.name}
+              </span>
+              <span className="block text-[10px] leading-tight" style={{ color: "var(--text-dim)" }}>
+                {user.role === "ADMIN" ? "Admin" : "Säljare"}
+              </span>
+            </span>
+          </div>
+
+          <button
+            onClick={() => signOut({ callbackUrl: "/login" })}
+            title={expanded ? undefined : "Logga ut"}
+            className="flex items-center h-[34px] w-full px-[10px] rounded-md"
+            style={{ color: "var(--text-dim)", transition: "background-color 0.12s ease, color 0.12s ease" }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "var(--danger)";
+              e.currentTarget.style.background = "var(--danger-bg)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "var(--text-dim)";
+              e.currentTarget.style.background = "transparent";
+            }}
           >
-            Logga ut
-          </span>
-        </button>
-      </div>
-    </aside>
+            <span className="w-4 flex items-center justify-center shrink-0">
+              <LogOut size={15} strokeWidth={1.8} />
+            </span>
+            <span
+              className="ml-3 text-[13px] font-medium whitespace-nowrap"
+              style={{ opacity: expanded ? 1 : 0, transition: "opacity 0.14s ease" }}
+            >
+              Logga ut
+            </span>
+          </button>
+        </div>
+      </aside>
+    </div>
   );
 }

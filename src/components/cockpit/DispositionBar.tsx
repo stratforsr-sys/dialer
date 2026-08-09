@@ -28,7 +28,7 @@ export function DispositionBar<T extends string>({
         {canGoBack && (
           <button
             onClick={onBack}
-            className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-[7px] transition-colors"
+            className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-sm transition-colors"
             style={{
               color: "var(--text-dim)",
               background: "var(--surface-inset)",
@@ -58,7 +58,7 @@ export function DispositionBar<T extends string>({
               background: opt.color + "10",
               border: `1px solid ${opt.color}30`,
               color: opt.color,
-              borderRadius: "11px",
+              borderRadius: "var(--r-md)",
             }}
           >
             <span className="flex items-center justify-between w-full">

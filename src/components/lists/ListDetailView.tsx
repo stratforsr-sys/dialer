@@ -119,7 +119,7 @@ export function ListDetailView({
             {isAdmin && (
               <button
                 onClick={() => setShowShare(true)}
-                className="flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium rounded-[10px]"
+                className="flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium rounded-md"
                 style={{
                   background: "var(--surface)",
                   border: "1px solid var(--border-strong)",
@@ -133,7 +133,7 @@ export function ListDetailView({
             <button
               onClick={() => router.push(`/cockpit?listId=${list.id}`)}
               disabled={counts.free === 0 && counts.mine === 0}
-              className="flex items-center gap-2 px-4 py-2 text-[13px] font-semibold rounded-[10px]"
+              className="flex items-center gap-2 px-4 py-2 text-[13px] font-semibold rounded-md"
               style={{
                 background: "var(--accent)",
                 color: "var(--bg)",
@@ -159,7 +159,7 @@ export function ListDetailView({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Sök bolag, org-nr, kontakt…"
-              className="w-full pl-9 pr-8 py-2 text-[13px] rounded-[10px] focus:outline-none"
+              className="w-full pl-9 pr-8 py-2 text-[13px] rounded-md focus:outline-none"
               style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}
             />
             {search && (
@@ -178,7 +178,7 @@ export function ListDetailView({
               <button
                 key={f.key}
                 onClick={() => setFilter(f.key)}
-                className="px-3 py-1.5 rounded-[9px] text-[12px] font-medium"
+                className="px-3 py-1.5 rounded-md text-[12px] font-medium"
                 style={{
                   background: filter === f.key ? "var(--surface)" : undefined,
                   border: `1px solid ${filter === f.key ? "var(--border-strong)" : "transparent"}`,
@@ -236,7 +236,7 @@ export function ListDetailView({
                         style={{ color: "var(--text)" }}
                       >
                         <div
-                          className="w-7 h-7 rounded-[8px] flex items-center justify-center shrink-0"
+                          className="w-7 h-7 rounded-md flex items-center justify-center shrink-0"
                           style={{ background: "var(--surface-inset)", color: "var(--text-muted)" }}
                         >
                           <Building2 size={13} />
@@ -325,7 +325,7 @@ export function ListDetailView({
                         {(claim.state === "mine" || (isAdmin && claim.state === "taken")) && (
                           <button
                             onClick={() => handleRelease(lead.id)}
-                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-[8px] text-[11px] font-medium"
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium"
                             style={{
                               background: "var(--surface)",
                               border: "1px solid var(--border)",
@@ -340,8 +340,8 @@ export function ListDetailView({
                         {claim.state !== "taken" && (
                           <button
                             onClick={() => router.push(`/cockpit?listId=${list.id}&leadId=${lead.id}`)}
-                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-[8px] text-[11px] font-semibold"
-                            style={{ background: "var(--accent)", color: "var(--bg)" }}
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-semibold"
+                            style={{ background: "var(--accent)", color: "var(--on-accent)" }}
                           >
                             <Phone size={10} />
                             Ring

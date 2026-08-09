@@ -96,7 +96,7 @@ export function LeadDetail({
           <div className="p-5 border-b" style={{ borderColor: "var(--border)" }}>
             <div className="flex items-center gap-3 mb-4">
               <div
-                className="w-10 h-10 rounded-[10px] flex items-center justify-center text-[16px] font-bold"
+                className="w-10 h-10 rounded-md flex items-center justify-center text-[16px] font-bold"
                 style={{ background: "var(--surface-inset)", color: "var(--text-secondary)" }}
               >
                 {lead.companyName.charAt(0).toUpperCase()}
@@ -197,7 +197,7 @@ export function LeadDetail({
                   className="mb-3 overflow-hidden"
                 >
                   <div
-                    className="p-3 rounded-[10px] flex flex-col gap-2"
+                    className="p-3 rounded-md flex flex-col gap-2"
                     style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}
                   >
                     {[
@@ -212,14 +212,14 @@ export function LeadDetail({
                         onChange={(e) => setNewContact((c) => ({ ...c, [field]: e.target.value }))}
                         placeholder={placeholder}
                         required={field === "name"}
-                        className="text-[12px] outline-none px-2 py-[6px] rounded-[6px]"
+                        className="text-[12px] outline-none px-2 py-[6px] rounded-sm"
                         style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)" }}
                       />
                     ))}
                     <button
                       type="submit"
-                      className="text-[12px] font-medium py-[6px] rounded-[6px]"
-                      style={{ background: "var(--accent)", color: "white" }}
+                      className="text-[12px] font-medium py-[6px] rounded-sm"
+                      style={{ background: "var(--accent)", color: "var(--on-accent)" }}
                     >
                       Lägg till kontakt
                     </button>
@@ -235,7 +235,7 @@ export function LeadDetail({
                 lead.contacts.map((c) => (
                   <div
                     key={c.id}
-                    className="p-3 rounded-[10px]"
+                    className="p-3 rounded-md"
                     style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}
                   >
                     <div className="flex items-center justify-between mb-1">
@@ -274,7 +274,7 @@ export function LeadDetail({
             ) : (
               <div className="flex flex-col gap-2">
                 {lead.deals.map((d) => (
-                  <div key={d.id} className="p-3 rounded-[10px] flex items-center justify-between"
+                  <div key={d.id} className="p-3 rounded-md flex items-center justify-between"
                     style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
                     <div>
                       <p className="text-[13px] font-medium" style={{ color: "var(--text)" }}>{d.title}</p>
@@ -310,7 +310,7 @@ export function LeadDetail({
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="Skriv en anteckning..."
-                className="flex-1 text-[13px] outline-none px-3 py-2 rounded-[8px]"
+                className="flex-1 text-[13px] outline-none px-3 py-2 rounded-md"
                 style={{
                   background: "var(--surface-inset)",
                   border: "1px solid var(--border-strong)",
@@ -320,7 +320,7 @@ export function LeadDetail({
               <button
                 type="submit"
                 disabled={!note.trim() || isPending}
-                className="flex items-center gap-1 px-3 py-2 text-[13px] font-medium rounded-[8px] transition-opacity"
+                className="flex items-center gap-1 px-3 py-2 text-[13px] font-medium rounded-md transition-opacity"
                 style={{
                   background: "var(--accent)",
                   color: "white",
