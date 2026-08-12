@@ -22,62 +22,73 @@ export function FrameworkRail({ activeStep }: { activeStep?: FrameworkStep | nul
 
   return (
     <div
-      className="flex items-center gap-1 h-[42px] px-5 border-b shrink-0 overflow-x-auto"
+      className="flex items-center gap-4 h-[42px] px-5 border-b shrink-0 overflow-x-auto"
       style={{ background: "var(--surface)", borderColor: "var(--border)" }}
     >
-      <span
-        className="text-[9px] font-semibold uppercase tracking-widest shrink-0 mr-2"
-        style={{ color: "var(--text-dim)" }}
-      >
-        Ramverket
-      </span>
+      {/* Tom motvikt. Utan den flyter kedjan ut från vänsterkanten — det är
+          spalten till höger som gör mitten till mitt, inte innehållet självt. */}
+      <div className="flex-1 min-w-0" />
 
-      {steps.map((step, i) => {
-        const active = activeStep === step.value;
-        return (
-          <div key={step.value} className="flex items-center shrink-0">
-            {/* Förbindelsen mellan stegen. Ritas före steget, aldrig före det
-                första, så raden blir en kedja och inte lösa brickor. */}
-            {i > 0 && (
-              <span
-                className="w-[14px] h-[1px] mx-[3px]"
-                style={{ background: "var(--border-strong)" }}
-              />
-            )}
-            <div
-              className="flex items-center gap-[6px] pl-[5px] pr-[9px] py-[4px] rounded-md transition-colors"
-              style={{
-                background: active ? "var(--accent-muted)" : "transparent",
-                border: `1px solid ${active ? "var(--border-strong)" : "transparent"}`,
-              }}
-            >
-              <span
-                className="w-[17px] h-[17px] rounded-full flex items-center justify-center text-[9px] font-bold shrink-0"
+      {/* Etiketten och kedjan hör ihop och centreras som en enhet */}
+      <div className="flex items-center gap-1 shrink-0">
+        <span
+          className="text-[9px] font-semibold uppercase tracking-widest shrink-0 mr-2"
+          style={{ color: "var(--text-dim)" }}
+        >
+          Ramverket
+        </span>
+
+        {steps.map((step, i) => {
+          const active = activeStep === step.value;
+          return (
+            <div key={step.value} className="flex items-center shrink-0">
+              {/* Förbindelsen mellan stegen. Ritas före steget, aldrig före det
+                  första, så raden blir en kedja och inte lösa brickor. */}
+              {i > 0 && (
+                <span
+                  className="w-[14px] h-[1px] mx-[3px]"
+                  style={{ background: "var(--border-strong)" }}
+                />
+              )}
+              <div
+                className="flex items-center gap-[6px] pl-[5px] pr-[9px] py-[4px] rounded-md transition-colors"
                 style={{
-                  background: active ? "var(--accent)" : "var(--surface-inset)",
-                  color: active ? "var(--on-accent)" : "var(--text-dim)",
-                  border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+                  background: active ? "var(--accent-muted)" : "transparent",
+                  border: `1px solid ${active ? "var(--border-strong)" : "transparent"}`,
                 }}
               >
-                {i + 1}
-              </span>
-              <span
-                className="text-[12px] whitespace-nowrap"
-                style={{ color: active ? "var(--text)" : "var(--text-muted)" }}
-              >
-                {step.label}
-              </span>
+                <span
+                  className="w-[17px] h-[17px] rounded-full flex items-center justify-center text-[9px] font-bold shrink-0"
+                  style={{
+                    background: active ? "var(--accent)" : "var(--surface-inset)",
+                    color: active ? "var(--on-accent)" : "var(--text-dim)",
+                    border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+                  }}
+                >
+                  {i + 1}
+                </span>
+                <span
+                  className="text-[12px] whitespace-nowrap"
+                  style={{ color: active ? "var(--text)" : "var(--text-muted)" }}
+                >
+                  {step.label}
+                </span>
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
 
-      <span
-        className="hidden xl:block text-[10px] ml-auto pl-4 shrink-0"
-        style={{ color: "var(--text-dim)" }}
-      >
-        Avslut ⇄ invändning — gå tillbaka och fråga igen.
-      </span>
+      {/* Höger motvikt. Bär hjälptexten, men behåller sin bredd även när
+          texten är dold under xl — annars glider kedjan ur mitten. */}
+      <div className="flex-1 min-w-0 flex justify-end">
+        <span
+          className="hidden xl:block text-[10px] truncate"
+          style={{ color: "var(--text-dim)" }}
+        >
+          Avslut ⇄ invändning — gå tillbaka och fråga igen.
+        </span>
+      </div>
     </div>
   );
 }

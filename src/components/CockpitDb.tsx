@@ -937,13 +937,13 @@ export function CockpitDb({
           för att komma åt manuset, eller tvärtom. */}
       <div className="flex-1 flex overflow-hidden">
         {/* VÄNSTER: dashen — vem du ringer och vad du vet om dem */}
-        <div className="flex-1 flex items-start justify-center px-4 overflow-y-auto">
+        <div className="flex-1 flex items-start justify-center px-6 overflow-y-auto">
           <AnimatePresence mode="popLayout">
             <motion.div
               key={lead.id + contactIndex}
               initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.09, ease: "easeOut" }}
-              className="w-full max-w-[560px] py-5"
+              className="w-full max-w-[860px] py-5"
             >
               {/* Bolagsrubrik */}
               <div className="flex items-center gap-3 mb-3">
@@ -1181,98 +1181,110 @@ export function CockpitDb({
           hela bredden. Det får aldrig scrolla bort: trappan tas med
           sifferknappar, och muskelminnet kräver att den ligger still. */}
       <div
-        className="shrink-0 border-t px-5 py-3 max-h-[52vh] overflow-y-auto"
+        className="shrink-0 border-t py-3 max-h-[52vh] overflow-y-auto flex"
         style={{ background: "var(--surface)", borderColor: "var(--border)" }}
       >
-        <div className="w-full max-w-[880px] mx-auto">
-          {/* Återuppringningsdatum */}
-          {askCallback && (
-            <div className="rounded-lg p-4" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
-              <p className="text-[11px] font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--text-dim)" }}>
-                När ska du ringa?
-              </p>
-              <div className="flex items-center gap-2">
-                <input
-                  type="datetime-local"
-                  value={callbackAt}
-                  onChange={(e) => setCallbackAt(e.target.value)}
-                  autoFocus
-                  className="flex-1 px-3 py-2 text-[13px] rounded-md outline-none"
-                  style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)" }}
-                />
-                <button
-                  onClick={() => flow.result && commit({ result: flow.result, outcome: "CALLBACK_BOOKED", withGatekeeper: false })}
-                  disabled={!callbackAt}
-                  className="px-4 py-2 text-[12px] font-semibold rounded-md"
-                  style={{ background: callbackAt ? "var(--accent)" : "var(--surface)", color: callbackAt ? "var(--on-accent)" : "var(--text-dim)", border: "1px solid var(--border)" }}
-                >
-                  Spara
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Ramverksfrågan */}
-          {flow.stage === "framework" && (
-            <FrameworkTap
-              endedAtStep={endedAtStep}
-              closeAttempts={closeAttempts}
-              objections={objections}
-              onStep={setEndedAtStep}
-              onCloseAttempts={setCloseAttempts}
-              onToggleObjection={(tag) =>
-                setObjections((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag])
-              }
-              onSubmit={() => flow.result && commit({ result: flow.result, outcome: flow.outcome, noReason: flow.noReason, withFramework: true })}
-              onSkip={() => flow.result && commit({ result: flow.result, outcome: flow.outcome, noReason: flow.noReason })}
-            />
-          )}
-
-          {/* Dispositionstrappan */}
-          {!askCallback && flow.stage !== "framework" && (
-            <>
-              {flow.stage === "result" && (
-                <DispositionBar stage="result" options={RESULT_OPTIONS} onPick={pickResult} onBack={goBack} canGoBack={false} />
-              )}
-              {flow.stage === "gatekeeper" && (
-                <DispositionBar stage="gatekeeper" options={GATEKEEPER_OPTIONS} onPick={pickOutcome} onBack={goBack} canGoBack />
-              )}
-              {flow.stage === "outcome" && (
-                <DispositionBar stage="outcome" options={OUTCOME_OPTIONS} onPick={pickOutcome} onBack={goBack} canGoBack />
-              )}
-              {flow.stage === "reason" && (
-                <DispositionBar stage="reason" options={REASON_OPTIONS} onPick={pickReason} onBack={goBack} canGoBack />
-              )}
-            </>
-          )}
-
-          {/* Navigering och tangentlathunden delar rad — bottenfältet är den
-              enda ytan som aldrig scrollar, och den ska inte äta höjd i onödan. */}
-          <div className="flex items-center justify-between gap-3 mt-3">
-            <p className="text-[10px] shrink-0" style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-              siffror = välj · backsteg = ångra · S skippa · ESC stäng panel
-            </p>
-            {flow.stage === "result" && (
-              <div className="flex items-center gap-2 shrink-0">
-                <button onClick={prevLead} disabled={index === 0}
-                  className="flex items-center gap-1 text-[12px] px-3 py-2 rounded-md"
-                  style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)", opacity: index === 0 ? 0.4 : 1 }}>
-                  <ChevronLeft size={13} /> Föregående
-                </button>
-                <button onClick={skipLead}
-                  className="flex items-center gap-1 text-[11px] px-3 py-2 rounded-md"
-                  style={{ color: "var(--text-dim)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
-                  <SkipForward size={12} /> Skippa (S)
-                </button>
-                <button onClick={advance}
-                  className="flex items-center gap-1 text-[12px] px-3 py-2 rounded-md"
-                  style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
-                  Nästa <ChevronRight size={13} />
-                </button>
+        {/* Trappan delar axel med dashen i stället för att centreras på sidan.
+            Två nästan lika breda block med olika centrum läser som ett fel —
+            och det är dashen säljaren just läste, så det är den axeln ögat
+            redan står på när trappan ska tas. Fältet självt är fortsatt
+            fullbrett; det är bara innehållet som ställer in sig. */}
+        <div className="flex-1 flex justify-center px-6 min-w-0">
+          <div className="w-full max-w-[860px]">
+            {/* Återuppringningsdatum */}
+            {askCallback && (
+              <div className="rounded-lg p-4" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+                <p className="text-[11px] font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--text-dim)" }}>
+                  När ska du ringa?
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="datetime-local"
+                    value={callbackAt}
+                    onChange={(e) => setCallbackAt(e.target.value)}
+                    autoFocus
+                    className="flex-1 px-3 py-2 text-[13px] rounded-md outline-none"
+                    style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)" }}
+                  />
+                  <button
+                    onClick={() => flow.result && commit({ result: flow.result, outcome: "CALLBACK_BOOKED", withGatekeeper: false })}
+                    disabled={!callbackAt}
+                    className="px-4 py-2 text-[12px] font-semibold rounded-md"
+                    style={{ background: callbackAt ? "var(--accent)" : "var(--surface)", color: callbackAt ? "var(--on-accent)" : "var(--text-dim)", border: "1px solid var(--border)" }}
+                  >
+                    Spara
+                  </button>
+                </div>
               </div>
             )}
+
+            {/* Ramverksfrågan */}
+            {flow.stage === "framework" && (
+              <FrameworkTap
+                endedAtStep={endedAtStep}
+                closeAttempts={closeAttempts}
+                objections={objections}
+                onStep={setEndedAtStep}
+                onCloseAttempts={setCloseAttempts}
+                onToggleObjection={(tag) =>
+                  setObjections((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag])
+                }
+                onSubmit={() => flow.result && commit({ result: flow.result, outcome: flow.outcome, noReason: flow.noReason, withFramework: true })}
+                onSkip={() => flow.result && commit({ result: flow.result, outcome: flow.outcome, noReason: flow.noReason })}
+              />
+            )}
+
+            {/* Dispositionstrappan */}
+            {!askCallback && flow.stage !== "framework" && (
+              <>
+                {flow.stage === "result" && (
+                  <DispositionBar stage="result" options={RESULT_OPTIONS} onPick={pickResult} onBack={goBack} canGoBack={false} />
+                )}
+                {flow.stage === "gatekeeper" && (
+                  <DispositionBar stage="gatekeeper" options={GATEKEEPER_OPTIONS} onPick={pickOutcome} onBack={goBack} canGoBack />
+                )}
+                {flow.stage === "outcome" && (
+                  <DispositionBar stage="outcome" options={OUTCOME_OPTIONS} onPick={pickOutcome} onBack={goBack} canGoBack />
+                )}
+                {flow.stage === "reason" && (
+                  <DispositionBar stage="reason" options={REASON_OPTIONS} onPick={pickReason} onBack={goBack} canGoBack />
+                )}
+              </>
+            )}
+
+            {/* Navigering och tangentlathunden delar rad — bottenfältet är den
+                enda ytan som aldrig scrollar, och den ska inte äta höjd i onödan. */}
+            <div className="flex items-center justify-between gap-3 mt-3">
+              <p className="text-[10px] shrink-0" style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
+                siffror = välj · backsteg = ångra · S skippa · ESC stäng panel
+              </p>
+              {flow.stage === "result" && (
+                <div className="flex items-center gap-2 shrink-0">
+                  <button onClick={prevLead} disabled={index === 0}
+                    className="flex items-center gap-1 text-[12px] px-3 py-2 rounded-md"
+                    style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)", opacity: index === 0 ? 0.4 : 1 }}>
+                    <ChevronLeft size={13} /> Föregående
+                  </button>
+                  <button onClick={skipLead}
+                    className="flex items-center gap-1 text-[11px] px-3 py-2 rounded-md"
+                    style={{ color: "var(--text-dim)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+                    <SkipForward size={12} /> Skippa (S)
+                  </button>
+                  <button onClick={advance}
+                    className="flex items-center gap-1 text-[12px] px-3 py-2 rounded-md"
+                    style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+                    Nästa <ChevronRight size={13} />
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
+
+        {/* Motvikt lika bred som manusspalten, så trappan hamnar under dashen
+            och inte mitt på sidan. Tom med flit — manuset behöver ingen
+            motsvarighet i bottenfältet. */}
+        <div className="hidden lg:block w-[42%] max-w-[560px] shrink-0" />
       </div>
 
       {/* Höger panel */}
