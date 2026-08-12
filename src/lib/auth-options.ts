@@ -36,10 +36,18 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.id = user.id;
         token.role = (user as { role: string }).role;
+      }
+      // Namnet ligger i JWT:n och sätts annars bara vid inloggning. Utan det
+      // här skulle ett namnbyte i inställningarna synas först nästa gång
+      // säljaren loggar in — sidfältet skulle stå kvar med det gamla namnet
+      // resten av arbetspasset. Rollen uppdateras medvetet INTE här: den
+      // kommer från klienten och får bara sättas vid inloggning.
+      if (trigger === "update" && typeof session?.name === "string") {
+        token.name = session.name;
       }
       return token;
     },

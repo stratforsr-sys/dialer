@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import {
   Users, LayoutGrid, Upload, BarChart2, ShieldCheck, LogOut, Zap, Search,
   FolderOpen, Radio, MessageSquare, SlidersHorizontal, PanelLeftClose, PanelLeftOpen,
+  Settings,
 } from "lucide-react";
 
 // Dialern har medvetet ingen egen meny-ingång: man ringer alltid inifrån en
@@ -24,6 +25,9 @@ const NAV = [
   { href: "/admin/scripts", label: "Manus",      icon: MessageSquare, adminOnly: true },
   { href: "/admin/dialer",  label: "Dialer",     icon: SlidersHorizontal, adminOnly: true },
   { href: "/admin",         label: "Admin",      icon: ShieldCheck, adminOnly: true },
+  // Sist och för alla. Egna kontot, inte en arbetsyta — hör hemma närmast
+  // användarblocket längst ner, inte bland det man jobbar i.
+  { href: "/settings",      label: "Inställningar", icon: Settings },
 ];
 
 const RAIL = 56;

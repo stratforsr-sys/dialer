@@ -109,6 +109,52 @@ export async function getFluffStats(days = 7) {
   };
 }
 
+/**
+ * Den inloggades egen statistik, oavsett roll.
+ *
+ * Skiljer sig från getDailyStats på att den ALLTID filtrerar på den egna
+ * sellerId — även för admin. På inställningssidan är det den egna insatsen
+ * som är frågan; hela golvets siffror hör hemma under Statistik.
+ */
+export async function getOwnSummary(days = 30) {
+  const user = await requireAuth();
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+
+  const [attempts, sessions] = await Promise.all([
+    db.callAttempt.findMany({
+      where: { sellerId: user.id, startedAt: { gte: since } },
+      select: { result: true, outcome: true },
+    }),
+    db.callSession.findMany({
+      where: { userId: user.id, startedAt: { gte: since } },
+      select: { totalCalls: true, totalIdle: true },
+    }),
+  ]);
+
+  const calls = attempts.length;
+  const connected = attempts.filter(
+    (a) => a.result === "CONNECTED_DM" || a.result === "CONNECTED_GATEKEEPER"
+  ).length;
+  const sold = attempts.filter((a) => a.outcome === "SOLD").length;
+
+  const idleSecs = sessions.reduce((s, x) => s + x.totalIdle, 0);
+  const sessionCalls = sessions.reduce((s, x) => s + x.totalCalls, 0);
+
+  return {
+    days,
+    calls,
+    connected,
+    sold,
+    // Andelar räknas bara när nämnaren finns. Ett nollsamtalspass ska visa
+    // ett streck, inte 0 % — de betyder inte samma sak.
+    connectRate: calls > 0 ? ((connected / calls) * 100).toFixed(1) : null,
+    convRate: calls > 0 ? ((sold / calls) * 100).toFixed(1) : null,
+    avgIdlePerCall: sessionCalls > 0 ? Math.round(idleSecs / sessionCalls) : null,
+    callsPerDay: Math.round(calls / Math.max(days, 1)),
+  };
+}
+
 export async function getSellerStats(days = 30) {
   const user = await requireAuth();
   if (user.role !== "ADMIN") return [];
