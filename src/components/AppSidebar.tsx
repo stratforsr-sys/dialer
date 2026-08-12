@@ -16,7 +16,9 @@ const NAV = [
   { href: "/leads",         label: "Leads",      icon: Users },
   { href: "/pipeline",      label: "Pipeline",   icon: LayoutGrid },
   { href: "/research",      label: "Research",   icon: Search },
-  { href: "/import",        label: "Importera",  icon: Upload },
+  // Sidan redirectar redan säljare till /lists, så länken var en återvändsgränd
+  // för alla utom admin. Dölj den i stället för att låta den se klickbar ut.
+  { href: "/import",        label: "Importera",  icon: Upload, adminOnly: true },
   { href: "/stats",         label: "Statistik",  icon: BarChart2 },
   { href: "/admin/floor",   label: "Golvet",     icon: Radio, adminOnly: true },
   { href: "/admin/scripts", label: "Manus",      icon: MessageSquare, adminOnly: true },
