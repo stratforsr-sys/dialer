@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { useEffect, useState } from "react";
 import {
-  Users, LayoutGrid, Upload, BarChart2, ShieldCheck, LogOut, Zap, Search,
+  LayoutGrid, Upload, BarChart2, ShieldCheck, LogOut, Zap, Search,
   FolderOpen, Radio, MessageSquare, SlidersHorizontal, PanelLeftClose, PanelLeftOpen,
   Settings,
 } from "lucide-react";
@@ -15,7 +15,11 @@ import { NotificationBell } from "@/components/notifications/NotificationBell";
 // ringlista, via "Starta dialer". /cockpit utan listId skickar till /lists.
 const NAV = [
   { href: "/lists",         label: "Ringlistor", icon: FolderOpen },
-  { href: "/leads",         label: "Leads",      icon: Users },
+  // Lead-listan är borttagen ur menyn. Den var en andra, parallell ingång till
+  // samma bolag som redan ligger i en ringlista, och den enda som behövde den
+  // var den som letade efter ETT lead — vilket sökfältet på Ringlistor nu gör
+  // bättre. `/leads/[id]` finns kvar och är fortfarande dit allt länkar:
+  // notisklockan, sökträffarna, pipeline och research.
   { href: "/pipeline",      label: "Pipeline",   icon: LayoutGrid },
   { href: "/research",      label: "Research",   icon: Search },
   // Sidan redirectar redan säljare till /lists, så länken var en återvändsgränd

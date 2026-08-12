@@ -125,6 +125,25 @@ som koden pushas — annars kraschar sajten på kolumner som inte finns.
 - `main` auto-deployar till https://dialer-five.vercel.app/ (Vercel-projekt `dialer`).
   En branch når aldrig sajten, så ändringen finns i praktiken inte förrän den är på `main`.
 
+### Lead-listan är avvecklad
+`/leads` redirectar till `/lists` och finns inte i menyn. Den var en andra,
+parallell ingång till samma bolag som redan ligger i en ringlista. **`/leads/[id]`
+lever vidare och är oförändrad** — det är dit notisklockan, sökträffarna,
+pipeline och research länkar. Lägg inte tillbaka listvyn utan att först fråga.
+
+### Anteckningar
+Två spår som tidigare inte kände till varandra:
+- **Cockpit-anteckningen** sparas på `CallAttempt.note`. Den renderades förut
+  ingenstans alls — data som lagrades men aldrig lästes. `recordAttempt` skriver
+  nu även en `Activity` av typ `CALL` med `{ status, notes }`, men **bara när det
+  finns en anteckning**: en rad per samtal hade lagt 150 rader per säljare och dag
+  i en logg vars enda syfte är att gå att läsa.
+- **Lead-sidans anteckning** skriver en `Activity` av typ `NOTE`.
+
+`LeadHistory` i cockpiten slår ihop båda i en tidslinje. Rader är hopfällda till
+tid + utfall; anteckningen fälls ut vid klick. Historiken hämtas i
+`leaseNextLeads` select — **glöm den inte när nya fält tillkommer.**
+
 ### User Roles
 - ADMIN: sees all leads, all stats, manages users and pipeline stages
 - SELLER: sees only own leads, own stats
@@ -145,7 +164,10 @@ bokat" är kvar som steg trots att mötesbokningen togs bort i migration 007.
 - Multiple deals per lead (no pipeline for deals, just status: OPEN/WON/LOST)
 - Activity log on every lead — visible to all users
 - Fluff tracking: auto-measure idle time between calls
-- Global search across leads, contacts, org numbers
+- Sökning efter enskilda leads ligger i sökfältet på **Ringlistor**, inte i en
+  egen lead-vy. Söker på bolagsnamn, kontaktperson, ort, org.nr och telefon
+  (siffernormaliserat, så "070-123 45 67" hittar "+46701234567"), begränsat till
+  det användaren har tillgång till. `searchAssignedLeads` i `actions/leads.ts`.
 - Manus per ramverkssteg, i prioritetsordnade varianter (`src/lib/script-resolver.ts`).
   Manustexten visas ordagrant — radbrytningar och blankrader är en del av manuset,
   så alla vyer som renderar den måste ha `whitespace-pre-wrap`

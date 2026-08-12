@@ -101,6 +101,42 @@ typkontrollen. Lösningen blev att inte behöva portalen alls.
 **tsconfig siktar på es5.** `for...of` över en `Map` kräver
 `downlevelIteration`, som inte är påslaget. `Array.from(map.values())` fungerar.
 
+### Samma pass: anteckningar, lead-listan och söket
+
+**Cockpit-anteckningen var skrivskyddad data.** Textarean "Anteckning — sparas
+med samtalet" skrev till `CallAttempt.note`, och `CallAttempt.note` renderades
+inte på ett enda ställe i appen. Lead-sidan visar bara `Activity`-rader, och
+`recordAttempt` skrev ingen. En säljare som skrev "vill ha offert efter
+semestern" förlorade det permanent. Två åtgärder: `recordAttempt` skriver nu en
+`Activity` när det finns en anteckning (bara då — en rad per samtal hade lagt
+150 rader per säljare och dag i loggen), och cockpiten fick `LeadHistory`.
+
+Panelen är hopfälld med flit: en rad per händelse med bara tid och utfall,
+anteckningen fälls ut vid klick. Rader utan anteckning saknar pil, så det syns
+på en tiondels sekund var det finns text att läsa. Samtal och lead-sidans
+anteckningar ligger i samma tidslinje — säljaren bryr sig om vad som sagts om
+bolaget, inte om i vilken vy det skrevs.
+
+**Lead-listan är avvecklad.** `/leads` redirectar till `/lists` och ligger inte
+i menyn. Den var en parallell ingång till samma bolag som redan ligger i en
+ringlista. `/leads/[id]` är orörd — allt länkar dit, och en radering hade krävt
+en ersättare först.
+
+Redirect och inte 404: `/leads` finns i bokmärken, i `revalidatePath`-anrop och
+i länkar som skickats mellan säljare.
+
+**Söket flyttade till Ringlistor.** Fältet filtrerade tidigare bara mappnamn i
+klienten. Nu söker det också leads mot servern, med 250 ms fördröjning — en
+fråga per tangenttryckning mot flera tusen rader är belastning för ett resultat
+som hinner bytas ut innan någon läst det. Sökningen tar med `hasActiveDeal` och
+retirerade leads, till skillnad från gamla `getLeads`: "varför ringer vi inte
+det här bolaget?" är en fråga söket ska svara på, inte dölja. Telefonnummer
+normaliseras till siffror så att "070-123 45 67" hittar "+46701234567".
+
+Ett kapplöpningsskydd behövdes: utan `cancelled`-flaggan i `useEffect` skriver
+ett långsamt svar på en gammal sökning över ett nyare, och listan blinkar
+tillbaka till förra bokstavens träffar.
+
 ### Öppna punkter
 
 - [ ] **`RESEND_API_KEY` och `EMAIL_FROM` är inte satta i Vercel.** Utan dem

@@ -18,6 +18,7 @@ import { GatekeeperPanel, EMPTY_GATEKEEPER, type GatekeeperDraft } from "@/compo
 import { FrameworkRail, FrameworkTap } from "@/components/cockpit/FrameworkPanel";
 import { ScriptPanel } from "@/components/cockpit/ScriptPanel";
 import { CallbackForm, EMPTY_CALLBACK, type CallbackDraft } from "@/components/cockpit/CallbackForm";
+import { LeadHistory } from "@/components/cockpit/LeadHistory";
 import { useDispositionQueue } from "@/hooks/useDispositionQueue";
 import { formatSwedish } from "@/lib/phone";
 import { formatWhen } from "@/lib/time";
@@ -1146,6 +1147,10 @@ export function CockpitDb({
                     </div>
                   </div>
                 )}
+
+                {/* Historiken före anteckningsfältet: man läser vad som redan
+                    sagts innan man skriver nytt. */}
+                <LeadHistory attempts={lead.callAttempts} activities={lead.activities} />
 
                 {/* Anteckning */}
                 <textarea

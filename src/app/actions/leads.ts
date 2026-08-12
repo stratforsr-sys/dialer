@@ -219,3 +219,96 @@ export async function reassignLead(id: string, newOwnerId: string) {
   revalidatePath("/leads");
   revalidatePath(`/leads/${id}`);
 }
+
+/**
+ * Snabbsökning över de leads användaren faktiskt har tillgång till.
+ *
+ * Driver sökfältet på Ringlistor, som numera är enda vägen in till ett enskilt
+ * lead — lead-listan är borttagen ur menyn. Därför söker den bredare än
+ * `getLeads`: en säljare som letar efter ett bolag minns lika ofta personens
+ * namn eller de sista siffrorna i numret som firmanamnet.
+ *
+ * Skiljer sig från `getLeads` på tre punkter, alla medvetna:
+ *
+ *  - **`hasActiveDeal` filtreras inte bort.** Ett lead som blivit en affär ska
+ *    gå att hitta; det är ofta då man letar efter det.
+ *  - **Retirerade tas med.** "Varför ringer vi inte det här bolaget?" är en
+ *    fråga sökningen ska kunna svara på, inte dölja.
+ *  - **Liten `take`.** Det här är en snabbsökning i en dropdown, inte en
+ *    tabell. Fler än tolv träffar betyder att man ska skriva mer, inte scrolla.
+ */
+export async function searchAssignedLeads(query: string) {
+  const user = await requireAuth();
+
+  const q = query.trim();
+  // Två tecken är minimum. Ett tecken matchar halva databasen och kostar en
+  // full tabellskanning för ett resultat ingen kan använda.
+  if (q.length < 2) return [];
+
+  // Siffror i ett telefonnummer skrivs på fem sätt. Normalisera bort allt utom
+  // siffror så att "070-123 45 67" hittar "+46701234567" — E164-kolumnerna
+  // lagrar bara siffror och plus.
+  const digits = q.replace(/\D/g, "");
+  const phoneQuery = digits.length >= 4 ? digits.replace(/^0/, "") : null;
+
+  const or: Prisma.LeadWhereInput[] = [
+    { companyName: { contains: q } },
+    { orgNumber: { contains: q } },
+    { city: { contains: q } },
+    { contacts: { some: { name: { contains: q } } } },
+  ];
+
+  if (phoneQuery) {
+    or.push(
+      { contacts: { some: { directPhoneE164: { contains: phoneQuery } } } },
+      { contacts: { some: { switchboardE164: { contains: phoneQuery } } } },
+      { contacts: { some: { directPhone: { contains: digits } } } }
+    );
+  }
+
+  const leads = await db.lead.findMany({
+    where: { AND: [visibleLeadWhere(user), { OR: or }] },
+    take: 12,
+    // Senast rörda först: letar man efter ett bolag är det oftast ett man
+    // nyligen haft att göra med.
+    orderBy: { updatedAt: "desc" },
+    select: {
+      id: true,
+      companyName: true,
+      city: true,
+      industry: true,
+      retired: true,
+      retiredReason: true,
+      hasActiveDeal: true,
+      callbackAt: true,
+      lastAttemptAt: true,
+      contacts: {
+        take: 1,
+        orderBy: { createdAt: "asc" },
+        select: { name: true, directPhoneE164: true, directPhone: true },
+      },
+      lists: {
+        take: 1,
+        select: { list: { select: { id: true, name: true } } },
+      },
+    },
+  });
+
+  return leads.map((l) => ({
+    id: l.id,
+    companyName: l.companyName,
+    city: l.city,
+    industry: l.industry,
+    retired: l.retired,
+    retiredReason: l.retiredReason,
+    hasActiveDeal: l.hasActiveDeal,
+    callbackAt: l.callbackAt,
+    lastAttemptAt: l.lastAttemptAt,
+    contactName: l.contacts[0]?.name ?? null,
+    phone: l.contacts[0]?.directPhoneE164 ?? l.contacts[0]?.directPhone ?? null,
+    listId: l.lists[0]?.list.id ?? null,
+    listName: l.lists[0]?.list.name ?? null,
+  }));
+}
+
+export type LeadSearchHit = Awaited<ReturnType<typeof searchAssignedLeads>>[number];

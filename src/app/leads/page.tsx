@@ -1,30 +1,21 @@
-import { getLeads, countLeads } from "@/app/actions/leads";
-import { LEADS_PAGE_SIZE } from "@/lib/constants";
-import { db } from "@/lib/db";
-import { LeadsTable } from "@/components/leads/LeadsTable";
+import { redirect } from "next/navigation";
 
-export default async function LeadsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ search?: string }>;
-}) {
-  const params = await searchParams;
-
-  // Alla tre är oberoende — en round-trip i stället för tre i sekvens
-  const [leads, stages, total] = await Promise.all([
-    getLeads({ search: params.search }), // hasActiveDeal=false by default
-    db.pipelineStage.findMany({ orderBy: { order: "asc" } }),
-    countLeads({ search: params.search }),
-  ]);
-
-  return (
-    <div className="h-full flex flex-col">
-      <LeadsTable
-        leads={leads}
-        stages={stages}
-        total={total}
-        pageSize={LEADS_PAGE_SIZE}
-      />
-    </div>
-  );
+/**
+ * Lead-listan är avvecklad.
+ *
+ * Den var en andra ingång till samma bolag som redan ligger i en ringlista, och
+ * den enda som faktiskt behövde den var den som letade efter ETT lead. Den
+ * uppgiften ligger nu i sökfältet på Ringlistor, som söker på bolagsnamn,
+ * kontaktperson, ort, org.nr och telefonnummer över allt användaren har
+ * tillgång till.
+ *
+ * Sidan är en redirect och inte en radering: `/leads` ligger i bokmärken, i
+ * `revalidatePath`-anrop och i länkar som skickats mellan säljare. En 404 hade
+ * sett ut som ett fel i systemet.
+ *
+ * **`/leads/[id]` lever vidare** och är oförändrad — det är dit notisklockan,
+ * sökträffarna, pipeline och research länkar.
+ */
+export default function LeadsPage() {
+  redirect("/lists");
 }

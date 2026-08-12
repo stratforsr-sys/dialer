@@ -7,6 +7,7 @@ import { canAccessList, claimCutoff } from "@/lib/lists";
 import { computeNext, slotAt, type Slot, type SchedulerConfig } from "@/lib/scheduler";
 import { resolveScript, firstNameOf, type ResolverVariant } from "@/lib/script-resolver";
 import { getActiveScripts } from "@/app/actions/scripts";
+import { RESULT_OPTIONS, OUTCOME_OPTIONS } from "@/lib/cockpit-flow";
 import type {
   CallResult,
   ConversationOutcome,
@@ -220,6 +221,40 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
           linkedin: true,
         },
         orderBy: { createdAt: "asc" },
+      },
+      // Historiken. Utan den var cockpit-anteckningarna skrivskyddad data:
+      // de sparades på CallAttempt och renderades inte på ett enda ställe i
+      // appen. En säljare som skrev "vill ha offert efter semestern" fick
+      // aldrig se det igen.
+      //
+      // Åtta rader räcker — det är fler än taket för antal försök, och en
+      // panel som scrollar läser ingen mitt i ett samtal.
+      callAttempts: {
+        select: {
+          id: true,
+          startedAt: true,
+          result: true,
+          outcome: true,
+          noReason: true,
+          note: true,
+          seller: { select: { name: true } },
+        },
+        orderBy: { startedAt: "desc" },
+        take: 8,
+      },
+      // Anteckningar skrivna på lead-sidan är ett eget spår som cockpiten
+      // aldrig sett. De hör hemma i samma tidslinje — säljaren bryr sig om
+      // vad som sagts om bolaget, inte om vilken vy det skrevs i.
+      activities: {
+        where: { type: "NOTE" },
+        select: {
+          id: true,
+          timestamp: true,
+          metadata: true,
+          actor: { select: { name: true } },
+        },
+        orderBy: { timestamp: "desc" },
+        take: 8,
       },
       gatekeepers: {
         select: {
@@ -445,6 +480,43 @@ export async function recordAttempt(input: RecordAttemptInput) {
       },
     }),
   ];
+
+  // ── Anteckningen in i aktivitetsloggen ───────────────────────────────────
+  //
+  // Anteckningen sparas på CallAttempt, men lead-sidan renderar bara Activity.
+  // Utan den här raden var allt en säljare skrev i cockpiten osynligt i resten
+  // av systemet — data som lagrades men aldrig lästes.
+  //
+  // Bara när det FINNS en anteckning. En Activity per samtal hade lagt 150
+  // rader per säljare och dag i en logg vars enda syfte är att gå att läsa.
+  const note = input.note?.trim();
+  if (note) {
+    const resultLabel =
+      RESULT_OPTIONS.find((o) => o.value === input.result)?.label ?? input.result;
+    const outcomeLabel = input.outcome
+      ? OUTCOME_OPTIONS.find((o) => o.value === input.outcome)?.label ?? null
+      : null;
+
+    writes.push(
+      db.activity.create({
+        data: {
+          type: "CALL",
+          leadId: input.leadId,
+          contactId: input.contactId ?? null,
+          actorId: user.id,
+          timestamp: now,
+          // Formen på metadata är densamma som LeadDetail redan renderar för
+          // CALL: { status, notes }. Etiketterna är svenska av samma skäl —
+          // loggen läses av människor, inte av enum-kunniga.
+          metadata: JSON.stringify({
+            status: outcomeLabel ? `${resultLabel} — ${outcomeLabel}` : resultLabel,
+            notes: note,
+            attemptId: attempt.id,
+          }),
+        },
+      })
+    );
+  }
 
   // ── Återkomster ──────────────────────────────────────────────────────────
   //

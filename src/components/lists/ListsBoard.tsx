@@ -10,6 +10,7 @@ import {
 import type { ListSummary } from "@/app/actions/lists";
 import { deleteList, renameList } from "@/app/actions/lists";
 import { ShareListModal } from "./ShareListModal";
+import { LeadSearchResults } from "./LeadSearchResults";
 
 type UserOption = { id: string; name: string; email: string; role: string };
 
@@ -207,7 +208,7 @@ export function ListsBoard({
             />
             <input
               type="text"
-              placeholder="Sök mapp…"
+              placeholder="Sök mapp eller lead…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-9 pr-8 py-2 text-[13px] rounded-md focus:outline-none"
@@ -249,6 +250,14 @@ export function ListsBoard({
 
       {/* ── Innehåll ── */}
       <div className="flex-1 overflow-y-auto" style={{ opacity: isPending ? 0.6 : 1 }}>
+        {/* Leadträffar först. Söker man på ett bolagsnamn är det bolaget man
+            vill åt — mapparna nedanför är kvar som sammanhang, inte som svar. */}
+        {search.trim().length >= 2 && (
+          <div className="px-6 pt-6">
+            <LeadSearchResults query={search} />
+          </div>
+        )}
+
         {lists.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-5 px-8">
             <div
