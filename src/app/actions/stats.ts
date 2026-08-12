@@ -4,17 +4,34 @@ import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 
 /**
+ * Vems siffror frågan gäller. Returnerar ett användar-id, eller null för
+ * "hela golvet".
+ *
+ * En SÄLJARE får alltid sina egna, oavsett vad klienten skickar — parametern
+ * ignoreras helt för dem. Att den ignoreras i stället för att ge ett fel är
+ * medvetet: en manipulerad länk ska inte avslöja att någon annan finns.
+ *
+ * Regeln ligger här och inte utspridd i varje funktion, så att en ny
+ * statistikfunktion inte kan läcka allas siffror genom att glömma villkoret.
+ */
+function statsScope(user: { id: string; role: string }, sellerId?: string): string | null {
+  if (user.role !== "ADMIN") return user.id;
+  return sellerId && sellerId !== "all" ? sellerId : null;
+}
+
+/**
  * Dagsstatistik ur CallAttempt, inte ur aktivitetsloggen.
  *
  * Aktivitetsloggen är en människoläsbar tidslinje med JSON i en textkolumn;
  * CallAttempt är typad och indexerad. Räkning ska ske mot faktatabellen.
  */
-export async function getDailyStats(days = 30) {
+export async function getDailyStats(days = 30, sellerId?: string) {
   const user = await requireAuth();
   const since = new Date();
   since.setDate(since.getDate() - days);
 
-  const sellerFilter = user.role === "SELLER" ? { sellerId: user.id } : {};
+  const who = statsScope(user, sellerId);
+  const sellerFilter = who ? { sellerId: who } : {};
 
   const attempts = await db.callAttempt.findMany({
     where: { startedAt: { gte: since }, ...sellerFilter },
@@ -52,9 +69,10 @@ export async function getDailyStats(days = 30) {
  * outcome är två fält: med ett enda hopslaget fält går den här nämnaren inte
  * att bilda.
  */
-export async function getConversionRates() {
+export async function getConversionRates(sellerId?: string) {
   const user = await requireAuth();
-  const sellerFilter = user.role === "SELLER" ? { sellerId: user.id } : {};
+  const who = statsScope(user, sellerId);
+  const sellerFilter = who ? { sellerId: who } : {};
 
   const [totalCalls, connected, reachedDm, totalSold, callbacks] = await Promise.all([
     db.callAttempt.count({ where: sellerFilter }),
@@ -81,15 +99,17 @@ export async function getConversionRates() {
   };
 }
 
-export async function getFluffStats(days = 7) {
+export async function getFluffStats(days = 7, sellerId?: string) {
   const user = await requireAuth();
   const since = new Date();
   since.setDate(since.getDate() - days);
 
+  const who = statsScope(user, sellerId);
+
   const sessions = await db.callSession.findMany({
     where: {
       startedAt: { gte: since },
-      ...(user.role === "SELLER" ? { userId: user.id } : {}),
+      ...(who ? { userId: who } : {}),
     },
     include: {
       user: { select: { name: true } },
@@ -201,11 +221,11 @@ export async function getSellerStats(days = 30) {
   return results.sort((a, b) => b.calls - a.calls);
 }
 
-export async function getPipelineOverview() {
+export async function getPipelineOverview(sellerId?: string) {
   const user = await requireAuth();
-  const ownerFilter = user.role === "SELLER" ? { ownerId: user.id } : {};
+  const who = statsScope(user, sellerId);
 
-  const dealOwnerFilter = user.role === "SELLER" ? { lead: { ownerId: user.id } } : {};
+  const dealOwnerFilter = who ? { lead: { ownerId: who } } : {};
 
   const stages = await db.pipelineStage.findMany({
     orderBy: { order: "asc" },

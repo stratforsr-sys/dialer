@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { BarChart3, TrendingUp, AlertTriangle, Phone, Calendar, Target, Clock, Trophy, ArrowUp, ArrowDown, Minus } from "lucide-react";
 
@@ -88,11 +89,15 @@ function PipelineFunnel({ stages }: { stages: PipelineStage[] }) {
 }
 
 export function StatsView({
-  daily, conversion, fluff, pipeline, sellers, isAdmin,
+  daily, conversion, fluff, pipeline, sellers, isAdmin, sellerFilter,
 }: {
   daily: DailyRow[]; conversion: Conversion; fluff: Fluff; pipeline: PipelineStage[]; sellers: Seller[]; isAdmin: boolean;
+  /** Vald säljare, eller null för hela golvet. Alltid null för säljare —
+   *  servern struntar i parametern för dem, så den ska inte visas heller. */
+  sellerFilter: string | null;
 }) {
   const [tab, setTab] = useState<Tab>("activity");
+  const router = useRouter();
 
   const last7 = daily.slice(-7);
   const totalCallsWeek = last7.reduce((s, d) => s + d.calls, 0);
@@ -128,7 +133,29 @@ export function StatsView({
             </button>
           ))}
         </div>
-        <div className="w-[120px]" />
+        {/* Filtret hamnar i motvikten som redan fanns för att centrera
+            flikarna. Säljare ser den aldrig — servern ignorerar parametern
+            för dem, och en väljare som inte gör något är värre än ingen. */}
+        {isAdmin && sellers.length > 0 ? (
+          <div className="w-[180px] flex justify-end">
+            <select
+              value={sellerFilter ?? "all"}
+              onChange={(e) => {
+                const v = e.target.value;
+                router.push(v === "all" ? "/stats" : `/stats?seller=${encodeURIComponent(v)}`);
+              }}
+              className="px-2 py-[5px] text-[12px] max-w-full"
+              title="Filtrera statistiken på en säljare"
+            >
+              <option value="all">Alla säljare</option>
+              {sellers.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <div className="w-[120px]" />
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto">
