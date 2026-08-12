@@ -122,6 +122,14 @@ function formatIdle(s: number) {
  *  samtal har säljaren slutat ringa och börjat göra något annat. */
 const IDLE_CEILING = 180;
 
+/** Manusspaltens bredd. Ramverksradens högerzon måste vara exakt lika bred,
+ *  annars hamnar kedjan inte över dashen. Ett värde, två användningar. */
+const MANUS_COL = "w-[42%] max-w-[560px]";
+
+/** Dashens läsbredd. Delas av ramverksraden, dashen och trappan så de tre
+ *  ligger på samma axel. */
+const DASH_W = "max-w-[860px]";
+
 /**
  * Takten. Enda siffran i hela systemet som faktiskt driver samtalsvolym:
  * tiden sedan förra dispositionen, och hur många samtal den takten ger
@@ -929,238 +937,347 @@ export function CockpitDb({
         </div>
       </div>
 
-      {/* Ramverket som passiv rad över båda kolumnerna */}
-      <FrameworkRail activeStep={flow.stage === "framework" ? endedAtStep : null} />
+      {/* Ramverket. Bandet går över hela bredden, kedjan över dashen. */}
+      <FrameworkRail
+        activeStep={flow.stage === "framework" ? endedAtStep : null}
+        gutterClass={MANUS_COL}
+        dashClass={DASH_W}
+      />
 
       {/* Innehåll — dash till vänster, manus till höger. Två spalter med var
           sin scroll: säljaren ska aldrig behöva rulla bort kontaktuppgifterna
           för att komma åt manuset, eller tvärtom. */}
       <div className="flex-1 flex overflow-hidden">
-        {/* VÄNSTER: dashen — vem du ringer och vad du vet om dem */}
-        <div className="flex-1 flex items-start justify-center px-6 overflow-y-auto">
-          <AnimatePresence mode="popLayout">
-            <motion.div
-              key={lead.id + contactIndex}
-              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.09, ease: "easeOut" }}
-              className="w-full max-w-[860px] py-5"
-            >
-              {/* Bolagsrubrik */}
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-lg flex items-center justify-center text-[15px] font-bold shrink-0"
-                  style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text-secondary)", fontFamily: "var(--font-display)" }}>
-                  {lead.companyName.charAt(0).toUpperCase()}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h1 className="text-[20px] leading-tight truncate" style={{ color: "var(--text)", fontFamily: "var(--font-display)" }}>
-                    {lead.companyName}
-                  </h1>
-                  <div className="flex items-center gap-2 mt-[2px]">
-                    {/* Branschen först och som egen bricka, inte i faktaraden
-                        nedanför: den avgör vilken vinkel säljaren tar, och ska
-                        gå att läsa i samma ögonkast som bolagsnamnet. */}
-                    {lead.industry && (
-                      <span
-                        className="text-[11px] font-semibold px-2 py-[2px] rounded-full whitespace-nowrap"
-                        style={{
-                          background: "var(--accent-muted)",
-                          color: "var(--accent)",
-                          border: "1px solid var(--border-strong)",
-                        }}
-                        title={
-                          lead.industrySource === "name"
-                            ? "Gissad ur bolagsnamnet — bolaget saknar hemsida. Verifiera i samtalet."
-                            : undefined
-                        }
-                      >
-                        {lead.industry}
-                        {/* Osäkra gissningar märks ut. En bransch härledd ur
-                            enbart bolagsnamnet ska inte se lika trovärdig ut
-                            som en som lästs av sajten — säljaren ska veta att
-                            den är värd att kolla, inte att påstå. */}
-                        {lead.industrySource === "name" && (
-                          <span style={{ opacity: 0.65 }}> ?</span>
-                        )}
-                      </span>
-                    )}
-                    {lead.attemptCount > 0 && (
-                      <span className="text-[11px]" style={{ color: "var(--text-dim)" }}>
-                        Försök {lead.attemptCount + 1}
-                      </span>
-                    )}
-                    {lead.callbackAt && (
-                      <span className="flex items-center gap-1 text-[11px]" style={{ color: "var(--accent)" }}>
-                        <CalendarClock size={10} /> Lovad återuppringning
-                      </span>
-                    )}
-                    {lead.contacts.length > 1 && (
-                      <div className="flex items-center gap-1">
-                        {lead.contacts.map((c, i) => (
-                          <button key={c.id} onClick={() => setContactIndex(i)}
-                            className="w-5 h-5 rounded-full text-[9px] font-bold transition-all"
-                            style={{ background: i === contactIndex ? "var(--accent)" : "var(--surface-inset)", color: i === contactIndex ? "var(--on-accent)" : "var(--text-dim)", border: `1px solid ${i === contactIndex ? "var(--accent)" : "var(--border)"}` }}>
-                            {c.name.charAt(0)}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+        {/* VÄNSTER: dashen med trappan under sig. Trappan ligger i den här
+            spalten och inte över hela bredden — under manuset blev den bara
+            en tom vit yta, och manuset vinner höjden i stället. */}
+        <div className="flex-1 flex flex-col min-w-0">
+          <div className="flex-1 flex items-start justify-center px-6 overflow-y-auto">
+            <AnimatePresence mode="popLayout">
+              <motion.div
+                key={lead.id + contactIndex}
+                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.09, ease: "easeOut" }}
+                className={`w-full ${DASH_W} py-5`}
+              >
+                {/* Bolagsrubrik */}
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-lg flex items-center justify-center text-[15px] font-bold shrink-0"
+                    style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text-secondary)", fontFamily: "var(--font-display)" }}>
+                    {lead.companyName.charAt(0).toUpperCase()}
                   </div>
-                </div>
-                <button onClick={() => setShowDealModal(true)}
-                  className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-md shrink-0"
-                  style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text-muted)" }}
-                  title="Skapa deal">
-                  <TrendingUp size={11} /> Deal
-                </button>
-              </div>
-
-              {/* Bolagsfakta från importen. Ligger direkt under rubriken och
-                  före manuset: det är underlaget säljaren kvalificerar på, och
-                  det får inte kräva att man lämnar cockpiten för att se det. */}
-              {(lead.city || lead.address || lead.employees !== null || lead.revenue !== null) && (
-                <div className="flex items-center flex-wrap gap-x-4 gap-y-1 mb-3 px-1">
-                  {(lead.city || lead.address) && (
-                    <span className="flex items-center gap-1.5 text-[12px]" style={{ color: "var(--text-muted)" }}>
-                      <MapPin size={11} style={{ color: "var(--text-dim)" }} />
-                      {[lead.address, lead.city].filter(Boolean).join(", ")}
-                    </span>
-                  )}
-                  {lead.employees !== null && (
-                    <span className="flex items-center gap-1.5 text-[12px]" style={{ color: "var(--text-muted)" }}>
-                      <Users size={11} style={{ color: "var(--text-dim)" }} />
-                      {lead.employees.toLocaleString("sv-SE")} anställda
-                    </span>
-                  )}
-                  {/* Utan valutasuffix — talet lagras som det stod i filen, och
-                      exporterna blandar kronor och tkr utan att säga vilket. */}
-                  {lead.revenue !== null && (
-                    <span className="flex items-center gap-1.5 text-[12px]" style={{ color: "var(--text-muted)" }}
-                      title="Omsättning, som den stod i importfilen">
-                      <Banknote size={11} style={{ color: "var(--text-dim)" }} />
-                      {lead.revenue.toLocaleString("sv-SE")}
-                    </span>
-                  )}
-                  {lead.orgNumber && (
-                    <span className="text-[11px]" style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-                      {lead.orgNumber}
-                    </span>
-                  )}
-                </div>
-              )}
-
-              {/* Kontaktkort */}
-              {contact && (
-                <div className="rounded-lg p-5 mb-3"
-                  style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
-                  <div className="flex items-start justify-between mb-4">
-                    <div>
-                      {/* Förnamn + efternamn när importen har dem var för sig.
-                          Contact.name är visningsnamnet, men på rader där bara
-                          ena delen råkade hamna där är de separata fälten mer
-                          kompletta — och tilltalsnamnet är det säljaren säger. */}
-                      <p className="text-[18px] font-semibold" style={{ color: "var(--text)" }}>
-                        {contact.firstName && contact.lastName
-                          ? `${contact.firstName} ${contact.lastName}`
-                          : contact.name}
-                      </p>
-                      {contact.role && <p className="text-[13px] mt-[2px]" style={{ color: "var(--text-muted)" }}>{contact.role}</p>}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      {websiteUrl && (
-                        <button onClick={() => setDrawerTab("website")}
-                          className="w-7 h-7 flex items-center justify-center rounded-sm"
-                          style={{ background: drawerTab === "website" ? "var(--accent-muted)" : "var(--surface-inset)", border: `1px solid ${drawerTab === "website" ? "var(--border-strong)" : "var(--border)"}` }}
-                          title="Öppna hemsida">
-                          <Globe size={12} style={{ color: drawerTab === "website" ? "var(--accent)" : "var(--text-muted)" }} />
-                        </button>
+                  <div className="min-w-0 flex-1">
+                    <h1 className="text-[20px] leading-tight truncate" style={{ color: "var(--text)", fontFamily: "var(--font-display)" }}>
+                      {lead.companyName}
+                    </h1>
+                    <div className="flex items-center gap-2 mt-[2px]">
+                      {/* Branschen först och som egen bricka, inte i faktaraden
+                          nedanför: den avgör vilken vinkel säljaren tar, och ska
+                          gå att läsa i samma ögonkast som bolagsnamnet. */}
+                      {lead.industry && (
+                        <span
+                          className="text-[11px] font-semibold px-2 py-[2px] rounded-full whitespace-nowrap"
+                          style={{
+                            background: "var(--accent-muted)",
+                            color: "var(--accent)",
+                            border: "1px solid var(--border-strong)",
+                          }}
+                          title={
+                            lead.industrySource === "name"
+                              ? "Gissad ur bolagsnamnet — bolaget saknar hemsida. Verifiera i samtalet."
+                              : undefined
+                          }
+                        >
+                          {lead.industry}
+                          {/* Osäkra gissningar märks ut. En bransch härledd ur
+                              enbart bolagsnamnet ska inte se lika trovärdig ut
+                              som en som lästs av sajten — säljaren ska veta att
+                              den är värd att kolla, inte att påstå. */}
+                          {lead.industrySource === "name" && (
+                            <span style={{ opacity: 0.65 }}> ?</span>
+                          )}
+                        </span>
                       )}
-                      <button onClick={() => setDrawerTab("linkedin")}
-                        className="w-7 h-7 flex items-center justify-center rounded-sm"
-                        style={{ background: drawerTab === "linkedin" ? "var(--accent-muted)" : "var(--surface-inset)", border: `1px solid ${drawerTab === "linkedin" ? "var(--border-strong)" : "var(--border)"}` }}
-                        title="Öppna LinkedIn">
-                        <Linkedin size={12} style={{ color: drawerTab === "linkedin" ? "var(--accent)" : "var(--text-muted)" }} />
-                      </button>
+                      {lead.attemptCount > 0 && (
+                        <span className="text-[11px]" style={{ color: "var(--text-dim)" }}>
+                          Försök {lead.attemptCount + 1}
+                        </span>
+                      )}
+                      {lead.callbackAt && (
+                        <span className="flex items-center gap-1 text-[11px]" style={{ color: "var(--accent)" }}>
+                          <CalendarClock size={10} /> Lovad återuppringning
+                        </span>
+                      )}
+                      {lead.contacts.length > 1 && (
+                        <div className="flex items-center gap-1">
+                          {lead.contacts.map((c, i) => (
+                            <button key={c.id} onClick={() => setContactIndex(i)}
+                              className="w-5 h-5 rounded-full text-[9px] font-bold transition-all"
+                              style={{ background: i === contactIndex ? "var(--accent)" : "var(--surface-inset)", color: i === contactIndex ? "var(--on-accent)" : "var(--text-dim)", border: `1px solid ${i === contactIndex ? "var(--accent)" : "var(--border)"}` }}>
+                              {c.name.charAt(0)}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
+                  <button onClick={() => setShowDealModal(true)}
+                    className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-md shrink-0"
+                    style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text-muted)" }}
+                    title="Skapa deal">
+                    <TrendingUp size={11} /> Deal
+                  </button>
+                </div>
 
-                  {/* Faller tillbaka på råtexten från importen när numret inte
-                      gick att normalisera. Ett nummer som finns men ser ovanligt
-                      ut ska visas ändå — annars tror säljaren att kontakten
-                      saknar telefon, fast den står i filen. */}
-                  <div className="flex flex-col gap-2">
-                    {(contact.directPhoneE164 || contact.directPhone) && (
-                      <a href={`tel:${contact.directPhoneE164 ?? contact.directPhone}`} className="flex items-center gap-3 px-4 py-3 rounded-lg"
-                        style={{ background: "var(--accent-muted)", border: "1px solid var(--border-strong)" }}>
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--accent)" }}>
-                          <Phone size={13} color="var(--bg)" />
-                        </div>
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>Direkttelefon</p>
-                          <p className="text-[16px] font-medium" style={{ color: "var(--text)", fontFamily: "var(--font-mono)" }}>
-                            {contact.directPhoneE164 ? formatSwedish(contact.directPhoneE164) : contact.directPhone}
-                          </p>
-                        </div>
-                        <ExternalLink size={13} className="ml-auto" style={{ color: "var(--text-dim)" }} />
-                      </a>
+                {/* Bolagsfakta från importen. Ligger direkt under rubriken och
+                    före manuset: det är underlaget säljaren kvalificerar på, och
+                    det får inte kräva att man lämnar cockpiten för att se det. */}
+                {(lead.city || lead.address || lead.employees !== null || lead.revenue !== null) && (
+                  <div className="flex items-center flex-wrap gap-x-4 gap-y-1 mb-3 px-1">
+                    {(lead.city || lead.address) && (
+                      <span className="flex items-center gap-1.5 text-[12px]" style={{ color: "var(--text-muted)" }}>
+                        <MapPin size={11} style={{ color: "var(--text-dim)" }} />
+                        {[lead.address, lead.city].filter(Boolean).join(", ")}
+                      </span>
                     )}
-                    {(contact.switchboardE164 || contact.switchboard) && (
-                      <a href={`tel:${contact.switchboardE164 ?? contact.switchboard}`} className="flex items-center gap-3 px-4 py-3 rounded-lg"
-                        style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--surface)", border: "1px solid var(--border-strong)" }}>
-                          <Building2 size={12} style={{ color: "var(--text-muted)" }} />
-                        </div>
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>Växel</p>
-                          <p className="text-[15px] font-medium" style={{ color: "var(--text)", fontFamily: "var(--font-mono)" }}>
-                            {contact.switchboardE164 ? formatSwedish(contact.switchboardE164) : contact.switchboard}
-                          </p>
-                        </div>
-                      </a>
+                    {lead.employees !== null && (
+                      <span className="flex items-center gap-1.5 text-[12px]" style={{ color: "var(--text-muted)" }}>
+                        <Users size={11} style={{ color: "var(--text-dim)" }} />
+                        {lead.employees.toLocaleString("sv-SE")} anställda
+                      </span>
                     )}
-                    {contact.email && <EmailRow email={contact.email} />}
+                    {/* Utan valutasuffix — talet lagras som det stod i filen, och
+                        exporterna blandar kronor och tkr utan att säga vilket. */}
+                    {lead.revenue !== null && (
+                      <span className="flex items-center gap-1.5 text-[12px]" style={{ color: "var(--text-muted)" }}
+                        title="Omsättning, som den stod i importfilen">
+                        <Banknote size={11} style={{ color: "var(--text-dim)" }} />
+                        {lead.revenue.toLocaleString("sv-SE")}
+                      </span>
+                    )}
+                    {lead.orgNumber && (
+                      <span className="text-[11px]" style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
+                        {lead.orgNumber}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Kontaktkort */}
+                {contact && (
+                  <div className="rounded-lg p-5 mb-3"
+                    style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                    <div className="flex items-start justify-between mb-4">
+                      <div>
+                        {/* Förnamn + efternamn när importen har dem var för sig.
+                            Contact.name är visningsnamnet, men på rader där bara
+                            ena delen råkade hamna där är de separata fälten mer
+                            kompletta — och tilltalsnamnet är det säljaren säger. */}
+                        <p className="text-[18px] font-semibold" style={{ color: "var(--text)" }}>
+                          {contact.firstName && contact.lastName
+                            ? `${contact.firstName} ${contact.lastName}`
+                            : contact.name}
+                        </p>
+                        {contact.role && <p className="text-[13px] mt-[2px]" style={{ color: "var(--text-muted)" }}>{contact.role}</p>}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {websiteUrl && (
+                          <button onClick={() => setDrawerTab("website")}
+                            className="w-7 h-7 flex items-center justify-center rounded-sm"
+                            style={{ background: drawerTab === "website" ? "var(--accent-muted)" : "var(--surface-inset)", border: `1px solid ${drawerTab === "website" ? "var(--border-strong)" : "var(--border)"}` }}
+                            title="Öppna hemsida">
+                            <Globe size={12} style={{ color: drawerTab === "website" ? "var(--accent)" : "var(--text-muted)" }} />
+                          </button>
+                        )}
+                        <button onClick={() => setDrawerTab("linkedin")}
+                          className="w-7 h-7 flex items-center justify-center rounded-sm"
+                          style={{ background: drawerTab === "linkedin" ? "var(--accent-muted)" : "var(--surface-inset)", border: `1px solid ${drawerTab === "linkedin" ? "var(--border-strong)" : "var(--border)"}` }}
+                          title="Öppna LinkedIn">
+                          <Linkedin size={12} style={{ color: drawerTab === "linkedin" ? "var(--accent)" : "var(--text-muted)" }} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Faller tillbaka på råtexten från importen när numret inte
+                        gick att normalisera. Ett nummer som finns men ser ovanligt
+                        ut ska visas ändå — annars tror säljaren att kontakten
+                        saknar telefon, fast den står i filen. */}
+                    <div className="flex flex-col gap-2">
+                      {(contact.directPhoneE164 || contact.directPhone) && (
+                        <a href={`tel:${contact.directPhoneE164 ?? contact.directPhone}`} className="flex items-center gap-3 px-4 py-3 rounded-lg"
+                          style={{ background: "var(--accent-muted)", border: "1px solid var(--border-strong)" }}>
+                          <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--accent)" }}>
+                            <Phone size={13} color="var(--bg)" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>Direkttelefon</p>
+                            <p className="text-[16px] font-medium" style={{ color: "var(--text)", fontFamily: "var(--font-mono)" }}>
+                              {contact.directPhoneE164 ? formatSwedish(contact.directPhoneE164) : contact.directPhone}
+                            </p>
+                          </div>
+                          <ExternalLink size={13} className="ml-auto" style={{ color: "var(--text-dim)" }} />
+                        </a>
+                      )}
+                      {(contact.switchboardE164 || contact.switchboard) && (
+                        <a href={`tel:${contact.switchboardE164 ?? contact.switchboard}`} className="flex items-center gap-3 px-4 py-3 rounded-lg"
+                          style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+                          <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--surface)", border: "1px solid var(--border-strong)" }}>
+                            <Building2 size={12} style={{ color: "var(--text-muted)" }} />
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>Växel</p>
+                            <p className="text-[15px] font-medium" style={{ color: "var(--text)", fontFamily: "var(--font-mono)" }}>
+                              {contact.switchboardE164 ? formatSwedish(contact.switchboardE164) : contact.switchboard}
+                            </p>
+                          </div>
+                        </a>
+                      )}
+                      {contact.email && <EmailRow email={contact.email} />}
+                    </div>
+                  </div>
+                )}
+
+                {/* Anteckning */}
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Anteckning — sparas med samtalet"
+                  rows={2}
+                  className="w-full resize-none text-[13px] px-4 py-3 rounded-lg outline-none mb-3"
+                  style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)", lineHeight: 1.5 }}
+                />
+
+                {/* Växelpanel */}
+                {flow.stage === "gatekeeper" && (
+                  <GatekeeperPanel
+                    known={knownGk}
+                    draft={gk}
+                    onChange={setGk}
+                    onSubmit={() => pickOutcome("GATEKEEPER_BLOCKED")}
+                  />
+                )}
+
+                {/* Underlaget sist i dashen. Det är research om bolaget, inte
+                    något säljaren läser högt — därför under kontakten och
+                    anteckningen, inte före dem. */}
+                <PitchPanel dossier={lead.dossier} />
+                <SeoPanel dossier={lead.dossier} />
+
+                {/* Under lg finns ingen manusspalt — då faller manuset tillbaka
+                    hit, inline. Att tappa manuset på en smalare skärm vore värre
+                    än att behöva scrolla efter det. */}
+                <div className="lg:hidden">
+                  <ScriptPanel scripts={lead.scripts} />
+                </div>
+
+              </motion.div>
+            </AnimatePresence>
+          </div>
+
+          {/* Bottenfältet — allt som händer EFTER samtalet. Ligger i dashens spalt
+              och får aldrig scrolla bort: trappan tas med sifferknappar, och
+              muskelminnet kräver att den ligger still. */}
+          <div
+            className="shrink-0 border-t py-3 max-h-[52vh] overflow-y-auto flex justify-center px-6"
+            style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+          >
+            <div className={`w-full ${DASH_W}`}>
+              {/* Återuppringningsdatum */}
+              {askCallback && (
+                <div className="rounded-lg p-4" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+                  <p className="text-[11px] font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--text-dim)" }}>
+                    När ska du ringa?
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="datetime-local"
+                      value={callbackAt}
+                      onChange={(e) => setCallbackAt(e.target.value)}
+                      autoFocus
+                      className="flex-1 px-3 py-2 text-[13px] rounded-md outline-none"
+                      style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)" }}
+                    />
+                    <button
+                      onClick={() => flow.result && commit({ result: flow.result, outcome: "CALLBACK_BOOKED", withGatekeeper: false })}
+                      disabled={!callbackAt}
+                      className="px-4 py-2 text-[12px] font-semibold rounded-md"
+                      style={{ background: callbackAt ? "var(--accent)" : "var(--surface)", color: callbackAt ? "var(--on-accent)" : "var(--text-dim)", border: "1px solid var(--border)" }}
+                    >
+                      Spara
+                    </button>
                   </div>
                 </div>
               )}
 
-              {/* Anteckning */}
-              <textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Anteckning — sparas med samtalet"
-                rows={2}
-                className="w-full resize-none text-[13px] px-4 py-3 rounded-lg outline-none mb-3"
-                style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)", lineHeight: 1.5 }}
-              />
-
-              {/* Växelpanel */}
-              {flow.stage === "gatekeeper" && (
-                <GatekeeperPanel
-                  known={knownGk}
-                  draft={gk}
-                  onChange={setGk}
-                  onSubmit={() => pickOutcome("GATEKEEPER_BLOCKED")}
+              {/* Ramverksfrågan */}
+              {flow.stage === "framework" && (
+                <FrameworkTap
+                  endedAtStep={endedAtStep}
+                  closeAttempts={closeAttempts}
+                  objections={objections}
+                  onStep={setEndedAtStep}
+                  onCloseAttempts={setCloseAttempts}
+                  onToggleObjection={(tag) =>
+                    setObjections((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag])
+                  }
+                  onSubmit={() => flow.result && commit({ result: flow.result, outcome: flow.outcome, noReason: flow.noReason, withFramework: true })}
+                  onSkip={() => flow.result && commit({ result: flow.result, outcome: flow.outcome, noReason: flow.noReason })}
                 />
               )}
 
-              {/* Under lg finns ingen manusspalt — då faller manuset tillbaka
-                  hit, inline. Att tappa manuset på en smalare skärm vore värre
-                  än att behöva scrolla efter det. */}
-              <div className="lg:hidden">
-                <PitchPanel dossier={lead.dossier} />
-                <SeoPanel dossier={lead.dossier} />
-                <ScriptPanel scripts={lead.scripts} />
-              </div>
+              {/* Dispositionstrappan */}
+              {!askCallback && flow.stage !== "framework" && (
+                <>
+                  {flow.stage === "result" && (
+                    <DispositionBar stage="result" options={RESULT_OPTIONS} onPick={pickResult} onBack={goBack} canGoBack={false} />
+                  )}
+                  {flow.stage === "gatekeeper" && (
+                    <DispositionBar stage="gatekeeper" options={GATEKEEPER_OPTIONS} onPick={pickOutcome} onBack={goBack} canGoBack />
+                  )}
+                  {flow.stage === "outcome" && (
+                    <DispositionBar stage="outcome" options={OUTCOME_OPTIONS} onPick={pickOutcome} onBack={goBack} canGoBack />
+                  )}
+                  {flow.stage === "reason" && (
+                    <DispositionBar stage="reason" options={REASON_OPTIONS} onPick={pickReason} onBack={goBack} canGoBack />
+                  )}
+                </>
+              )}
 
-            </motion.div>
-          </AnimatePresence>
+              {/* Navigering och tangentlathunden delar rad — bottenfältet är den
+                  enda ytan som aldrig scrollar, och den ska inte äta höjd i onödan. */}
+              <div className="flex items-center justify-between gap-3 mt-3">
+                <p className="text-[10px] shrink-0" style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
+                  siffror = välj · backsteg = ångra · S skippa · ESC stäng panel
+                </p>
+                {flow.stage === "result" && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button onClick={prevLead} disabled={index === 0}
+                      className="flex items-center gap-1 text-[12px] px-3 py-2 rounded-md"
+                      style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)", opacity: index === 0 ? 0.4 : 1 }}>
+                      <ChevronLeft size={13} /> Föregående
+                    </button>
+                    <button onClick={skipLead}
+                      className="flex items-center gap-1 text-[11px] px-3 py-2 rounded-md"
+                      style={{ color: "var(--text-dim)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+                      <SkipForward size={12} /> Skippa (S)
+                    </button>
+                    <button onClick={advance}
+                      className="flex items-center gap-1 text-[12px] px-3 py-2 rounded-md"
+                      style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+                      Nästa <ChevronRight size={13} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* HÖGER: manuset — det säljaren faktiskt säger. Egen spalt med egen
-            scroll, så en lång öppning aldrig trycker ner kontaktuppgifterna.
-            Pitch och SEO ligger här och inte i dashen: de är argument, inte
-            fakta om bolaget, och läses i samma andetag som manustexten. */}
+        {/* HÖGER: manuset — det säljaren faktiskt säger. Går obruten från
+            ramverksraden hela vägen ner, så en lång öppning aldrig trycker
+            ner kontaktuppgifterna och ingen tom yta uppstår under den. */}
         <div
-          className="hidden lg:flex w-[42%] max-w-[560px] shrink-0 flex-col overflow-y-auto border-l px-5 py-5"
+          className={`hidden lg:flex ${MANUS_COL} shrink-0 flex-col overflow-y-auto border-l px-5 py-5`}
           style={{ borderColor: "var(--border)", background: "var(--surface)" }}
         >
           <AnimatePresence mode="popLayout">
@@ -1169,122 +1286,10 @@ export function CockpitDb({
               initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.09, ease: "easeOut" }}
             >
-              <PitchPanel dossier={lead.dossier} />
-              <SeoPanel dossier={lead.dossier} />
               <ScriptPanel scripts={lead.scripts} />
             </motion.div>
           </AnimatePresence>
         </div>
-      </div>
-
-      {/* Bottenfältet — allt som händer EFTER samtalet, fast förankrat över
-          hela bredden. Det får aldrig scrolla bort: trappan tas med
-          sifferknappar, och muskelminnet kräver att den ligger still. */}
-      <div
-        className="shrink-0 border-t py-3 max-h-[52vh] overflow-y-auto flex"
-        style={{ background: "var(--surface)", borderColor: "var(--border)" }}
-      >
-        {/* Trappan delar axel med dashen i stället för att centreras på sidan.
-            Två nästan lika breda block med olika centrum läser som ett fel —
-            och det är dashen säljaren just läste, så det är den axeln ögat
-            redan står på när trappan ska tas. Fältet självt är fortsatt
-            fullbrett; det är bara innehållet som ställer in sig. */}
-        <div className="flex-1 flex justify-center px-6 min-w-0">
-          <div className="w-full max-w-[860px]">
-            {/* Återuppringningsdatum */}
-            {askCallback && (
-              <div className="rounded-lg p-4" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
-                <p className="text-[11px] font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--text-dim)" }}>
-                  När ska du ringa?
-                </p>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="datetime-local"
-                    value={callbackAt}
-                    onChange={(e) => setCallbackAt(e.target.value)}
-                    autoFocus
-                    className="flex-1 px-3 py-2 text-[13px] rounded-md outline-none"
-                    style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)" }}
-                  />
-                  <button
-                    onClick={() => flow.result && commit({ result: flow.result, outcome: "CALLBACK_BOOKED", withGatekeeper: false })}
-                    disabled={!callbackAt}
-                    className="px-4 py-2 text-[12px] font-semibold rounded-md"
-                    style={{ background: callbackAt ? "var(--accent)" : "var(--surface)", color: callbackAt ? "var(--on-accent)" : "var(--text-dim)", border: "1px solid var(--border)" }}
-                  >
-                    Spara
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Ramverksfrågan */}
-            {flow.stage === "framework" && (
-              <FrameworkTap
-                endedAtStep={endedAtStep}
-                closeAttempts={closeAttempts}
-                objections={objections}
-                onStep={setEndedAtStep}
-                onCloseAttempts={setCloseAttempts}
-                onToggleObjection={(tag) =>
-                  setObjections((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag])
-                }
-                onSubmit={() => flow.result && commit({ result: flow.result, outcome: flow.outcome, noReason: flow.noReason, withFramework: true })}
-                onSkip={() => flow.result && commit({ result: flow.result, outcome: flow.outcome, noReason: flow.noReason })}
-              />
-            )}
-
-            {/* Dispositionstrappan */}
-            {!askCallback && flow.stage !== "framework" && (
-              <>
-                {flow.stage === "result" && (
-                  <DispositionBar stage="result" options={RESULT_OPTIONS} onPick={pickResult} onBack={goBack} canGoBack={false} />
-                )}
-                {flow.stage === "gatekeeper" && (
-                  <DispositionBar stage="gatekeeper" options={GATEKEEPER_OPTIONS} onPick={pickOutcome} onBack={goBack} canGoBack />
-                )}
-                {flow.stage === "outcome" && (
-                  <DispositionBar stage="outcome" options={OUTCOME_OPTIONS} onPick={pickOutcome} onBack={goBack} canGoBack />
-                )}
-                {flow.stage === "reason" && (
-                  <DispositionBar stage="reason" options={REASON_OPTIONS} onPick={pickReason} onBack={goBack} canGoBack />
-                )}
-              </>
-            )}
-
-            {/* Navigering och tangentlathunden delar rad — bottenfältet är den
-                enda ytan som aldrig scrollar, och den ska inte äta höjd i onödan. */}
-            <div className="flex items-center justify-between gap-3 mt-3">
-              <p className="text-[10px] shrink-0" style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-                siffror = välj · backsteg = ångra · S skippa · ESC stäng panel
-              </p>
-              {flow.stage === "result" && (
-                <div className="flex items-center gap-2 shrink-0">
-                  <button onClick={prevLead} disabled={index === 0}
-                    className="flex items-center gap-1 text-[12px] px-3 py-2 rounded-md"
-                    style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)", opacity: index === 0 ? 0.4 : 1 }}>
-                    <ChevronLeft size={13} /> Föregående
-                  </button>
-                  <button onClick={skipLead}
-                    className="flex items-center gap-1 text-[11px] px-3 py-2 rounded-md"
-                    style={{ color: "var(--text-dim)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
-                    <SkipForward size={12} /> Skippa (S)
-                  </button>
-                  <button onClick={advance}
-                    className="flex items-center gap-1 text-[12px] px-3 py-2 rounded-md"
-                    style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
-                    Nästa <ChevronRight size={13} />
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Motvikt lika bred som manusspalten, så trappan hamnar under dashen
-            och inte mitt på sidan. Tom med flit — manuset behöver ingen
-            motsvarighet i bottenfältet. */}
-        <div className="hidden lg:block w-[42%] max-w-[560px] shrink-0" />
       </div>
 
       {/* Höger panel */}

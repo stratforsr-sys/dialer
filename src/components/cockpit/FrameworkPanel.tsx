@@ -14,74 +14,93 @@ import { FRAMEWORK_STEPS, OBJECTION_TAGS } from "@/lib/cockpit-flow";
  *
  * Ligger vågrätt högst upp och inte som lodrät remsa i kanten: samtalet rör sig
  * framåt genom stegen, och den rörelsen läses i samma riktning som ögat redan
- * går. Raden spänner över båda kolumnerna eftersom steget gäller dem båda —
- * det styr både vad säljaren säger och vad hen ska titta efter.
+ * går.
+ *
+ * Bandet spänner över hela bredden, men kedjan centreras över dashens spalt —
+ * samma axel som bolagsuppgifterna och dispositionstrappan. Tre element på en
+ * axel läser som en komposition; tre olika centrum läser som ett fel.
  */
-export function FrameworkRail({ activeStep }: { activeStep?: FrameworkStep | null }) {
+export function FrameworkRail({
+  activeStep,
+  gutterClass,
+  dashClass,
+}: {
+  activeStep?: FrameworkStep | null;
+  /** Bredden på manusspalten respektive dashens läsbredd. Skickas in i stället
+   *  för att hårdkodas här, så raden, dashen och trappan inte kan glida isär
+   *  när måtten ändras på ett ställe. */
+  gutterClass: string;
+  dashClass: string;
+}) {
   const steps = FRAMEWORK_STEPS.filter((s) => s.value !== "INVANDNING");
 
   return (
     <div
-      className="flex items-center gap-4 h-[42px] px-5 border-b shrink-0 overflow-x-auto"
+      className="flex h-[42px] border-b shrink-0"
       style={{ background: "var(--surface)", borderColor: "var(--border)" }}
     >
-      {/* Tom motvikt. Utan den flyter kedjan ut från vänsterkanten — det är
-          spalten till höger som gör mitten till mitt, inte innehållet självt. */}
-      <div className="flex-1 min-w-0" />
+      {/* Vänster zon: exakt dashens spalt, och kedjan centreras i den. Raden
+          ligger därmed på samma axel som bolagsuppgifterna nedanför och
+          trappan längst ner — tre element, en axel. */}
+      <div className="flex-1 flex justify-center px-6 min-w-0">
+        <div className={`w-full ${dashClass} flex items-center justify-center gap-1 overflow-x-auto`}>
+          <span
+            className="text-[9px] font-semibold uppercase tracking-widest shrink-0 mr-2"
+            style={{ color: "var(--text-dim)" }}
+          >
+            Ramverket
+          </span>
 
-      {/* Etiketten och kedjan hör ihop och centreras som en enhet */}
-      <div className="flex items-center gap-1 shrink-0">
-        <span
-          className="text-[9px] font-semibold uppercase tracking-widest shrink-0 mr-2"
-          style={{ color: "var(--text-dim)" }}
-        >
-          Ramverket
-        </span>
-
-        {steps.map((step, i) => {
-          const active = activeStep === step.value;
-          return (
-            <div key={step.value} className="flex items-center shrink-0">
-              {/* Förbindelsen mellan stegen. Ritas före steget, aldrig före det
-                  första, så raden blir en kedja och inte lösa brickor. */}
-              {i > 0 && (
-                <span
-                  className="w-[14px] h-[1px] mx-[3px]"
-                  style={{ background: "var(--border-strong)" }}
-                />
-              )}
-              <div
-                className="flex items-center gap-[6px] pl-[5px] pr-[9px] py-[4px] rounded-md transition-colors"
-                style={{
-                  background: active ? "var(--accent-muted)" : "transparent",
-                  border: `1px solid ${active ? "var(--border-strong)" : "transparent"}`,
-                }}
-              >
-                <span
-                  className="w-[17px] h-[17px] rounded-full flex items-center justify-center text-[9px] font-bold shrink-0"
+          {steps.map((step, i) => {
+            const active = activeStep === step.value;
+            return (
+              <div key={step.value} className="flex items-center shrink-0">
+                {/* Förbindelsen mellan stegen. Ritas före steget, aldrig före det
+                    första, så raden blir en kedja och inte lösa brickor. */}
+                {i > 0 && (
+                  <span
+                    className="w-[14px] h-[1px] mx-[3px]"
+                    style={{ background: "var(--border-strong)" }}
+                  />
+                )}
+                <div
+                  className="flex items-center gap-[6px] pl-[5px] pr-[9px] py-[4px] rounded-md transition-colors"
                   style={{
-                    background: active ? "var(--accent)" : "var(--surface-inset)",
-                    color: active ? "var(--on-accent)" : "var(--text-dim)",
-                    border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+                    background: active ? "var(--accent-muted)" : "transparent",
+                    border: `1px solid ${active ? "var(--border-strong)" : "transparent"}`,
                   }}
                 >
-                  {i + 1}
-                </span>
-                <span
-                  className="text-[12px] whitespace-nowrap"
-                  style={{ color: active ? "var(--text)" : "var(--text-muted)" }}
-                >
-                  {step.label}
-                </span>
+                  <span
+                    className="w-[17px] h-[17px] rounded-full flex items-center justify-center text-[9px] font-bold shrink-0"
+                    style={{
+                      background: active ? "var(--accent)" : "var(--surface-inset)",
+                      color: active ? "var(--on-accent)" : "var(--text-dim)",
+                      border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+                    }}
+                  >
+                    {i + 1}
+                  </span>
+                  <span
+                    className="text-[12px] whitespace-nowrap"
+                    style={{ color: active ? "var(--text)" : "var(--text-muted)" }}
+                  >
+                    {step.label}
+                  </span>
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
 
-      {/* Höger motvikt. Bär hjälptexten, men behåller sin bredd även när
-          texten är dold under xl — annars glider kedjan ur mitten. */}
-      <div className="flex-1 min-w-0 flex justify-end">
+      {/* Höger zon: ligger över manusspalten och delar dess kantlinje, så
+          linjen mellan dash och manus går obruten från topp till botten.
+          Hjälptexten bor här — i vänsterzonen skulle den knuffa kedjan ur
+          mitten, och det är kedjan som ska ligga still. */}
+      <div
+        className={`hidden lg:flex ${gutterClass} shrink-0 items-center px-5 border-l`}
+        style={{ borderColor: "var(--border)" }}
+      >
         <span
           className="hidden xl:block text-[10px] truncate"
           style={{ color: "var(--text-dim)" }}
