@@ -8,6 +8,120 @@ Nyast först.
 
 ---
 
+## 2026-08-12 — Återkomster: notisfält, mejlpåminnelse och tre tysta buggar
+
+Frågan som startade passet var "vad händer egentligen när man lägger en
+återkomst?". Svaret var: mindre än någon trodde.
+
+### Vad som faktiskt hände före det här passet
+
+Säljaren tryckte 6 → 2, fick ett ensamt `datetime-local`, och tiden skrevs till
+`Lead.callbackAt`. `computeNext` lät återkomsten vinna över rotationen och satte
+`nextActionAt` till samma tidpunkt. Sedan **hände ingenting alls**.
+
+Ingen `Activity`-rad. Ingen notis. Inget mejl. `callbackAt` renderades på exakt
+ett ställe i hela appen — en badge inne i cockpiten, synlig först när leadet
+redan råkat serveras. Enda vägen tillbaka till löftet var att säljaren öppnade
+cockpiten i rätt ringlista efter att tiden passerat. Gjorde hen inte det var
+återkomsten borta, utan spår.
+
+### Tre buggar som låg under
+
+**Taket åt upp lovade återkomster.** `leaseNextLeads` filtrerar på
+`attemptCount < maxAttempts`. Bokningen räknar upp `attemptCount` som vilket
+samtal som helst, så ett lead som bokade återkomst på försök 8 (taket) blev
+**aldrig serverat igen**. Löftet försvann permanent. Villkoret har nu ett
+undantag för leads med förfallen `callbackAt` — taket finns för att hindra att
+vi ringer folk i onödan, inte för att hindra oss från att ringa när någon bett
+oss göra det.
+
+**Återkomsten visste inte vem som lovat.** Påminnelsen måste gå till personen
+som sa "jag hör av mig på torsdag", och `Lead.ownerId` byter hand vid varje
+disposition. `Callback.sellerId` sätts vid bokningen och rör sig aldrig.
+
+**Ingenting gick att mäta.** `callbackAt` skrevs över av nästa bokning. Frågan
+"hur många lovade återkomster ringde vi faktiskt upp?" hade ingen datakälla.
+
+### Vad som byggdes
+
+**`Callback` (migration 014)** — egen tabell. `Lead.callbackAt` finns kvar och
+skrivs fortfarande, men är nu ett denormaliserat eko av den öppna raden, inte
+sanningen. Sex befintliga återkomster backfillades. Bokningen sker i
+`recordAttempt`, i samma transaktion som samtalet, och stänger leadets tidigare
+öppna löften **före** den nya raden skapas — annars stänger satsen omedelbart
+den återkomst som just bokades.
+
+*Missad är inget lagrat status.* Det är `PENDING` med en tid som passerat. Ett
+lagrat värde hade krävt ett jobb som vänder rader vid rätt minut, och den
+minuten blir fel varje gång jobbet inte körs.
+
+**Notisklockan i sidebaren.** Överst, ovanför navigeringen, med en avgränsning
+under — den är inte en plats man går till, den är något som händer. Räknaren
+visar bara det som kräver handling: missade plus de inom fem minuter. Räknas
+allt kommande blir siffran trettio på en måndag och slutar betyda något.
+Femminutersgränsen räknas mot en lokal klocka som tickar var tionde sekund;
+att fråga servern så ofta hade varit polling för ingenting. Panelen är
+`position: fixed` och inte en portal — sidebarens `overflow: hidden` klipper
+inte fixerade lager så länge ingen förfader har `transform`, och det har ingen
+i kedjan. Admin kan växla till Golvet och se allas.
+
+**Mejlpåminnelse per återkomst.** En kryssruta i bokningsrutan, **urbockad som
+förval**. Morgonmejlet 06:00 UTC mån–fre tar bara med ikryssade rader. Har man
+inga den dagen skickas ingenting — ett tomt mejl är brus, och en påminnelse som
+kommer på allt slutar läsas inom en vecka. Ingen bekräftelse skickas vid
+bokning; det var ett uttryckligt val.
+
+Missade rader mejlas om varje morgon tills de ringts eller avbokats. Det är
+avsikten: ett brutet löfte ska fortsätta göra ont. Skyddet mot dubbelutskick är
+`emailSentAt` jämfört mot dagens datum.
+
+**Bokningsrutan** fick fyra snabbval (som hoppar över helgen), en anteckning
+som följer med in i både notis och mejl, och validering mot dåtid. Den gamla
+rutan accepterade gårdagens datum och skapade återkomster som förföll i samma
+sekund de skrevs.
+
+### Fallgropar
+
+**Räkna aldrig dygn i UTC.** Vercel kör i UTC. En återkomst bokad 22:30 svensk
+tid ligger på nästa datum där, och hade hamnat i fel morgonmejl — sällan,
+systematiskt, och alltid på kvällsbokningarna. `src/lib/time.ts` har
+`startOfDay`, `endOfDay` och `isSameDay` för Europe/Stockholm. Offseten läses ur
+`Intl` i stället för att hårdkodas, och midnatt räknas i två varv så att
+skiftesdygnen blir rätt.
+
+**Cron körs i UTC, alltid.** `0 6 * * 1-5` är 08:00 svensk sommartid och 07:00
+vintertid. Tiden är vald så att mejlet aldrig landar före sju lokalt — en daglig
+cron kan inte kompensera för sommartid, så man får välja vilket håll felet ska
+luta åt.
+
+**`react-dom` har inga typer i projektet.** `@types/react-dom` finns inte som
+dependency. Första utkastet använde `createPortal` och föll på det i
+typkontrollen. Lösningen blev att inte behöva portalen alls.
+
+**tsconfig siktar på es5.** `for...of` över en `Map` kräver
+`downlevelIteration`, som inte är påslaget. `Array.from(map.values())` fungerar.
+
+### Öppna punkter
+
+- [ ] **`RESEND_API_KEY` och `EMAIL_FROM` är inte satta i Vercel.** Utan dem
+      svarar morgonjobbet `skipped` och skickar ingenting — allt annat i
+      återkomsterna fungerar ändå. Domänen måste verifieras i Resend (SPF +
+      DKIM) innan utskick från `@clicknet.se` går igenom; utan verifierad domän
+      svarar API:et 403.
+- [ ] **Ingen dedikerad sida för återkomster.** Klockan räcker för dagens
+      arbete men ger ingen veckoöverblick och ingen väg att flytta många på en
+      gång. Medvetet bortvalt tills det efterfrågas.
+- [ ] **`Callback` skriver ingen `Activity`-rad.** Aktivitetsloggen på leadet
+      nämner fortfarande inte att en återkomst bokats eller avbokats. Loggen är
+      oföränderlig och append-only, så det är billigt att lägga till — men det
+      är två skrivningar till per disposition och togs inte i det här passet.
+- [ ] **Statistikvyn visar fortfarande dödtid i sekunder.** `SettingsView` fick
+      minuter över en minut (`formatIdle`); `stats/StatsView.tsx` har samma
+      `{avgIdlePerCall}s` på två ställen och lämnades orörd eftersom det är en
+      tabellkolumn där fast enhet gör jämförelsen enklare.
+
+---
+
 ## 2026-08-09 — Designsystem: elevation, tokens, och 4 300 rader död kod
 
 Utgångspunkten var att gränssnittet kändes "för lätt och för grått för ett

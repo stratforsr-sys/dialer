@@ -36,6 +36,8 @@ interface QueuedItem {
   dialedE164?: string | null;
   scriptVersionId?: string | null;
   callbackAt?: string | null;
+  callbackNote?: string | null;
+  callbackEmailReminder?: boolean;
   gatekeeper?: {
     name?: string | null;
     role?: string | null;
@@ -93,6 +95,8 @@ export async function POST(req: Request) {
         dialedE164: item.dialedE164 ?? null,
         scriptVersionId: item.scriptVersionId ?? null,
         callbackAt: item.callbackAt ? new Date(item.callbackAt) : null,
+        callbackNote: item.callbackNote ?? null,
+        callbackEmailReminder: item.callbackEmailReminder === true,
         gatekeeper: item.gatekeeper
           ? {
               ...item.gatekeeper,

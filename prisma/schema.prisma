@@ -30,6 +30,7 @@ model User {
   scripts      ScriptTemplate[] @relation("ScriptAuthor")
   dncAdded     DoNotCall[]      @relation("DncAddedBy")
   presence     SellerPresence?
+  callbacks    Callback[]       @relation("CallbackSeller")
 }
 
 enum Role {
@@ -113,6 +114,7 @@ model Lead {
   dossier      LeadDossier?
   gatekeepers  GatekeeperContact[]
   dnc          DoNotCall?
+  callbacks    Callback[]
 
   @@index([claimedAt])
   @@index([ownerId])
@@ -153,10 +155,91 @@ model Contact {
 
   activities   Activity[]
   callAttempts CallAttempt[]
+  callbacks    Callback[]
 
   @@index([leadId])
   @@index([directPhoneE164])
   @@index([switchboardE164])
+}
+
+// ==================== ÅTERKOMSTER ====================
+
+/// En lovad återuppringning, som en egen rad och inte bara en tidsstämpel på
+/// leadet.
+///
+/// `Lead.callbackAt` finns kvar och skrivs fortfarande — uppföljningsmotorn
+/// och lease-frågan läser den, och den ska förbli en indexerad kolumn på
+/// leadet. Men den kan bara bära EN återkomst och glömmer den så fort nästa
+/// bokas. Det gör tre saker omöjliga, och alla tre behövs för att en
+/// påminnelse ska vara värd namnet:
+///
+///  1. Att veta om en återkomst faktiskt ringdes upp eller missades. Utan
+///     status finns ingen skillnad mellan "ringde 14:02 som lovat" och
+///     "glömde bort den i tre veckor".
+///  2. Att skicka en påminnelse till RÄTT person. `Lead.ownerId` byter ägare
+///     vid varje disposition; den som lovade att ringa är inte nödvändigtvis
+///     den som står som ägare när påminnelsen ska gå.
+///  3. Att mäta något. `CallAttempt` är append-only och vet att en återkomst
+///     bokades, men inte om löftet hölls.
+///
+/// Missad är MEDVETET inget lagrat status: det är `PENDING` med en tid som
+/// passerat. Ett lagrat värde hade krävt ett jobb som vänder rader vid rätt
+/// minut, och den minuten hade blivit fel varje gång jobbet inte kördes.
+model Callback {
+  id String @id @default(cuid())
+
+  /// Exakt tidpunkt säljaren lovade. Aldrig justerad mot ringpass eller
+  /// spärrade datum — kunden sa "ring på torsdag efter fem", och det löftet
+  /// väger tyngre än rotationen.
+  scheduledAt DateTime
+  /// Vad som ska sägas när man ringer. Fritext, syns i notisen och i mejlet.
+  note String?
+  /// Säljarens kryss i bokningsrutan. Styr om raden tas med i morgonmejlet —
+  /// och det är den ENDA vägen in i ett mejl. Urbockat som förval: en påminnelse
+  /// som kommer på allt är samma sak som ingen påminnelse alls, och krysset ska
+  /// betyda "den här får jag inte missa".
+  emailReminder Boolean @default(false)
+
+  status CallbackStatus @default(PENDING)
+
+  /// Sätts när morgonmejlet gått. Är samma som skyddet mot dubbelutskick:
+  /// ett jobb som körs två gånger samma dag mejlar inte om raden.
+  emailSentAt  DateTime?
+  /// Kvitterad i klockan. Nollställer räknaren utan att avboka något.
+  seenAt       DateTime?
+  completedAt  DateTime?
+  cancelledAt  DateTime?
+
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  /// Den som lovade att ringa — inte leadets ägare, se ovan.
+  sellerId String
+  seller   User   @relation("CallbackSeller", fields: [sellerId], references: [id])
+
+  /// Samtalen den bokades i respektive stängdes av. Ingen relation, bara id:n:
+  /// CallAttempt är append-only och ska inte kunna kaskadradera en återkomst.
+  bookedOnAttemptId    String?
+  completedOnAttemptId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Klockan frågar "mina öppna, i tidsordning" varje minut. Det är den
+  /// frågan indexet finns för.
+  @@index([sellerId, status, scheduledAt])
+  /// Chefsvyn och morgonjobbet frågar över hela golvet.
+  @@index([status, scheduledAt])
+  @@index([leadId, status])
+}
+
+enum CallbackStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
 }
 
 // ==================== RINGLISTOR (mappar) ====================

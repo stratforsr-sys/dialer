@@ -105,12 +105,28 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
     `(l."leasedUntil" IS NULL OR l."leasedUntil" < ?)`,
     `(l."claimedAt" IS NULL OR l."claimedAt" < ? OR l."ownerId" = ?)`,
     `(l."nextActionAt" IS NULL OR l."nextActionAt" <= ?)`,
-    `l."attemptCount" < ?`,
+    // Taket gäller inte ett lead som har en förfallen, lovad återuppringning.
+    // Bokningen räknar upp attemptCount som vilket samtal som helst, så ett
+    // lead som bokade återkomst på sista försöket slog i taket och serverades
+    // ALDRIG igen — löftet försvann tyst. Taket finns för att hindra att vi
+    // ringer folk i onödan, inte för att hindra oss från att ringa när någon
+    // bett oss göra det.
+    `(l."attemptCount" < ? OR (l."callbackAt" IS NOT NULL AND l."callbackAt" <= ?))`,
     `EXISTS (SELECT 1 FROM "Contact" c WHERE c."leadId" = l."id")`,
     `NOT EXISTS (SELECT 1 FROM "DoNotCall" d WHERE d."leadId" = l."id"
         AND (d."expiresAt" IS NULL OR d."expiresAt" > ?))`,
   ];
-  const args: unknown[] = [nowIso, cutoffIso, user.id, nowIso, cfg.maxAttempts, nowIso];
+  // Ordningen följer conds ovan exakt. Den sista nowIso hör till
+  // DoNotCall-villkoret, den näst sista till undantaget för lovade återkomster.
+  const args: unknown[] = [
+    nowIso,
+    cutoffIso,
+    user.id,
+    nowIso,
+    cfg.maxAttempts,
+    nowIso,
+    nowIso,
+  ];
 
   let join = "";
   if (listId) {
@@ -310,6 +326,10 @@ export interface RecordAttemptInput {
   scriptVersionId?: string | null;
   /** Bokad återuppringning. */
   callbackAt?: Date | null;
+  /** Vad som ska sägas när man ringer. Syns i notisen och i påminnelsemejlet. */
+  callbackNote?: string | null;
+  /** Säljarens kryss för mejlpåminnelse. Enda vägen in i morgonmejlet. */
+  callbackEmailReminder?: boolean;
   /** Växelinformation, om säljaren fastnade där. */
   gatekeeper?: {
     name?: string | null;
@@ -425,6 +445,45 @@ export async function recordAttempt(input: RecordAttemptInput) {
       },
     }),
   ];
+
+  // ── Återkomster ──────────────────────────────────────────────────────────
+  //
+  // Ordningen är avgörande: stäng gamla FÖRE den nya skapas, annars stänger
+  // satsen nedan omedelbart den återkomst som just bokades.
+  //
+  // Att varje samtal stänger leadets öppna löften är med flit, även när det
+  // ringda samtalet inte var det lovade. `Lead.callbackAt` skrivs om av varje
+  // disposition, och en Callback-rad som levde vidare hade sagt emot leadet
+  // några dagar senare. Ett löfte är infriat när vi faktiskt ringde bolaget.
+  writes.push(
+    db.callback.updateMany({
+      where: { leadId: input.leadId, status: "PENDING" },
+      data: {
+        status: "COMPLETED",
+        completedAt: now,
+        completedOnAttemptId: attempt.id,
+      },
+    })
+  );
+
+  if (decision.callbackAt) {
+    writes.push(
+      db.callback.create({
+        data: {
+          leadId: input.leadId,
+          contactId: input.contactId ?? null,
+          // Den som lovade, inte leadets ägare. De är samma person i det här
+          // ögonblicket, men ägarskapet byter hand vid nästa disposition och
+          // påminnelsen ska ändå gå till rätt telefon.
+          sellerId: user.id,
+          bookedOnAttemptId: attempt.id,
+          scheduledAt: decision.callbackAt,
+          note: input.callbackNote?.trim() || null,
+          emailReminder: input.callbackEmailReminder === true,
+        },
+      })
+    );
+  }
 
   if (input.framework) {
     writes.push(

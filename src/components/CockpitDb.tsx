@@ -17,8 +17,10 @@ import { DispositionBar } from "@/components/cockpit/DispositionBar";
 import { GatekeeperPanel, EMPTY_GATEKEEPER, type GatekeeperDraft } from "@/components/cockpit/GatekeeperPanel";
 import { FrameworkRail, FrameworkTap } from "@/components/cockpit/FrameworkPanel";
 import { ScriptPanel } from "@/components/cockpit/ScriptPanel";
+import { CallbackForm, EMPTY_CALLBACK, type CallbackDraft } from "@/components/cockpit/CallbackForm";
 import { useDispositionQueue } from "@/hooks/useDispositionQueue";
 import { formatSwedish } from "@/lib/phone";
+import { formatWhen } from "@/lib/time";
 import {
   RESULT_OPTIONS, GATEKEEPER_OPTIONS, OUTCOME_OPTIONS, REASON_OPTIONS,
   INITIAL_FLOW, stageAfterResult, stageAfterOutcome, shouldAskFramework,
@@ -536,7 +538,7 @@ export function CockpitDb({
 
   const [flow, setFlow] = useState<FlowState>(INITIAL_FLOW);
   const [gk, setGk] = useState<GatekeeperDraft>(EMPTY_GATEKEEPER);
-  const [callbackAt, setCallbackAt] = useState<string>("");
+  const [callback, setCallback] = useState<CallbackDraft>(EMPTY_CALLBACK);
   const [askCallback, setAskCallback] = useState(false);
   const [endedAtStep, setEndedAtStep] = useState<FrameworkStep | null>(null);
   const [closeAttempts, setCloseAttempts] = useState(0);
@@ -661,7 +663,7 @@ export function CockpitDb({
   const resetFlow = useCallback(() => {
     setFlow(INITIAL_FLOW);
     setGk(EMPTY_GATEKEEPER);
-    setCallbackAt("");
+    setCallback(EMPTY_CALLBACK);
     setAskCallback(false);
     setEndedAtStep(null);
     setCloseAttempts(0);
@@ -725,7 +727,12 @@ export function CockpitDb({
           target.scripts.find((s) => s.step === "INTRO" && !s.resolved.empty)?.versionId ??
           target.scripts.find((s) => !s.resolved.empty)?.versionId ??
           null,
-        callbackAt: callbackAt ? new Date(callbackAt).toISOString() : null,
+        // datetime-local ger lokal tid utan zon; new Date() tolkar den i
+        // webbläsarens zon, vilket är säljarens. Det är rätt tolkning — hen
+        // skrev klockslaget hen sa i luren.
+        callbackAt: callback.at ? new Date(callback.at).toISOString() : null,
+        callbackNote: callback.note.trim() || null,
+        callbackEmailReminder: callback.emailReminder,
         gatekeeper: opts.withGatekeeper
           ? {
               name: gk.name.trim() || null,
@@ -748,7 +755,7 @@ export function CockpitDb({
       // Navigeringen sker synkront — hela poängen med skriv-bakom-kön.
       advance();
     },
-    [advance, callbackAt, closeAttempts, contactIndex, endedAtStep, gk, idleSeconds, listId, notes, objections, queue]
+    [advance, callback, closeAttempts, contactIndex, endedAtStep, gk, idleSeconds, listId, notes, objections, queue]
   );
 
   // ── Flödessteg ─────────────────────────────────────────────────────────
@@ -1005,7 +1012,10 @@ export function CockpitDb({
                       )}
                       {lead.callbackAt && (
                         <span className="flex items-center gap-1 text-[11px]" style={{ color: "var(--accent)" }}>
-                          <CalendarClock size={10} /> Lovad återuppringning
+                          {/* Tiden med, inte bara etiketten: säljaren ska kunna
+                              öppna med "jag lovade höra av mig vid tvåtiden"
+                              utan att lämna cockpiten. */}
+                          <CalendarClock size={10} /> Lovad {formatWhen(new Date(lead.callbackAt))}
                         </span>
                       )}
                       {lead.contacts.length > 1 && (
@@ -1184,29 +1194,15 @@ export function CockpitDb({
             <div className={`w-full ${DASH_W}`}>
               {/* Återuppringningsdatum */}
               {askCallback && (
-                <div className="rounded-lg p-4" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
-                  <p className="text-[11px] font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--text-dim)" }}>
-                    När ska du ringa?
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="datetime-local"
-                      value={callbackAt}
-                      onChange={(e) => setCallbackAt(e.target.value)}
-                      autoFocus
-                      className="flex-1 px-3 py-2 text-[13px] rounded-md outline-none"
-                      style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)" }}
-                    />
-                    <button
-                      onClick={() => flow.result && commit({ result: flow.result, outcome: "CALLBACK_BOOKED", withGatekeeper: false })}
-                      disabled={!callbackAt}
-                      className="px-4 py-2 text-[12px] font-semibold rounded-md"
-                      style={{ background: callbackAt ? "var(--accent)" : "var(--surface)", color: callbackAt ? "var(--on-accent)" : "var(--text-dim)", border: "1px solid var(--border)" }}
-                    >
-                      Spara
-                    </button>
-                  </div>
-                </div>
+                <CallbackForm
+                  draft={callback}
+                  onChange={setCallback}
+                  onSave={() =>
+                    flow.result &&
+                    commit({ result: flow.result, outcome: "CALLBACK_BOOKED", withGatekeeper: false })
+                  }
+                  onCancel={goBack}
+                />
               )}
 
               {/* Ramverksfrågan */}

@@ -17,6 +17,23 @@ type Summary = {
   callsPerDay: number;
 };
 
+/**
+ * Dödtid i minuter så fort den passerat en minut.
+ *
+ * Siffran lagras i sekunder, och "412s i snitt" kräver huvudräkning för att
+ * bli en storlek man känner igen. Under en minut är sekunder däremot det
+ * naturliga måttet — "43 s" säger mer än "0,7 min".
+ *
+ * En decimal upp till tio minuter: skillnaden mellan 2,1 och 2,8 är fyrtio
+ * sekunder per samtal och syns i dagsresultatet. Däröver är decimalen brus.
+ */
+function formatIdle(seconds: number): string {
+  if (seconds < 60) return `${seconds} s`;
+  const minutes = seconds / 60;
+  const rounded = minutes < 10 ? Math.round(minutes * 10) / 10 : Math.round(minutes);
+  return `${String(rounded).replace(".", ",")} min`;
+}
+
 /** En rad återkoppling. Grönt eller rött, aldrig en modal — inställningar
  *  sparas en åt gången och ett avbrott mitt i är dyrare än raden är värd. */
 function Feedback({ state }: { state: { ok: boolean; msg: string } | null }) {
@@ -262,7 +279,7 @@ export function SettingsView({
           <p className="text-[12px] mt-3" style={{ color: "var(--text-muted)" }}>
             Dödtid mellan samtal:{" "}
             <span className="mono-nums" style={{ color: "var(--text)" }}>
-              {summary.avgIdlePerCall}s
+              {formatIdle(summary.avgIdlePerCall)}
             </span>{" "}
             i snitt.
           </p>

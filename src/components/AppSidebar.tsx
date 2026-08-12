@@ -9,6 +9,7 @@ import {
   FolderOpen, Radio, MessageSquare, SlidersHorizontal, PanelLeftClose, PanelLeftOpen,
   Settings,
 } from "lucide-react";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 
 // Dialern har medvetet ingen egen meny-ingång: man ringer alltid inifrån en
 // ringlista, via "Starta dialer". /cockpit utan listId skickar till /lists.
@@ -132,6 +133,12 @@ export function AppSidebar({
 
         {/* Navigation */}
         <nav className="flex flex-col gap-[2px] flex-1 px-2 overflow-y-auto overflow-x-hidden">
+          {/* Återkomstklockan ligger överst och inte bland navigeringen: den
+              är inte en plats man går till, den är något som händer. Egen
+              avgränsning nedåt så att räknaren inte läses som ett menyval. */}
+          <NotificationBell expanded={expanded} isAdmin={user.role === "ADMIN"} />
+          <div className="my-[6px] mx-[2px] shrink-0" style={{ borderTop: "1px solid var(--border-subtle)" }} />
+
           {navItems.map(({ href, label, icon: Icon }) => {
             const active = activeHref === href;
             return (

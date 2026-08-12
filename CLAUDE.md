@@ -154,8 +154,35 @@ bokat" är kvar som steg trots att mötesbokningen togs bort i migration 007.
 ### Cron (vercel.json)
 - `/api/cron/enrich?tier=0` — dagligen 01:00
 - `/api/cron/enrich?tier=1&limit=40` — 02:30 mån–fre
+- `/api/cron/industry?limit=300` — dagligen 03:00
+- `/api/cron/callback-reminders` — 06:00 UTC mån–fre (08:00 svensk sommartid,
+  07:00 vintertid). Cron körs alltid i UTC; tiden är vald så att mejlet aldrig
+  landar före klockan sju lokalt.
 
-Det finns ingen mötesbokning och ingen utgående e-post. Möten togs bort i migration
-007 (verksamheten är one call close); återkomster hanteras av `Lead.callbackAt` och
-`CallAttempt.outcome = CALLBACK_BOOKED`. Gamla `MEETING_*`-rader ligger kvar i
-aktivitetsloggen med flit — loggen är oföränderlig.
+### Återkomster och e-post
+Det finns ingen mötesbokning — möten togs bort i migration 007, verksamheten är
+one call close. Gamla `MEETING_*`-rader ligger kvar i aktivitetsloggen med flit;
+loggen är oföränderlig.
+
+Återkomster är däremot en egen tabell sedan migration 014: **`Callback`**.
+`Lead.callbackAt` finns kvar och skrivs fortfarande — lease-frågan sorterar på
+den — men den är ett denormaliserat eko av den öppna raden, inte sanningen.
+Rör man den ena måste man röra den andra (`syncLeadFromCallbacks` i
+`src/app/actions/callbacks.ts`).
+
+- **Missad är inget lagrat status.** Det är `PENDING` med en tid som passerat.
+- **Bokningen sker i `recordAttempt`**, i samma transaktion som samtalet.
+  Gamla öppna återkomster på leadet stängs FÖRE den nya skapas.
+- **`sellerId` är den som lovade**, inte `Lead.ownerId` — ägarskapet byter hand
+  vid nästa disposition, påminnelsen ska ändå gå till rätt person.
+
+Utgående e-post finns, men gör exakt en sak: morgonmejlet med dagens
+återkomster. Det skickas **bara** för rader där säljaren kryssat i
+`emailReminder` — det är hela poängen med krysset, och förvalet är urbockat.
+Ingen bekräftelse skickas vid bokning. Vill man lägga till fler mejltyper:
+`src/lib/email/send.ts` (Resend via `fetch`, kastar aldrig, är avstängd utan
+`RESEND_API_KEY` + `EMAIL_FROM`).
+
+**Räkna aldrig dygn i UTC.** Vercel kör i UTC och en återkomst bokad 22:30
+svensk tid ligger på nästa datum där. `src/lib/time.ts` har `startOfDay`,
+`endOfDay` och `isSameDay` för Europe/Stockholm — använd dem, även i klienten.
