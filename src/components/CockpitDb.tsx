@@ -15,7 +15,7 @@ import { heartbeat, goOffline } from "@/app/actions/presence";
 import { CreateDealModal } from "@/components/deals/CreateDealModal";
 import { DispositionBar } from "@/components/cockpit/DispositionBar";
 import { GatekeeperPanel, EMPTY_GATEKEEPER, type GatekeeperDraft } from "@/components/cockpit/GatekeeperPanel";
-import { FrameworkGuide, FrameworkTap } from "@/components/cockpit/FrameworkPanel";
+import { FrameworkRail, FrameworkTap } from "@/components/cockpit/FrameworkPanel";
 import { ScriptPanel } from "@/components/cockpit/ScriptPanel";
 import { useDispositionQueue } from "@/hooks/useDispositionQueue";
 import { formatSwedish } from "@/lib/phone";
@@ -929,13 +929,14 @@ export function CockpitDb({
         </div>
       </div>
 
-      {/* Innehåll */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Ramverket som passiv panel */}
-        <div className="hidden lg:block w-[170px] shrink-0 border-r px-3 py-5 overflow-y-auto" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-          <FrameworkGuide activeStep={flow.stage === "framework" ? endedAtStep : null} />
-        </div>
+      {/* Ramverket som passiv rad över båda kolumnerna */}
+      <FrameworkRail activeStep={flow.stage === "framework" ? endedAtStep : null} />
 
+      {/* Innehåll — dash till vänster, manus till höger. Två spalter med var
+          sin scroll: säljaren ska aldrig behöva rulla bort kontaktuppgifterna
+          för att komma åt manuset, eller tvärtom. */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* VÄNSTER: dashen — vem du ringer och vad du vet om dem */}
         <div className="flex-1 flex items-start justify-center px-4 overflow-y-auto">
           <AnimatePresence mode="popLayout">
             <motion.div
@@ -1047,10 +1048,6 @@ export function CockpitDb({
                 </div>
               )}
 
-              <PitchPanel dossier={lead.dossier} />
-              <SeoPanel dossier={lead.dossier} />
-              <ScriptPanel scripts={lead.scripts} />
-
               {/* Kontaktkort */}
               {contact && (
                 <div className="rounded-lg p-5 mb-3"
@@ -1145,93 +1142,136 @@ export function CockpitDb({
                 />
               )}
 
-              {/* Återuppringningsdatum */}
-              {askCallback && (
-                <div className="rounded-lg p-4 mb-3" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
-                  <p className="text-[11px] font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--text-dim)" }}>
-                    När ska du ringa?
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="datetime-local"
-                      value={callbackAt}
-                      onChange={(e) => setCallbackAt(e.target.value)}
-                      autoFocus
-                      className="flex-1 px-3 py-2 text-[13px] rounded-md outline-none"
-                      style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)" }}
-                    />
-                    <button
-                      onClick={() => flow.result && commit({ result: flow.result, outcome: "CALLBACK_BOOKED", withGatekeeper: false })}
-                      disabled={!callbackAt}
-                      className="px-4 py-2 text-[12px] font-semibold rounded-md"
-                      style={{ background: callbackAt ? "var(--accent)" : "var(--surface)", color: callbackAt ? "var(--bg)" : "var(--text-dim)", border: "1px solid var(--border)" }}
-                    >
-                      Spara
-                    </button>
-                  </div>
-                </div>
-              )}
+              {/* Under lg finns ingen manusspalt — då faller manuset tillbaka
+                  hit, inline. Att tappa manuset på en smalare skärm vore värre
+                  än att behöva scrolla efter det. */}
+              <div className="lg:hidden">
+                <PitchPanel dossier={lead.dossier} />
+                <SeoPanel dossier={lead.dossier} />
+                <ScriptPanel scripts={lead.scripts} />
+              </div>
 
-              {/* Ramverksfrågan */}
-              {flow.stage === "framework" && (
-                <FrameworkTap
-                  endedAtStep={endedAtStep}
-                  closeAttempts={closeAttempts}
-                  objections={objections}
-                  onStep={setEndedAtStep}
-                  onCloseAttempts={setCloseAttempts}
-                  onToggleObjection={(tag) =>
-                    setObjections((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag])
-                  }
-                  onSubmit={() => flow.result && commit({ result: flow.result, outcome: flow.outcome, noReason: flow.noReason, withFramework: true })}
-                  onSkip={() => flow.result && commit({ result: flow.result, outcome: flow.outcome, noReason: flow.noReason })}
-                />
-              )}
-
-              {/* Dispositionstrappan */}
-              {!askCallback && flow.stage !== "framework" && (
-                <>
-                  {flow.stage === "result" && (
-                    <DispositionBar stage="result" options={RESULT_OPTIONS} onPick={pickResult} onBack={goBack} canGoBack={false} />
-                  )}
-                  {flow.stage === "gatekeeper" && (
-                    <DispositionBar stage="gatekeeper" options={GATEKEEPER_OPTIONS} onPick={pickOutcome} onBack={goBack} canGoBack />
-                  )}
-                  {flow.stage === "outcome" && (
-                    <DispositionBar stage="outcome" options={OUTCOME_OPTIONS} onPick={pickOutcome} onBack={goBack} canGoBack />
-                  )}
-                  {flow.stage === "reason" && (
-                    <DispositionBar stage="reason" options={REASON_OPTIONS} onPick={pickReason} onBack={goBack} canGoBack />
-                  )}
-                </>
-              )}
-
-              {/* Navigering */}
-              {flow.stage === "result" && (
-                <div className="flex items-center justify-between gap-2 mt-3">
-                  <button onClick={prevLead} disabled={index === 0}
-                    className="flex items-center gap-1 text-[12px] px-3 py-2 rounded-md"
-                    style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)", opacity: index === 0 ? 0.4 : 1 }}>
-                    <ChevronLeft size={13} /> Föregående
-                  </button>
-                  <button onClick={skipLead}
-                    className="flex items-center gap-1 text-[11px] px-3 py-2 rounded-md"
-                    style={{ color: "var(--text-dim)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
-                    <SkipForward size={12} /> Skippa (S)
-                  </button>
-                  <button onClick={advance}
-                    className="flex items-center gap-1 text-[12px] px-3 py-2 rounded-md"
-                    style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
-                    Nästa <ChevronRight size={13} />
-                  </button>
-                </div>
-              )}
-
-              <p className="text-center text-[10px] mt-3" style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-                siffror = välj · backsteg = ångra · S skippa · ESC stäng panel
-              </p>
             </motion.div>
           </AnimatePresence>
+        </div>
+
+        {/* HÖGER: manuset — det säljaren faktiskt säger. Egen spalt med egen
+            scroll, så en lång öppning aldrig trycker ner kontaktuppgifterna.
+            Pitch och SEO ligger här och inte i dashen: de är argument, inte
+            fakta om bolaget, och läses i samma andetag som manustexten. */}
+        <div
+          className="hidden lg:flex w-[42%] max-w-[560px] shrink-0 flex-col overflow-y-auto border-l px-5 py-5"
+          style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+        >
+          <AnimatePresence mode="popLayout">
+            <motion.div
+              key={lead.id + contactIndex}
+              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.09, ease: "easeOut" }}
+            >
+              <PitchPanel dossier={lead.dossier} />
+              <SeoPanel dossier={lead.dossier} />
+              <ScriptPanel scripts={lead.scripts} />
+            </motion.div>
+          </AnimatePresence>
+        </div>
+      </div>
+
+      {/* Bottenfältet — allt som händer EFTER samtalet, fast förankrat över
+          hela bredden. Det får aldrig scrolla bort: trappan tas med
+          sifferknappar, och muskelminnet kräver att den ligger still. */}
+      <div
+        className="shrink-0 border-t px-5 py-3 max-h-[52vh] overflow-y-auto"
+        style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+      >
+        <div className="w-full max-w-[880px] mx-auto">
+          {/* Återuppringningsdatum */}
+          {askCallback && (
+            <div className="rounded-lg p-4" style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+              <p className="text-[11px] font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--text-dim)" }}>
+                När ska du ringa?
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="datetime-local"
+                  value={callbackAt}
+                  onChange={(e) => setCallbackAt(e.target.value)}
+                  autoFocus
+                  className="flex-1 px-3 py-2 text-[13px] rounded-md outline-none"
+                  style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)" }}
+                />
+                <button
+                  onClick={() => flow.result && commit({ result: flow.result, outcome: "CALLBACK_BOOKED", withGatekeeper: false })}
+                  disabled={!callbackAt}
+                  className="px-4 py-2 text-[12px] font-semibold rounded-md"
+                  style={{ background: callbackAt ? "var(--accent)" : "var(--surface)", color: callbackAt ? "var(--on-accent)" : "var(--text-dim)", border: "1px solid var(--border)" }}
+                >
+                  Spara
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Ramverksfrågan */}
+          {flow.stage === "framework" && (
+            <FrameworkTap
+              endedAtStep={endedAtStep}
+              closeAttempts={closeAttempts}
+              objections={objections}
+              onStep={setEndedAtStep}
+              onCloseAttempts={setCloseAttempts}
+              onToggleObjection={(tag) =>
+                setObjections((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag])
+              }
+              onSubmit={() => flow.result && commit({ result: flow.result, outcome: flow.outcome, noReason: flow.noReason, withFramework: true })}
+              onSkip={() => flow.result && commit({ result: flow.result, outcome: flow.outcome, noReason: flow.noReason })}
+            />
+          )}
+
+          {/* Dispositionstrappan */}
+          {!askCallback && flow.stage !== "framework" && (
+            <>
+              {flow.stage === "result" && (
+                <DispositionBar stage="result" options={RESULT_OPTIONS} onPick={pickResult} onBack={goBack} canGoBack={false} />
+              )}
+              {flow.stage === "gatekeeper" && (
+                <DispositionBar stage="gatekeeper" options={GATEKEEPER_OPTIONS} onPick={pickOutcome} onBack={goBack} canGoBack />
+              )}
+              {flow.stage === "outcome" && (
+                <DispositionBar stage="outcome" options={OUTCOME_OPTIONS} onPick={pickOutcome} onBack={goBack} canGoBack />
+              )}
+              {flow.stage === "reason" && (
+                <DispositionBar stage="reason" options={REASON_OPTIONS} onPick={pickReason} onBack={goBack} canGoBack />
+              )}
+            </>
+          )}
+
+          {/* Navigering och tangentlathunden delar rad — bottenfältet är den
+              enda ytan som aldrig scrollar, och den ska inte äta höjd i onödan. */}
+          <div className="flex items-center justify-between gap-3 mt-3">
+            <p className="text-[10px] shrink-0" style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
+              siffror = välj · backsteg = ångra · S skippa · ESC stäng panel
+            </p>
+            {flow.stage === "result" && (
+              <div className="flex items-center gap-2 shrink-0">
+                <button onClick={prevLead} disabled={index === 0}
+                  className="flex items-center gap-1 text-[12px] px-3 py-2 rounded-md"
+                  style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)", opacity: index === 0 ? 0.4 : 1 }}>
+                  <ChevronLeft size={13} /> Föregående
+                </button>
+                <button onClick={skipLead}
+                  className="flex items-center gap-1 text-[11px] px-3 py-2 rounded-md"
+                  style={{ color: "var(--text-dim)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+                  <SkipForward size={12} /> Skippa (S)
+                </button>
+                <button onClick={advance}
+                  className="flex items-center gap-1 text-[12px] px-3 py-2 rounded-md"
+                  style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+                  Nästa <ChevronRight size={13} />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

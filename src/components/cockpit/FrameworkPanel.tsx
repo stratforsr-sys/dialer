@@ -5,58 +5,79 @@ import type { FrameworkStep } from "@/generated/prisma/client";
 import { FRAMEWORK_STEPS, OBJECTION_TAGS } from "@/lib/cockpit-flow";
 
 /**
- * Ramverket som PASSIV panel under samtalet.
+ * Ramverket som PASSIV rad över hela cockpiten.
  *
  * Medvetet inte klickbar. Att bocka av steg mitt i ett samtal stjäl
  * uppmärksamhet i just de sekunder som avgör det, och blir i praktiken ifyllt
- * efteråt ändå — fast då som gissningar som ser ut som data. Panelen finns
+ * efteråt ändå — fast då som gissningar som ser ut som data. Raden finns
  * som stöd för säljaren, inte som inmatning.
+ *
+ * Ligger vågrätt högst upp och inte som lodrät remsa i kanten: samtalet rör sig
+ * framåt genom stegen, och den rörelsen läses i samma riktning som ögat redan
+ * går. Raden spänner över båda kolumnerna eftersom steget gäller dem båda —
+ * det styr både vad säljaren säger och vad hen ska titta efter.
  */
-export function FrameworkGuide({ activeStep }: { activeStep?: FrameworkStep | null }) {
+export function FrameworkRail({ activeStep }: { activeStep?: FrameworkStep | null }) {
+  const steps = FRAMEWORK_STEPS.filter((s) => s.value !== "INVANDNING");
+
   return (
-    <div className="flex flex-col gap-[3px]">
-      <p
-        className="text-[10px] font-semibold uppercase tracking-widest mb-1"
+    <div
+      className="flex items-center gap-1 h-[42px] px-5 border-b shrink-0 overflow-x-auto"
+      style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+    >
+      <span
+        className="text-[9px] font-semibold uppercase tracking-widest shrink-0 mr-2"
         style={{ color: "var(--text-dim)" }}
       >
         Ramverket
-      </p>
-      {FRAMEWORK_STEPS.filter((s) => s.value !== "INVANDNING").map((step, i) => {
+      </span>
+
+      {steps.map((step, i) => {
         const active = activeStep === step.value;
         return (
-          <div
-            key={step.value}
-            className="flex items-center gap-2 px-2 py-[5px] rounded-sm transition-colors"
-            style={{
-              background: active ? "var(--accent-muted)" : "transparent",
-              border: `1px solid ${active ? "var(--border-strong)" : "transparent"}`,
-            }}
-          >
-            <span
-              className="w-[18px] h-[18px] rounded-full flex items-center justify-center text-[9px] font-bold shrink-0"
+          <div key={step.value} className="flex items-center shrink-0">
+            {/* Förbindelsen mellan stegen. Ritas före steget, aldrig före det
+                första, så raden blir en kedja och inte lösa brickor. */}
+            {i > 0 && (
+              <span
+                className="w-[14px] h-[1px] mx-[3px]"
+                style={{ background: "var(--border-strong)" }}
+              />
+            )}
+            <div
+              className="flex items-center gap-[6px] pl-[5px] pr-[9px] py-[4px] rounded-md transition-colors"
               style={{
-                background: active ? "var(--accent)" : "var(--surface-inset)",
-                color: active ? "var(--bg)" : "var(--text-dim)",
-                border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+                background: active ? "var(--accent-muted)" : "transparent",
+                border: `1px solid ${active ? "var(--border-strong)" : "transparent"}`,
               }}
             >
-              {i + 1}
-            </span>
-            <span
-              className="text-[12px]"
-              style={{ color: active ? "var(--text)" : "var(--text-muted)" }}
-            >
-              {step.label}
-            </span>
+              <span
+                className="w-[17px] h-[17px] rounded-full flex items-center justify-center text-[9px] font-bold shrink-0"
+                style={{
+                  background: active ? "var(--accent)" : "var(--surface-inset)",
+                  color: active ? "var(--on-accent)" : "var(--text-dim)",
+                  border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+                }}
+              >
+                {i + 1}
+              </span>
+              <span
+                className="text-[12px] whitespace-nowrap"
+                style={{ color: active ? "var(--text)" : "var(--text-muted)" }}
+              >
+                {step.label}
+              </span>
+            </div>
           </div>
         );
       })}
-      <p
-        className="text-[10px] mt-1 px-2 leading-snug"
+
+      <span
+        className="hidden xl:block text-[10px] ml-auto pl-4 shrink-0"
         style={{ color: "var(--text-dim)" }}
       >
         Avslut ⇄ invändning — gå tillbaka och fråga igen.
-      </p>
+      </span>
     </div>
   );
 }
