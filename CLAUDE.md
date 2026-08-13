@@ -226,10 +226,14 @@ tid. Två mekanismer håller regeln:
   är alltid fel). Ett terminalt utfall — sålt, fel nummer, ogiltigt nummer —
   stänger allas: det finns inget kvar att ringa om. En kollegas samtal rör
   aldrig mitt löfte.
-- **`leaseNextLeads` reserverar bolaget för den som lovade.** Utan det sorteras
-  leadet överst i däcket hos hela golvet i sekunden klockan slår, och en kollega
-  hinner ringa kunden först. Reservationen släpper efter `CALLBACK_RESERVE_DAYS`
-  (14) så att en säljare som slutat inte låser bolag för alltid.
+- **`leaseNextLeads` reserverar bolaget för den som lovade — utan tidsgräns.**
+  Utan reservationen sorteras leadet överst i däcket hos hela golvet i sekunden
+  klockan slår, och en kollega hinner ringa kunden först. Så länge återkomsten
+  är `PENDING` serveras bolaget **aldrig** till någon annan. Lägg inte tillbaka
+  ett släpp på tid: ett bolag ska släppas av ett beslut, inte av en klocka.
+  Utvägen när en säljare slutat är att en admin avbokar återkomsten —
+  `requireCallbackAccess` släpper igenom admin på vems rad som helst, och
+  `cancelCallback` lägger tillbaka leadet i rotationen.
 
 Stänger dispositionen inte alla rader måste `Lead.callbackAt` och `nextActionAt`
 skrivas om från den tidigaste som är kvar — de är ett eko av den öppna raden, och

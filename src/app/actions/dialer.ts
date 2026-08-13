@@ -16,16 +16,6 @@ import type {
   Prisma,
 } from "@/generated/prisma/client";
 
-/**
- * Hur länge ett lead är reserverat för säljaren som lovade återkomsten.
- *
- * Räknas från den utsatta tiden. Inom fönstret serveras bolaget bara till
- * den som gav löftet; efter det går det tillbaka till golvet så att en säljare
- * som slutat inte låser bolag för alltid. Återkomsten ligger kvar i klockan
- * oavsett — reservationen styr vem som får ringa, inte om löftet finns kvar.
- */
-const CALLBACK_RESERVE_DAYS = 14;
-
 // ── Konfiguration ──────────────────────────────────────────────────────────
 
 export async function getDialerConfig() {
@@ -127,24 +117,25 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
     `NOT EXISTS (SELECT 1 FROM "DoNotCall" d WHERE d."leadId" = l."id"
         AND (d."expiresAt" IS NULL OR d."expiresAt" > ?))`,
     // Ett lovat samtal tillhör den som lovade. Så länge återkomsten är öppen
-    // serveras leadet inte till någon annan.
+    // serveras bolaget aldrig till någon annan — inte efter en vecka, inte
+    // efter en månad. Det finns ingen tidsgräns här med flit.
     //
-    // Utan det här villkoret sorterades leadet överst i däcket hos HELA golvet
-    // i samma sekund som klockan slog (se ORDER BY nedan). En kollega fick det
-    // först, ringde kunden, och löftet var förbrukat innan säljaren som gav det
-    // hunnit slå numret. Det var också vägen in i den värre skadan: kollegans
+    // Utan villkoret sorterades leadet överst i däcket hos HELA golvet i samma
+    // sekund som klockan slog (se ORDER BY nedan). En kollega fick det först,
+    // ringde kunden, och löftet var förbrukat innan säljaren som gav det hunnit
+    // slå numret. Det var också vägen in i den värre skadan: kollegans
     // disposition stängde återkomsten och den försvann ur klockan.
     //
-    // Reservationen släpper efter CALLBACK_RESERVE_DAYS. En säljare som är sjuk
-    // eller slutat får inte låsa ett bolag för alltid — raden ligger kvar i
-    // klockan, men bolaget går tillbaka till golvet.
+    // Enda vägen tillbaka till golvet är ett aktivt beslut: någon ringer
+    // bolaget, eller någon avbokar återkomsten. En admin kan avboka vems som
+    // helst (`requireCallbackAccess`) och är därmed utvägen när en säljare
+    // slutat — ett bolag släpps av en människa, inte av en klocka.
     `NOT EXISTS (SELECT 1 FROM "Callback" cb WHERE cb."leadId" = l."id"
         AND cb."status" = 'PENDING'
-        AND cb."sellerId" <> ?
-        AND cb."scheduledAt" > ?)`,
+        AND cb."sellerId" <> ?)`,
   ];
-  // Ordningen följer conds ovan exakt. De två sista hör till reservationen av
-  // lovade återkomster, nowIso före dem till DoNotCall-villkoret.
+  // Ordningen följer conds ovan exakt. Den sista hör till reservationen av
+  // lovade återkomster, nowIso före den till DoNotCall-villkoret.
   const args: unknown[] = [
     nowIso,
     cutoffIso,
@@ -154,7 +145,6 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
     nowIso,
     nowIso,
     user.id,
-    new Date(now.getTime() - CALLBACK_RESERVE_DAYS * 86_400_000).toISOString(),
   ];
 
   let join = "";

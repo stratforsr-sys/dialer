@@ -44,9 +44,14 @@ eller den avbokades. Tiden är inte ett tredje sätt.
 - `recordAttempt` stänger bara den ringande säljarens **egna, förfallna** rader.
   Bokar hen en ny stängs alla hens på bolaget oavsett tid. Terminalt utfall
   (sålt, fel nummer, ogiltigt nummer) stänger allas — inget kvar att ringa om.
-- `leaseNextLeads` **reserverar bolaget för den som lovade** så länge
-  återkomsten är öppen, med släpp efter `CALLBACK_RESERVE_DAYS` (14 dagar efter
-  utsatt tid) så att en säljare som slutat inte låser bolag för alltid.
+- `leaseNextLeads` **reserverar bolaget för den som lovade, utan tidsgräns.**
+  Så länge återkomsten är `PENDING` serveras bolaget aldrig till någon annan.
+  Här låg först ett släpp efter 14 dagar, som skydd mot att en säljare som
+  slutat låser bolag för alltid. Det togs bort samma dag: ett bolag som
+  självmant hoppar tillbaka i ringlistan efter två veckor är exakt den tysta
+  mekanismen hela passet handlade om, bara långsammare. Utvägen är i stället
+  aktiv — en admin ser hela golvets återkomster i klockan (`scope: "floor"`)
+  och kan avboka vems rad som helst, vilket lägger tillbaka leadet i rotationen.
 - Klockans 30-dagarsgolv för missade är borta. Det gjorde samma sak som buggen,
   bara långsammare: lät ett löfte försvinna av sig självt.
 
@@ -66,9 +71,11 @@ migration 016.
       kollegas löfte försvinner bara tyst ur däcket. Det är rätt beteende men
       oförklarat — en admin som undrar var ett lead tog vägen har ingen vy som
       svarar. Chefsvyn (`scope: "floor"` i klockan) är det närmaste som finns.
-- [ ] **14 dagar är en gissning.** Reservationen släpper efter
-      `CALLBACK_RESERVE_DAYS`, valt för att täcka semester utan att låsa ett
-      bolag ett kvartal. Ingen data bakom siffran ännu.
+- [ ] **Ingen överlämning när en säljare slutar.** Reservationen är permanent,
+      så bolagen bakom en avslutad säljares öppna återkomster går bara tillbaka
+      till golvet om en admin avbokar dem — en och en, i klockans golvvy. Det
+      finns ingen "flytta alla återkomster från A till B". Med fem säljare är
+      det ett kvartsjobb; med tjugo är det en funktion som saknas.
 - [ ] **Ingen räknare på missade per säljare.** Med golvet borta kan en säljare
       samla på sig missade återkomster i all oändlighet utan att någon ser det.
       Statistiken mäter samtal, inte hållna löften.
