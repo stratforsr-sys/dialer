@@ -83,6 +83,37 @@ export interface SchedulerDecision {
   retired: boolean;
   retiredReason: string | null;
   callbackAt: Date | null;
+  /** Ska leadet låsas till säljaren som ringde? Se `claimsLead`. */
+  claimsLead: boolean;
+}
+
+/**
+ * Låser samtalet leadet till säljaren?
+ *
+ * Låset är `Lead.claimedAt` — så länge det är satt ser ingen annan bolaget i
+ * sitt däck (`claimCutoff` i lease-frågan). Tidigare sattes det vid VARJE
+ * disposition, vilket i praktiken betyder att den som råkade ringa först ägde
+ * bolaget i en månad, oavsett vad som hände i samtalet. Ett "svarar ej" band
+ * alltså upp ett bolag lika hårt som ett avslut.
+ *
+ * Regeln är i stället: **lås bara när det finns en relation att skydda.**
+ *
+ *   - `CALLBACK_BOOKED` — kunden sa "ring mig på torsdag". Löftet är personligt;
+ *     en kollega som ringer istället bränner det.
+ *   - `SOLD` — kunden är någons kund.
+ *
+ * Allt annat låser inte. Ett nej är ingen relation, och ett obesvarat samtal är
+ * inte ens en kontakt. Väljer säljaren "ej intresserad" eller "svarar ej"
+ * släpps ett lås som satts tidigare — det är den SENASTE dispositionen som
+ * avgör, annars låser ett bokat samtal bolaget kvar i en månad efter att
+ * samma säljare fått ett nej på det.
+ *
+ * Att bolaget är osynligt för andra medan återkomsten är öppen sköts inte
+ * härifrån utan av återkomstfiltret i `leaseNextLeads` — det gäller alla,
+ * även löftesgivaren själv.
+ */
+export function claimsLead(outcome: OutcomeLike): boolean {
+  return outcome === "CALLBACK_BOOKED" || outcome === "SOLD";
 }
 
 /** Vilket pass en tidpunkt faller inom, om något. */
@@ -218,6 +249,7 @@ export function computeNext(params: {
   const answered =
     result === "CONNECTED_DM" || result === "CONNECTED_GATEKEEPER";
   const noAnswerStreak = answered ? 0 : lead.noAnswerStreak + 1;
+  const claims = claimsLead(outcome);
 
   const currentSlot = slotAt(slots, now);
   const triedSlotIds = currentSlot
@@ -236,6 +268,7 @@ export function computeNext(params: {
       retired: true,
       retiredReason: terminal,
       callbackAt: null,
+      claimsLead: claims,
     };
   }
 
@@ -251,13 +284,21 @@ export function computeNext(params: {
       retired: false,
       retiredReason: null,
       callbackAt,
+      claimsLead: claims,
     };
   }
 
   // 3. Växeln sa när beslutsfattaren är tillbaka. Gratis schemaläggning —
   //    bättre information än någon rotationsregel kan producera.
+  //
+  //    Ligger tiden INOM ett pass används det passet, inte nästa. `pickNextSlot`
+  //    letar efter ett pass som BÖRJAR efter tidpunkten, och kastade därmed bort
+  //    passet som faktiskt innehöll den: "han är tillbaka nio" blev inbokat
+  //    till tretton, eftersom förmiddagspasset börjar 08:00 och alltså inte är
+  //    "efter 09:00". Hela poängen med grenen är att växelns besked väger tyngre
+  //    än rotationen — då får rotationen inte flytta beskedet fyra timmar.
   if (dmAvailableAt && dmAvailableAt > now) {
-    const slot = pickNextSlot(slots, [], dmAvailableAt);
+    const slot = slotAt(slots, dmAvailableAt) ?? pickNextSlot(slots, [], dmAvailableAt);
     return {
       nextActionAt: alignToSlot(dmAvailableAt, slot, config.blockedDates),
       nextSlotId: slot?.id ?? null,
@@ -267,6 +308,7 @@ export function computeNext(params: {
       retired: false,
       retiredReason: null,
       callbackAt: null,
+      claimsLead: claims,
     };
   }
 
@@ -290,6 +332,7 @@ export function computeNext(params: {
       retired: false,
       retiredReason: null,
       callbackAt: null,
+      claimsLead: claims,
     };
   }
 
@@ -307,6 +350,7 @@ export function computeNext(params: {
       retired: false,
       retiredReason: null,
       callbackAt: null,
+      claimsLead: claims,
     };
   }
 
@@ -323,5 +367,6 @@ export function computeNext(params: {
     retired: false,
     retiredReason: null,
     callbackAt: null,
+    claimsLead: claims,
   };
 }

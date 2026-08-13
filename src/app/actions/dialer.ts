@@ -3,7 +3,7 @@
 import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { requireLeadAccess } from "@/lib/guard";
-import { canAccessList, claimCutoff } from "@/lib/lists";
+import { canAccessList, claimCutoff, isAdminUser } from "@/lib/lists";
 import { computeNext, slotAt, type Slot, type SchedulerConfig } from "@/lib/scheduler";
 import { resolveScript, firstNameOf, type ResolverVariant } from "@/lib/script-resolver";
 import { getActiveScripts } from "@/app/actions/scripts";
@@ -116,26 +116,33 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
     `EXISTS (SELECT 1 FROM "Contact" c WHERE c."leadId" = l."id")`,
     `NOT EXISTS (SELECT 1 FROM "DoNotCall" d WHERE d."leadId" = l."id"
         AND (d."expiresAt" IS NULL OR d."expiresAt" > ?))`,
-    // Ett lovat samtal tillhör den som lovade. Så länge återkomsten är öppen
-    // serveras bolaget aldrig till någon annan — inte efter en vecka, inte
-    // efter en månad. Det finns ingen tidsgräns här med flit.
+    // Ett bolag med en öppen återkomst ligger UTANFÖR däcket. Inte "sist i
+    // kön", inte "bara för den som lovade" — utanför. Ingen får det serverat
+    // av rotationen, inte ens löftesgivaren själv och inte en admin.
     //
-    // Utan villkoret sorterades leadet överst i däcket hos HELA golvet i samma
-    // sekund som klockan slog (se ORDER BY nedan). En kollega fick det först,
-    // ringde kunden, och löftet var förbrukat innan säljaren som gav det hunnit
-    // slå numret. Det var också vägen in i den värre skadan: kollegans
-    // disposition stängde återkomsten och den försvann ur klockan.
+    // Det låter hårdare än det är, och det är hela idén: ett lovat samtal är
+    // inte ett slumpmässigt nästa lead. Det ska ringas på tiden som utlovades,
+    // av personen som lovade, med anteckningen om vad som ska sägas framför
+    // sig. Vägen dit är notisklockan, där återkomsten ligger med nummer,
+    // anteckning och en dispositionsruta — inte däcket, som delar ut bolag i
+    // en ordning ingen har bestämt.
     //
-    // Enda vägen tillbaka till golvet är ett aktivt beslut: någon ringer
-    // bolaget, eller någon avbokar återkomsten. En admin kan avboka vems som
-    // helst (`requireCallbackAccess`) och är därmed utvägen när en säljare
-    // slutat — ett bolag släpps av en människa, inte av en klocka.
+    // Utan villkoret sorterades leadet i stället ÖVERST i däcket hos hela
+    // golvet i samma sekund som klockan slog (se ORDER BY nedan). Första
+    // kollega som dispositionerade bolaget ringde kunden och stängde löftet,
+    // och det försvann ur klockan hos säljaren som gav det.
+    //
+    // Bolaget kommer tillbaka in i rotationen på exakt två sätt, båda aktiva:
+    // någon dispositionerar samtalet (då avgör utfallet vad som händer med
+    // leadet, precis som för alla andra samtal), eller någon avbokar
+    // återkomsten. En admin kan avboka vems rad som helst
+    // (`requireCallbackAccess`) och är därmed utvägen när en säljare slutat —
+    // ett bolag släpps av en människa, inte av en klocka.
     `NOT EXISTS (SELECT 1 FROM "Callback" cb WHERE cb."leadId" = l."id"
-        AND cb."status" = 'PENDING'
-        AND cb."sellerId" <> ?)`,
+        AND cb."status" = 'PENDING')`,
   ];
-  // Ordningen följer conds ovan exakt. Den sista hör till reservationen av
-  // lovade återkomster, nowIso före den till DoNotCall-villkoret.
+  // Ordningen följer conds ovan exakt. Den sista nowIso hör till
+  // DoNotCall-villkoret; reservationen av lovade bolag binder inga parametrar.
   const args: unknown[] = [
     nowIso,
     cutoffIso,
@@ -144,7 +151,6 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
     cfg.maxAttempts,
     nowIso,
     nowIso,
-    user.id,
   ];
 
   let join = "";
@@ -255,10 +261,6 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
           outcome: true,
           noReason: true,
           note: true,
-          // Kopplingen som fäller ihop en cockpit-anteckning med sitt utfall
-          // i LeadHistory. Utan den blir varje Enter-sparad anteckning en egen
-          // rad bredvid samtalet den hörde till.
-          sessionId: true,
           seller: { select: { name: true } },
         },
         orderBy: { startedAt: "desc" },
@@ -387,6 +389,15 @@ export interface RecordAttemptInput {
   callbackNote?: string | null;
   /** Säljarens kryss för mejlpåminnelse. Enda vägen in i morgonmejlet. */
   callbackEmailReminder?: boolean;
+  /**
+   * Återkomsten samtalet BESVARADE, när dispositionen sker i notisklockan.
+   *
+   * Utan den går det inte att skilja "jag ringde löftet" från "jag råkade
+   * ringa bolaget". Den som ringer en återkomst tio minuter för tidigt ska
+   * inte få raden kvar i klockan resten av veckan, och tidsjämförelsen ensam
+   * kan inte avgöra det. Här pekas raden ut, och då stängs just den.
+   */
+  answeredCallbackId?: string | null;
   /** Växelinformation, om säljaren fastnade där. */
   gatekeeper?: {
     name?: string | null;
@@ -493,10 +504,15 @@ export async function recordAttempt(input: RecordAttemptInput) {
         retiredReason: decision.retiredReason,
         lastAttemptAt: now,
         lastResult: input.result,
-        // Claim-låset tas när säljaren faktiskt jobbat leadet, och arbetslåset
-        // släpps i samma skrivning.
+        // `ownerId` är "senast bearbetad av" och sätts alltid. Den ger
+        // säljaren leadet i sina egna vyer men låser ingen ute — låset är
+        // `claimedAt`.
         ownerId: user.id,
-        claimedAt: now,
+        // Claim-låset styrs av UTFALLET, inte av att någon råkade ringa.
+        // CALLBACK_BOOKED och SOLD låser; allt annat släpper ett lås som
+        // satts tidigare. Se `claimsLead` i scheduler.ts för varför.
+        claimedAt: decision.claimsLead ? now : null,
+        // Arbetslåset släpps i samma skrivning oavsett utfall.
         leasedById: null,
         leasedUntil: null,
       },
@@ -568,13 +584,36 @@ export async function recordAttempt(input: RecordAttemptInput) {
   //
   // Ordningen är avgörande: stäng gamla FÖRE den nya skapas, annars stänger
   // satsen omedelbart den återkomst som just bokades.
+  // Dispositionen kan peka ut raden den svarar på (klockan gör det). Den
+  // stängs då oavsett klockslag — men bara om den faktiskt hör till det här
+  // leadet och till den som ringer. Ett id från klienten är ett önskemål,
+  // inte ett bevis.
+  let answeredId: string | null = null;
+  if (input.answeredCallbackId) {
+    const cb = await db.callback.findUnique({
+      where: { id: input.answeredCallbackId },
+      select: { id: true, leadId: true, sellerId: true },
+    });
+    if (cb && cb.leadId === input.leadId && (cb.sellerId === user.id || isAdminUser(user))) {
+      answeredId = cb.id;
+    }
+  }
+
   const closeWhere: Prisma.CallbackWhereInput = decision.retired
     ? { leadId: input.leadId, status: "PENDING" }
     : {
         leadId: input.leadId,
         status: "PENDING",
-        sellerId: user.id,
-        ...(decision.callbackAt ? {} : { scheduledAt: { lte: now } }),
+        OR: [
+          // Den utpekade raden.
+          ...(answeredId ? [{ id: answeredId }] : []),
+          // Mina egna som förfallit. Ringer jag bolaget efter att tiden gått
+          // ut är löftet infriat även om jag kom in via däcket.
+          {
+            sellerId: user.id,
+            ...(decision.callbackAt ? {} : { scheduledAt: { lte: now } }),
+          },
+        ],
       };
 
   writes.push(

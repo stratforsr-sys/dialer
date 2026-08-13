@@ -12,6 +12,7 @@ import {
   AlarmClock,
   CalendarX2,
   Check,
+  ClipboardCheck,
 } from "lucide-react";
 import {
   listCallbacks,
@@ -21,6 +22,7 @@ import {
   setCallbackEmailReminder,
   type CallbackRow,
 } from "@/app/actions/callbacks";
+import { CallbackDisposition } from "@/components/notifications/CallbackDisposition";
 import { formatTime, formatWhen, formatRelative, isSameDay } from "@/lib/time";
 
 /**
@@ -84,6 +86,10 @@ export function NotificationBell({
   const [open, setOpen] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Raden vars samtal håller på att dispositioneras. Bolaget ligger utanför
+  // däcket så länge återkomsten är öppen — den här rutan är enda vägen att
+  // registrera utfallet, och därmed enda vägen tillbaka in i rotationen.
+  const [dispositionRow, setDispositionRow] = useState<CallbackRow | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -253,6 +259,17 @@ export function NotificationBell({
         )}
       </button>
 
+      {dispositionRow && (
+        <CallbackDisposition
+          row={dispositionRow}
+          onClose={() => setDispositionRow(null)}
+          onDone={() => {
+            setDispositionRow(null);
+            void load();
+          }}
+        />
+      )}
+
       {open && anchor && (
         <div
           ref={panelRef}
@@ -331,6 +348,12 @@ export function NotificationBell({
                   scope={scope}
                   onAct={act}
                   onNavigate={() => setOpen(false)}
+                  onDisposition={(r) => {
+                    // Panelen stängs bakom rutan. Två lager med varsin
+                    // Escape-lyssnare är ett lager för mycket.
+                    setDispositionRow(r);
+                    setOpen(false);
+                  }}
                 />
                 <Section
                   title={`Dags nu · inom ${LEAD_TIME_MIN} min`}
@@ -341,6 +364,12 @@ export function NotificationBell({
                   scope={scope}
                   onAct={act}
                   onNavigate={() => setOpen(false)}
+                  onDisposition={(r) => {
+                    // Panelen stängs bakom rutan. Två lager med varsin
+                    // Escape-lyssnare är ett lager för mycket.
+                    setDispositionRow(r);
+                    setOpen(false);
+                  }}
                 />
                 <Section
                   title="Senare idag"
@@ -351,6 +380,12 @@ export function NotificationBell({
                   scope={scope}
                   onAct={act}
                   onNavigate={() => setOpen(false)}
+                  onDisposition={(r) => {
+                    // Panelen stängs bakom rutan. Två lager med varsin
+                    // Escape-lyssnare är ett lager för mycket.
+                    setDispositionRow(r);
+                    setOpen(false);
+                  }}
                 />
                 <Section
                   title="Kommande"
@@ -361,6 +396,12 @@ export function NotificationBell({
                   scope={scope}
                   onAct={act}
                   onNavigate={() => setOpen(false)}
+                  onDisposition={(r) => {
+                    // Panelen stängs bakom rutan. Två lager med varsin
+                    // Escape-lyssnare är ett lager för mycket.
+                    setDispositionRow(r);
+                    setOpen(false);
+                  }}
                 />
               </div>
 
@@ -387,6 +428,7 @@ function Section({
   scope,
   onAct,
   onNavigate,
+  onDisposition,
 }: {
   title: string;
   color: string;
@@ -396,6 +438,7 @@ function Section({
   scope: "mine" | "floor";
   onAct: (id: string, fn: () => Promise<unknown>) => Promise<void>;
   onNavigate: () => void;
+  onDisposition: (row: CallbackRow) => void;
 }) {
   if (rows.length === 0) return null;
 
@@ -417,6 +460,7 @@ function Section({
           showSeller={scope === "floor"}
           onAct={onAct}
           onNavigate={onNavigate}
+          onDisposition={onDisposition}
         />
       ))}
     </div>
@@ -433,6 +477,7 @@ function Row({
   showSeller,
   onAct,
   onNavigate,
+  onDisposition,
 }: {
   row: CallbackRow;
   now: Date;
@@ -441,6 +486,7 @@ function Row({
   showSeller: boolean;
   onAct: (id: string, fn: () => Promise<unknown>) => Promise<void>;
   onNavigate: () => void;
+  onDisposition: (row: CallbackRow) => void;
 }) {
   const overdue = row.scheduledAt.getTime() < now.getTime();
 
@@ -509,6 +555,18 @@ function Row({
             <Phone size={10} /> {row.phone}
           </a>
         )}
+
+        {/* Registrera samtalet. Bolaget ligger utanför däcket så länge
+            återkomsten är öppen, så det här är enda vägen att bokföra utfallet
+            — och därmed enda vägen tillbaka in i rotationen. Direkt efter
+            numret, eftersom det är vad man gör när man lagt på. */}
+        <ActionButton
+          icon={<ClipboardCheck size={10} />}
+          label="Registrera samtal"
+          title="Ringde du? Registrera utfallet — då avgör dispositionen vad som händer med leadet"
+          active
+          onClick={() => onDisposition(row)}
+        />
 
         <ActionButton
           icon={<AlarmClock size={10} />}

@@ -40,7 +40,11 @@ export interface CallbackRow {
   seen: boolean;
   leadId: string;
   companyName: string;
+  /** Kontakten löftet gavs till. Behövs för att skriva samtalet och för att
+   *  förifylla affärsrutan — dispositionen sker numera i klockan. */
+  contactId: string | null;
   contactName: string | null;
+  contactEmail: string | null;
   /** Bästa numret att ringa: direktnummer före växel, E.164 före fritext. */
   phone: string | null;
   sellerId: string;
@@ -59,7 +63,9 @@ function rowsFrom(
     lead: { companyName: string };
     seller: { name: string };
     contact: {
+      id: string;
       name: string;
+      email: string | null;
       directPhoneE164: string | null;
       directPhone: string | null;
       switchboardE164: string | null;
@@ -75,7 +81,9 @@ function rowsFrom(
     seen: c.seenAt !== null,
     leadId: c.leadId,
     companyName: c.lead.companyName,
+    contactId: c.contact?.id ?? null,
     contactName: c.contact?.name ?? null,
+    contactEmail: c.contact?.email ?? null,
     phone:
       c.contact?.directPhoneE164 ??
       c.contact?.directPhone ??
@@ -99,7 +107,9 @@ const ROW_SELECT = {
   seller: { select: { name: true } },
   contact: {
     select: {
+      id: true,
       name: true,
+      email: true,
       directPhoneE164: true,
       directPhone: true,
       switchboardE164: true,

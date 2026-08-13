@@ -8,207 +8,86 @@ Nyast först.
 
 ---
 
-## 2026-08-13 (kvällen) — Lynes: mottagning av samtalshändelser
+## 2026-08-13 — Bolaget ut ur däcket, låset till utfallet
 
-Växeln ska mata dialern med samtal, inspelningar och vem som ringde. Webhooken
-är uppsatt i Lynes med `LYNES_WEBHOOK_SECRET` som delad hemlighet.
+Migration 017. Fortsättning samma dag på passet nedanför, efter två
+observationer från golvet.
 
-### Utgångsläget: ingen dokumentation
+### 1. Ett lovat bolag ligger utanför däcket — för alla
 
-Lynes publicerar **ingen fältreferens och ingen webhook-dokumentation**.
-Hjälpcentret hänvisar till "kontakta Lynes för mer information". Det finns
-alltså inget schema att bygga mot, och det förklarar varje designval nedan som
-annars ser överdrivet försiktigt ut.
+Först reserverades bolaget för den som lovade. Det räckte inte: ett lovat samtal
+är inte ett slumpmässigt nästa lead, och att servera det som ett sådant — även
+till rätt person — betyder att det kommer upp mitt i en blockning, utan att
+säljaren vet att det är löftet hen håller på att ringa.
 
-Två saker var okända: hur nyckeln skickas, och hur payloaden ser ut. Båda är
-lösta genom att acceptera bredden och **skriva ner vad som faktiskt kom**, i
-stället för att gissa och få 100 % fel om gissningen var fel.
+`leaseNextLeads` filtrerar nu bort varje bolag som har en `PENDING` återkomst.
+Ingen får det serverat av rotationen: inte kollegan, inte löftesgivaren, inte en
+admin. Vägen till samtalet är notisklockan, där raden bär nummer, anteckning och
+utsatt tid.
 
-### Vad som byggdes
+Det tvingade fram en ny yta. Ligger bolaget utanför cockpiten måste utfallet gå
+att registrera någon annanstans, annars vore filtret bara ett sätt att gömma
+bolaget: **`CallbackDisposition`**, en dispositionsruta i klockan. Den använder
+samma `cockpit-flow`, `DispositionBar`, `CallbackForm`, `FrameworkTap` och
+`RegisterDealModal` som cockpiten — inte en kortare variant, eftersom två flöden
+som skiljer sig i ett steg ger ojämförbar statistik och två uppsättningar
+tangenter att lära sig.
 
-`POST /api/telephony/lynes` — plus catch-all på `/api/telephony/*` och
-`/api/webhooks/*`, eftersom en felgissad URL bara syns hos avsändaren och är
-omöjlig att felsöka från vår sida.
+`answeredCallbackId` följer med dispositionen och pekar ut raden samtalet
+svarade på. Utan den hade en säljare som ringer tio minuter före utsatt tid fått
+löftet kvar i klockan resten av veckan — jämförelsen mot klockan kan inte skilja
+"jag ringde löftet" från "jag råkade ringa bolaget". Id:t verifieras mot lead
+och säljare i `recordAttempt`.
 
-**Nyckeln accepteras på fyra sätt** (`src/lib/telephony/verify.ts`):
-Authorization-bearer, egen header (`X-Api-Key`, `X-Webhook-Secret` m.fl.),
-HMAC-SHA256 över rå body (hex eller base64, med eller utan `sha256=`), och
-`?secret=` i URL:en. Alla jämförelser i konstant tid. Vilket sätt som matchade
-sparas i `TelephonyEvent.authMethod`.
+### 2. Låset styrs av utfallet, inte av att någon ringde
 
-**Payloaden tolkas format-agnostiskt** (`src/lib/telephony/normalize.ts`).
-JSON plattas ut till (sökväg, värde) och varje fält plockas med en aliaslista
-plus ett typtest. Okänsligt för både namngivning (`callId` / `call_id` /
-`uuid`) och nästling (`{call:{id}}` / `{data:{call:{id}}}`).
+`Lead.claimedAt` sattes vid varje disposition. Ett "svarar ej" band därmed upp
+ett bolag i 60 dagar (`CLAIM_TTL_DAYS`) lika hårt som ett avslut. I produktionen:
 
-**Tre nya tabeller** (migration 017):
+    låsta, ej pensionerade leads                       590
+      senaste utfall CALLBACK_BOOKED (befogat)          45
+      senaste utfall DM_NO                             164
+      inget utfall alls (svarar ej/upptaget/rb)        362
+      växelutfall och fel beslutsfattare                19
 
-- `TelephonyEvent` — rå payload på varje accepterad leverans, för alltid.
-- `TelephonyCall` — ett samtal, upsertat av varje händelse om det.
-- `TelephonyAgent` — växelanvändare → `User`, autokopplad **bara** på exakt
-  e-postmatchning.
+545 bolag låg alltså låsta utan att någon relation fanns att skydda. `claimsLead`
+i `scheduler.ts` avgör nu: `CALLBACK_BOOKED` och `SOLD` låser, allt annat
+släpper. Den **senaste** dispositionen bestämmer — annars låser ett bokat samtal
+bolaget kvar två månader efter att samma säljare fått ett nej på det. Migration
+017 släppte de felaktiga låsen; kvar är 54, varav 45 med öppen återkomst.
 
-### Beslutet som är värt mest: rådata före tolkning
+### Buggen testet hittade
 
-`TelephonyEvent` skrivs **innan** någon tolkning görs, i egen transaktion.
-Går matchningen sedan sönder står raden kvar och kan köras om. Motsatt ordning
-hade kastat bort den första okända payloaden i exakt det ögonblick den var som
-mest värdefull — den är ju facit man rättar aliaslistorna mot.
+Utfallsreglerna testades uttömmande (`computeNext` är ren och tar ingen databas)
+och en sats föll: **växelns besked om när beslutsfattaren är tillbaka flyttades
+av passrotationen.** `pickNextSlot` letar efter ett pass som *börjar* efter
+tidpunkten och kastade därmed bort passet som faktiskt innehöll den — "han är
+tillbaka nio" bokades in till tretton, eftersom förmiddagspasset börjar 08:00
+och alltså inte är "efter 09:00". Hela poängen med den grenen är att växelns
+besked väger tyngre än rotationen. Lagat med `slotAt` före `pickNextSlot`.
 
-Av samma skäl svarar endpointen **200 så snart rådatat ligger nere**, även när
-tolkningen efteråt misslyckades. 5xx är sparat till det enda fall där
-omleverans hjälper: databasen gick inte att skriva till alls. En växel som får
-5xx försöker om i all evighet, eller stänger av webhooken.
-
-### Varför växelns samtal inte skrivs i CallAttempt
-
-`CallAttempt` är vad SÄLJAREN registrerade och är faktatabellen all statistik
-läses ur. Växelns bild är en **andra, oberoende observation**: den vet ringtid,
-talartid och inspelning, men ingenting om utfallet. Slås de ihop går det inte
-längre att säga om "22 samtal" kom från en människa eller från en växel.
-
-De länkas i stället: `TelephonyCall.callAttemptId`, via `providerCallId` när
-det finns, annars samma säljare + samma nummer inom tio minuter. Bara **tomma**
-fält på registreringen fylls i — växeln får aldrig skriva över en siffra en
-människa satt.
-
-### Fallgropar
-
-**Roten fungerar inte som webhook-URL.** Första försöket pekade Lynes mot
-`https://dialer-five.vercel.app` utan sökväg. Roten är en inloggad sida, så
-varje leverans fick 307 till `/login`. Den kan inte undantas i middleware
-heller — det är en sida, inte en endpoint. URL:en MÅSTE peka på
-`/api/telephony/lynes`.
-
-**`tsconfig.json` saknar `target`.** Två typfel som inte fanns i något annat
-än de här filerna: `for...of` över `headers.keys()` och
-`params.entries()` kräver `downlevelIteration` när target defaultar till ES5.
-Lagat med `forEach`. Värt att veta innan nästa iterator används i repot.
-
-**Anknytningar är också telefonnummer.** Första versionen krävde sex siffror
-för att godta ett nummerfält, vilket tyst kastade bort `"1042"` — och utan
-avsändaranknytningen gick riktningen inte att härleda, vilket pekade ut fel
-part som motpart och matchade samtalet mot fel bolag. Tröskeln är nu tre
-siffror; `toE164` skiljer ändå anknytning från publikt nummer.
-
-**Växelanvändaren heter generiska saker.** `user.id`, `agent.displayName`.
-Ett brett alias som "user" tog första bästa värde under behållaren, så
-användarens id hamnade i namnfältet. Löst med en egen extraktor som skiljer
-på entydiga nycklar (`agentName`) och generiska nycklar som bara godtas inuti
-en behållare (`name` under `user`/`agent`/…).
+Fem andra avvikelser i testet var felaktiga förväntningar från min sida:
+väntetiden per resultat är ett **golv**, inte ett klockslag. Träffar den ett
+pass som redan provats skjuts försöket till nästa oprövade pass, så "+1 timme"
+från 10:00 landar på 13:00. Det är passrotationen och den är avsiktlig.
 
 ### Öppna punkter
 
-- [ ] **Strypa nyckelkontrollen till det Lynes faktiskt använder.** Fyra
-      accepterade sätt är en upptäcktsmekanism, inte en säkerhetsmodell. Läs
-      `SELECT authMethod, count(*) FROM TelephonyEvent GROUP BY 1` efter
-      första riktiga leveranserna och ta bort resten ur `verify.ts` — särskilt
-      query-parametern, som hamnar i proxyloggar.
-- [ ] **Verifiera aliaslistorna mot ett riktigt anrop.** Tolkningen är testad
-      mot fyra påhittade payloadformer, inte mot Lynes. Kolla
-      `GET /api/telephony/lynes?recent=20&secret=…` och jämför rå JSON mot vad
-      som hamnade i `TelephonyCall`. Fält som blev `NULL` är aliaslistor som
-      behöver kompletteras — rådatat finns kvar, så inget behöver ringas om.
-- [ ] **Inspelningarna syns ingenstans i gränssnittet.** `recordingUrl` fylls
-      på både `TelephonyCall` och `CallAttempt`, men `LeadHistory` renderar
-      den inte. Frågan som avgör hur den ska renderas: kräver Lynes URL
-      inloggning där? I så fall är det en länk för admin, inte en
-      uppspelningsknapp för säljaren.
-- [ ] **Okopplade växelanvändare behöver en vy.** `TelephonyAgent` med
-      `userId = NULL` betyder att samtalen inte tillskrivs någon säljare.
-      Autokopplingen tar bara exakt e-postmatchning — namn matchas aldrig,
-      eftersom fel säljare på ett samtal förgiftar både statistiken och
-      provisionen. Just nu syns de bara i `?recent=`-svaret.
-- [ ] **Ingen städning av `TelephonyEvent`.** Rådata sparas för alltid och
-      växeln levererar en rad per händelse, inte per samtal. Sätt en gallring
-      när volymen är känd — men inte förrän tolkningen är verifierad.
+- [ ] **Testerna är inte incheckade.** `computeNext` täcks nu av 77 kontroller,
+      men de kördes ur en fil i scratchpad mot en handkompilerad `scheduler.js`.
+      Repot har ingen testlöpare och inget `npm test`. Nästa gång reglerna rörs
+      finns inget skyddsnät om ingen skriver om filen.
+- [ ] **Återkomster längre bort än 7 dagar syns ingenstans.** Klockans horisont
+      är `HORIZON_DAYS = 7`, och bolaget ligger utanför däcket. En återkomst
+      bokad tre veckor fram är alltså osynlig i två veckor. Den dyker upp i tid
+      och inget är förlorat, men det finns ingen vy som svarar på "vad har jag
+      lovat framåt".
+- [ ] **Ingen överlämning när en säljare slutar.** Reservationen är permanent,
+      så bolagen bakom en avslutad säljares öppna återkomster går bara tillbaka
+      till golvet om en admin avbokar dem — en och en, i klockans golvvy.
 
 ---
 
-## 2026-08-13 (senare) — Enter sparar anteckningen
-
-Säljarens beskrivning av problemet: "man kan inte trycka enter när man skriver
-en anteckning utan man måste gå vidare."
-
-### Vad som var fel
-
-Anteckningen låg bara i klientens `notes`-state tills samtalet
-dispositionerades. Skrev säljaren något och hoppade leadet var texten borta.
-Och även när den sparades fick hon aldrig se den — historiken kommer med
-leasen och hämtas inte om mitt i ett samtal, så den egna anteckningen dök upp
-först om hon råkade komma tillbaka till bolaget senare.
-
-Panelen `LeadHistory` byggdes 08-12 och fungerade; det som saknades var att
-det aldrig fanns något att visa förrän långt efteråt.
-
-### Vad som byggdes
-
-**Enter sparar, Shift+Enter ger radbrytning.** Anteckningar är ofta
-flerradiga, så att offra Enter helt hade tvingat fram en enda löpande mening.
-Fältet töms direkt vid tryck — kvittot ska komma före nätverket, annars hinner
-säljaren skriva vidare i en textarea som håller på att skickas. Går skrivningen
-fel läggs texten tillbaka och fältet får röd ram.
-
-**`saveCockpitNote` returnerar raden den skapade.** Cockpiten lägger svaret
-överst i historiken direkt. Ingen `revalidatePath` — en revalidering mitt i ett
-samtal river renderingen under säljaren.
-
-**Anteckningen fälls ihop med sitt utfall vid läsning.** Sätter säljaren ett
-utfall försvinner den lösa anteckningsraden och texten flyttar in under
-utfallet: kvar står "Sa nej · Pris", med anteckningen en klickning bort.
-Sammanslagningen sker i `LeadHistory`, inte i databasen — ingenting muteras och
-ingen rad tas bort, vilket loggens oföränderlighet kräver.
-
-### Fallgropen som avgjorde designen
-
-**Kopplingen är `sessionId`, inte tidsnärhet.** Första utkastet lät en
-anteckning höra till nästa samtal på leadet, punkt. Det är fel: en anteckning
-som lämnats utan utfall hade sugits in i nästa samtal på bolaget — som kan
-ligga dagar bort och tillhöra en annan säljare. Nu bär cockpit-anteckningen
-`{ source: "cockpit", sessionId }` och hör bara till ett samtal i samma
-ringpass. Det krävde `sessionId` i `callAttempts`-selecten i `leaseNextLeads`.
-
-`source`-märkningen bär den andra halvan: anteckningar skrivna på lead-sidan
-saknar den och fälls aldrig ihop med någonting.
-
-### Regeln ligger i ett test nu
-
-Sammanslagningen låg först inbakad i en `useMemo` i `LeadHistory` och gick
-därför inte att köra. Den är utbruten till `src/lib/history-merge.ts` — ren
-logik, inget UI, samma uppdelning som `cockpit-flow.ts` — och täcks av
-`scripts/test-history-merge.ts` i `npm test`.
-
-Det är inte pedanteri. Båda felen den här regeln kan göra är **tysta**: en
-anteckning som försvinner och en som hamnar under fel samtal ger inget
-felmeddelande, texten står bara på fel ställe eller inte alls. Ingen upptäcker
-det förrän en säljare undrar vart hennes anteckning tog vägen.
-
-Nio scenarier, sexton kontroller: två Enter-anteckningar före ett utfall blir
-en rad; anteckning utan utfall ligger kvar; lead-sidans anteckning sugs aldrig
-in; två samtal i samma pass får rätt anteckning var; olika pass slås inte ihop;
-dispositionens egen anteckning och Enter-anteckningen hamnar båda under samma
-utfall i skrivordning; en anteckning skriven **efter** samtalet hör inte till
-det; samtal utan `sessionId` (rader äldre än funktionen) sväljer aldrig något;
-trasig JSON i metadata fäller inte cockpiten.
-
-### Sidofynd
-
-`getDeal` hämtade aktiviteter **utan** `where: { type: "NOTE" }`. Eftersom
-`recordAttempt` skriver en `CALL`-aktivitet när ett samtal bär anteckning hade
-samma text renderats två gånger på `/deals/[id]` — en gång under sitt utfall
-och en gång som lös rad. Filtret är på plats nu, samma som cockpiten haft
-hela tiden.
-
-### Öppna punkter
-
-- [ ] **`CallAttempt.note` fylls inte längre när säljaren använder Enter.**
-      Texten hamnar i `Activity` i stället. Displayen slår ihop dem så det syns
-      inte, men statistik som räknar på `CallAttempt.note` ser numera bara de
-      anteckningar som skickades med dispositionen. Ingen sådan statistik finns
-      idag — men den som bygger den måste läsa båda spåren.
-- [ ] **Ingen ångra-knapp på en sparad anteckning.** Enter är oåterkalleligt.
-      Loggen är oföränderlig med flit, så en radering är inte rätt svar; en
-      rättelse skulle behöva vara en ny rad som pekar på den gamla.
 ## 2026-08-13 — Löftet tillhör den som gav det
 
 Migration 016. Rapporterat som "återkomsten försvinner ur notiserna när tiden

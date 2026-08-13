@@ -38,6 +38,8 @@ interface QueuedItem {
   callbackAt?: string | null;
   callbackNote?: string | null;
   callbackEmailReminder?: boolean;
+  /** Återkomsten dispositionen svarar på, när den sker i notisklockan. */
+  answeredCallbackId?: string | null;
   gatekeeper?: {
     name?: string | null;
     role?: string | null;
@@ -97,6 +99,7 @@ export async function POST(req: Request) {
         callbackAt: item.callbackAt ? new Date(item.callbackAt) : null,
         callbackNote: item.callbackNote ?? null,
         callbackEmailReminder: item.callbackEmailReminder === true,
+        answeredCallbackId: item.answeredCallbackId ?? null,
         gatekeeper: item.gatekeeper
           ? {
               ...item.gatekeeper,

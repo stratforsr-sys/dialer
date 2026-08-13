@@ -139,28 +139,39 @@ Två spår som tidigare inte kände till varandra:
   i en logg vars enda syfte är att gå att läsa.
 - **Lead-sidans anteckning** skriver en `Activity` av typ `NOTE`.
 
-**Enter sparar anteckningen direkt** i cockpiten (Shift+Enter ger radbrytning).
-Fältet töms och raden dyker upp i historiken på en gång — `saveCockpitNote` i
-`actions/activities.ts` returnerar den skapade raden, och cockpiten renderar
-svaret ovanpå leasens historik utan att hämta om. Misslyckas skrivningen läggs
-texten tillbaka i fältet; en tappad anteckning som säljaren tror är sparad är
-värre än en som uppenbart inte gick igenom.
+`LeadHistory` i cockpiten slår ihop båda i en tidslinje. Rader är hopfällda till
+tid + utfall; anteckningen fälls ut vid klick. Historiken hämtas i
+`leaseNextLeads` select — **glöm den inte när nya fält tillkommer.**
 
-**Anteckningen fälls ihop med sitt utfall vid läsning, inte vid skrivning.**
-En cockpit-anteckning bär `{ source: "cockpit", sessionId }` i sin metadata och
-hör till det första samtal som skrivs **efter** den, **i samma ringpass**. Då
-försvinner den egna raden och texten flyttar in under utfallet. Kopplingen är
-`sessionId` och inte tidsnärhet — utan den hade en anteckning som lämnats utan
-utfall sugits in i nästa samtal på bolaget, vilket kan ligga dagar bort och
-tillhöra någon annan. Ingenting muteras och ingen rad tas bort; en anteckning
-utan efterföljande samtal ligger kvar som egen rad för alltid.
+### Låsning av lead — utfallet avgör (migration 017)
 
-Anteckningar skrivna på lead-sidan (`source` saknas) fälls **aldrig** ihop.
+`Lead.claimedAt` är låset. Så länge det är satt ser ingen annan säljare bolaget
+i sitt däck (`CLAIM_TTL_DAYS` = 60 i `src/lib/claim.ts`). Fram till 2026-08-13
+sattes det vid **varje** disposition, vilket band upp ett bolag i två månader åt
+den som råkade ringa först — även när samtalet gick till en telefonsvarare. 590
+leads låg låsta; bara 45 hade ett skäl.
 
-`LeadHistory` slår ihop båda spåren i en tidslinje. Rader är hopfällda till
-tid + utfall; anteckningen fälls ut vid klick, på plats. Historiken hämtas i
-`leaseNextLeads` select — **glöm den inte när nya fält tillkommer**, och
-`sessionId` på `callAttempts` är numera ett av dem.
+Regeln är nu `claimsLead(outcome)` i `src/lib/scheduler.ts`: **lås bara när det
+finns en relation att skydda.**
+
+| Utfall | Låser? | Varför |
+|--------|--------|--------|
+| `CALLBACK_BOOKED` | **ja** | Löftet är personligt — en kollega som ringer bränner det |
+| `SOLD` | **ja** | Kunden är någons kund |
+| `DM_NO` | nej | Ett nej är ingen relation |
+| `WRONG_DM` | nej | Erbjudandet nådde aldrig fram |
+| växelutfallen | nej | Ingen kontakt med beslutsfattaren |
+| svarar ej / upptaget / röstbrevlåda | nej | Inte ens en kontakt |
+
+Den **senaste** dispositionen avgör: ett icke-låsande utfall nollställer ett lås
+som satts tidigare, annars låser ett bokat samtal bolaget kvar i två månader
+efter att samma säljare fått ett nej på det. `ownerId` sätts fortfarande vid
+varje samtal — den är "senast bearbetad av" och ger säljaren bolaget i sina
+egna vyer, men låser ingen ute.
+
+Att ett bolag med öppen återkomst är osynligt för alla sköts inte av låset utan
+av återkomstfiltret i `leaseNextLeads`. Håll isär de två: låset styr *vem* som
+får bolaget, filtret styr *om* någon får det alls.
 
 ### User Roles
 - ADMIN: sees all leads, all stats, manages users and products
@@ -245,14 +256,36 @@ tid. Två mekanismer håller regeln:
   är alltid fel). Ett terminalt utfall — sålt, fel nummer, ogiltigt nummer —
   stänger allas: det finns inget kvar att ringa om. En kollegas samtal rör
   aldrig mitt löfte.
-- **`leaseNextLeads` reserverar bolaget för den som lovade — utan tidsgräns.**
-  Utan reservationen sorteras leadet överst i däcket hos hela golvet i sekunden
-  klockan slår, och en kollega hinner ringa kunden först. Så länge återkomsten
-  är `PENDING` serveras bolaget **aldrig** till någon annan. Lägg inte tillbaka
-  ett släpp på tid: ett bolag ska släppas av ett beslut, inte av en klocka.
-  Utvägen när en säljare slutat är att en admin avbokar återkomsten —
-  `requireCallbackAccess` släpper igenom admin på vems rad som helst, och
-  `cancelCallback` lägger tillbaka leadet i rotationen.
+- **Ett bolag med öppen återkomst ligger UTANFÖR däcket.** `leaseNextLeads`
+  filtrerar bort det helt — inte "sist i kön", inte "bara till den som lovade".
+  Ingen får det serverat av rotationen, inte löftesgivaren själv och inte en
+  admin. Ett lovat samtal är inte ett slumpmässigt nästa lead: det ska ringas på
+  tiden som utlovades, av personen som lovade, med anteckningen framför sig.
+  Utan filtret sorterades leadet i stället överst i däcket hos hela golvet i
+  sekunden klockan slog, och första kollega som dispositionerade det ringde
+  kunden och stängde löftet.
+- **Vägen till samtalet är notisklockan**, inte cockpiten. Raden bär nummer,
+  anteckning och en dispositionsruta (`CallbackDisposition`). Bolaget kommer
+  tillbaka in i rotationen på exakt två sätt, båda aktiva: någon
+  dispositionerar samtalet — och då avgör utfallet vad som händer med leadet,
+  precis som för alla andra samtal — eller någon avbokar återkomsten. En admin
+  kan avboka vems rad som helst (`requireCallbackAccess`), vilket är utvägen när
+  en säljare slutat. Ett bolag släpps av ett beslut, inte av en klocka; lägg
+  inte tillbaka ett släpp på tid.
+- **`answeredCallbackId` pekar ut raden dispositionen svarar på.** Klockan
+  skickar med den, och då stängs just den raden oavsett klockslag. Utan den
+  hade en säljare som ringde tio minuter för tidigt fått löftet kvar i klockan
+  resten av veckan — tidsjämförelsen ensam kan inte skilja "jag ringde löftet"
+  från "jag råkade ringa bolaget". Id:t verifieras mot lead och säljare i
+  `recordAttempt`; ett id från klienten är ett önskemål, inte ett bevis.
+
+`CallbackDisposition` använder **samma** `cockpit-flow`, `DispositionBar`,
+`CallbackForm`, `FrameworkTap` och `RegisterDealModal` som cockpiten. Bygg inte
+en kortare variant: två dispositionsflöden som skiljer sig i ett steg ger
+statistik som inte går att jämföra och tangenter säljaren måste lära sig två
+gånger. Till skillnad från cockpiten väntar rutan på serversvaret innan den
+stängs — där är skriv-bakom-kön hela poängen, här är ett tyst bortfall på ett
+lovat samtal precis det felet som skulle lagas.
 
 Stänger dispositionen inte alla rader måste `Lead.callbackAt` och `nextActionAt`
 skrivas om från den tidigaste som är kvar — de är ett eko av den öppna raden, och
