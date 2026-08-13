@@ -12,13 +12,14 @@ import {
 import { startSession, endSession } from "@/app/actions/sessions";
 import { leaseNextLeads, releaseLeases } from "@/app/actions/dialer";
 import { heartbeat, goOffline } from "@/app/actions/presence";
+import { saveCockpitNote } from "@/app/actions/activities";
 import { RegisterDealModal } from "@/components/deals/RegisterDealModal";
 import { DispositionBar } from "@/components/cockpit/DispositionBar";
 import { GatekeeperPanel, EMPTY_GATEKEEPER, type GatekeeperDraft } from "@/components/cockpit/GatekeeperPanel";
 import { FrameworkRail, FrameworkTap } from "@/components/cockpit/FrameworkPanel";
 import { ScriptPanel } from "@/components/cockpit/ScriptPanel";
 import { CallbackForm, EMPTY_CALLBACK, type CallbackDraft } from "@/components/cockpit/CallbackForm";
-import { LeadHistory } from "@/components/cockpit/LeadHistory";
+import { LeadHistory, type HistoryActivity } from "@/components/cockpit/LeadHistory";
 import { useDispositionQueue } from "@/hooks/useDispositionQueue";
 import { formatSwedish } from "@/lib/phone";
 import { formatWhen } from "@/lib/time";
@@ -533,6 +534,14 @@ export function CockpitDb({
   const [drawerTab, setDrawerTab] = useState<DrawerTab>(null);
   const [notes, setNotes] = useState("");
   const [showDealModal, setShowDealModal] = useState(false);
+  // Anteckningar som redan sparats med Enter under det här samtalet. De ligger
+  // på servern, men historiken kommer från leasen och hämtas inte om mitt i ett
+  // samtal — så säljaren skulle inte se sin egen anteckning förrän hen kom
+  // tillbaka till bolaget. Den här listan renderas ovanpå den hämtade
+  // historiken tills nästa lease.
+  const [savedNotes, setSavedNotes] = useState<HistoryActivity[]>([]);
+  const [savingNote, setSavingNote] = useState(false);
+  const [noteError, setNoteError] = useState(false);
 
   const [flow, setFlow] = useState<FlowState>(INITIAL_FLOW);
   const [gk, setGk] = useState<GatekeeperDraft>(EMPTY_GATEKEEPER);
@@ -668,6 +677,10 @@ export function CockpitDb({
     setObjections([]);
     setNotes("");
     setShowDealModal(false);
+    // Sparade anteckningar följer med leadet, inte säljaren. Nästa bolag har
+    // sin egen historik.
+    setSavedNotes([]);
+    setNoteError(false);
   }, []);
 
   const advance = useCallback(() => {
@@ -682,6 +695,46 @@ export function CockpitDb({
     setContactIndex(0);
     resetFlow();
   }, [resetFlow]);
+
+  // ── Anteckning: Enter sparar ───────────────────────────────────────────
+  //
+  // Anteckningen låg tidigare bara i klientens minne tills säljaren
+  // dispositionerade samtalet. Skrev hen något och gick vidare utan att sätta
+  // ett utfall var texten borta, och hon fick aldrig se den — historiken
+  // hämtas med leasen, så den egna anteckningen dök upp först om hon råkade
+  // komma tillbaka till bolaget.
+  //
+  // Enter skriver den nu direkt. Shift+Enter ger radbrytning: anteckningar är
+  // ofta flerradiga, och att offra Enter helt hade tvingat fram en enda
+  // löpande mening.
+  const commitNote = useCallback(async () => {
+    const text = notes.trim();
+    const target = leadsRef.current[indexRef.current];
+    if (!text || !target || savingNote) return;
+
+    setSavingNote(true);
+    setNoteError(false);
+    // Fältet töms direkt — kvitton ska komma före nätverket, annars hinner
+    // säljaren skriva vidare i en textarea som håller på att skickas.
+    setNotes("");
+
+    try {
+      const saved = await saveCockpitNote({
+        leadId: target.id,
+        contactId: target.contacts[contactIndex]?.id ?? null,
+        sessionId: sessionIdRef.current,
+        note: text,
+      });
+      setSavedNotes((prev) => [saved, ...prev]);
+    } catch {
+      // Lägg tillbaka texten. En tappad anteckning som säljaren tror är sparad
+      // är värre än en som uppenbart inte gick igenom.
+      setNotes(text);
+      setNoteError(true);
+    } finally {
+      setSavingNote(false);
+    }
+  }, [notes, contactIndex, savingNote]);
 
   const skipLead = useCallback(() => {
     const target = leadsRef.current[indexRef.current];
@@ -1152,17 +1205,41 @@ export function CockpitDb({
 
                 {/* Historiken före anteckningsfältet: man läser vad som redan
                     sagts innan man skriver nytt. */}
-                <LeadHistory attempts={lead.callAttempts} activities={lead.activities} />
+                <LeadHistory
+                  attempts={lead.callAttempts}
+                  // Det som just sparats med Enter ligger först — leasens
+                  // historik vet inget om det förrän nästa påfyllning.
+                  activities={[...savedNotes, ...lead.activities]}
+                />
 
                 {/* Anteckning */}
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Anteckning — sparas med samtalet"
-                  rows={2}
-                  className="w-full resize-none text-[13px] px-4 py-3 rounded-lg outline-none mb-3"
-                  style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)", lineHeight: 1.5 }}
-                />
+                <div className="mb-3">
+                  <textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        void commitNote();
+                      }
+                    }}
+                    placeholder="Anteckning — Enter sparar, Shift+Enter ny rad"
+                    rows={2}
+                    className="w-full resize-none text-[13px] px-4 py-3 rounded-lg outline-none"
+                    style={{
+                      background: "var(--surface)",
+                      border: `1px solid ${noteError ? "var(--danger-border)" : "var(--border-strong)"}`,
+                      color: "var(--text)",
+                      lineHeight: 1.5,
+                      opacity: savingNote ? 0.6 : 1,
+                    }}
+                  />
+                  {noteError && (
+                    <p className="text-[11px] mt-[3px] px-1" style={{ color: "var(--danger)" }}>
+                      Anteckningen sparades inte — texten ligger kvar, försök igen.
+                    </p>
+                  )}
+                </div>
 
                 {/* Växelpanel */}
                 {flow.stage === "gatekeeper" && (

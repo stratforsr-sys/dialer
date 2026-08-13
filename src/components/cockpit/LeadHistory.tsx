@@ -23,6 +23,23 @@ import type { CallResult, ConversationOutcome, NoReason } from "@/generated/pris
  * Två källor i samma tidslinje: samtal (`CallAttempt`) och anteckningar
  * skrivna på lead-sidan (`Activity` med typ `NOTE`). Säljaren bryr sig om vad
  * som sagts om bolaget, inte om i vilken vy det skrevs.
+ *
+ * ## Anteckningar som fälls ihop med sitt utfall
+ *
+ * En anteckning skriven i cockpiten med Enter sparas direkt och dyker upp som
+ * en egen rad — säljaren ska se att den tog. Sätter hen sedan ett utfall på
+ * samtalet **försvinner den egna raden och texten flyttar in under utfallet**.
+ * Kvar står en rad: "Sa nej · Pris", med anteckningen en klickning bort.
+ *
+ * Sammanslagningen sker vid läsning, inte vid skrivning. Ingenting muteras och
+ * ingen rad tas bort — aktivitetsloggen är oföränderlig. Kopplingen är
+ * `sessionId`: en cockpit-anteckning hör till det första samtal som skrivs
+ * **efter** den, **i samma ringpass**. Utan den kopplingen hade en anteckning
+ * som lämnats utan utfall sugits in i nästa samtal på bolaget, vilket kunde
+ * ligga dagar bort och tillhöra någon annan.
+ *
+ * Finns inget sådant samtal ligger anteckningen kvar som egen rad, för alltid.
+ * Skrev någon ned något är det värt att behålla.
  */
 
 export interface HistoryAttempt {
@@ -32,6 +49,10 @@ export interface HistoryAttempt {
   outcome: ConversationOutcome | null;
   noReason: NoReason | null;
   note: string | null;
+  /** Vilket ringpass samtalet gjordes i. Kopplingen som fäller ihop en
+   *  cockpit-anteckning med sitt utfall. Null för äldre rader — de får
+   *  aldrig svälja någon anteckning. */
+  sessionId?: string | null;
   seller: { name: string };
 }
 
@@ -67,15 +88,23 @@ function labelFor(
   return { label: r?.label ?? result, color: r?.color ?? "var(--text-muted)" };
 }
 
-/** Anteckningstexten ur en Activity. Trasig JSON tystas — loggen får aldrig
+/** Innehållet i en Activitys metadata. Trasig JSON tystas — loggen får aldrig
  *  fälla cockpiten. */
-function noteFromMetadata(metadata: string | null): string | null {
-  if (!metadata) return null;
+function parseMetadata(
+  metadata: string | null
+): { note: string | null; source: string | null; sessionId: string | null } {
+  if (!metadata) return { note: null, source: null, sessionId: null };
   try {
-    const parsed = JSON.parse(metadata) as { note?: string; notes?: string };
-    return parsed.note ?? parsed.notes ?? null;
+    const p = JSON.parse(metadata) as {
+      note?: string; notes?: string; source?: string; sessionId?: string | null;
+    };
+    return {
+      note: p.note ?? p.notes ?? null,
+      source: p.source ?? null,
+      sessionId: p.sessionId ?? null,
+    };
   } catch {
-    return null;
+    return { note: null, source: null, sessionId: null };
   }
 }
 
@@ -89,32 +118,65 @@ export function LeadHistory({
   const [openId, setOpenId] = useState<string | null>(null);
 
   const entries = useMemo<Entry[]>(() => {
-    const out: Entry[] = attempts.map((a) => {
-      const { label, color } = labelFor(a.result, a.outcome, a.noReason);
-      return {
-        id: a.id,
-        at: new Date(a.startedAt),
-        label,
-        color,
-        note: a.note,
-        who: a.seller.name,
-      };
-    });
+    // Samtalen först, i tidsordning, så varje anteckning kan hitta det
+    // närmaste samtalet efter sig.
+    const calls = [...attempts]
+      .map((a) => ({ ...a, at: new Date(a.startedAt) }))
+      .sort((a, b) => a.at.getTime() - b.at.getTime());
+
+    // Text som ska fällas in under ett visst samtal.
+    const absorbed = new Map<string, string[]>();
+    const standalone: Entry[] = [];
 
     for (const act of activities) {
-      const note = noteFromMetadata(act.metadata);
-      if (!note) continue;
-      out.push({
+      const meta = parseMetadata(act.metadata);
+      if (!meta.note) continue;
+      const at = new Date(act.timestamp);
+
+      // Bara cockpit-anteckningar fälls ihop, och bara med ett samtal i samma
+      // ringpass. En anteckning skriven på lead-sidan står alltid för sig.
+      const owner =
+        meta.source === "cockpit" && meta.sessionId
+          ? calls.find(
+              (c) => c.sessionId === meta.sessionId && c.at.getTime() >= at.getTime()
+            )
+          : undefined;
+
+      if (owner) {
+        const list = absorbed.get(owner.id) ?? [];
+        list.push(meta.note);
+        absorbed.set(owner.id, list);
+        continue;
+      }
+
+      standalone.push({
         id: act.id,
-        at: new Date(act.timestamp),
+        at,
         label: "Anteckning",
         color: "var(--info)",
-        note,
+        note: meta.note,
         who: act.actor.name,
       });
     }
 
-    return out.sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, 10);
+    const out: Entry[] = calls.map((a) => {
+      const { label, color } = labelFor(a.result, a.outcome, a.noReason);
+      // Anteckningen som skickades med dispositionen först, sedan de som
+      // sparades med Enter under samtalet — i den ordning de skrevs.
+      const parts = [a.note, ...(absorbed.get(a.id) ?? [])].filter(Boolean);
+      return {
+        id: a.id,
+        at: a.at,
+        label,
+        color,
+        note: parts.length > 0 ? parts.join("\n\n") : null,
+        who: a.seller.name,
+      };
+    });
+
+    return [...out, ...standalone]
+      .sort((a, b) => b.at.getTime() - a.at.getTime())
+      .slice(0, 10);
   }, [attempts, activities]);
 
   // Ny kontakt utan historik ska inte få en tom ruta som stjäl plats.

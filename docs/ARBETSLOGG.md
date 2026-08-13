@@ -8,6 +8,76 @@ Nyast först.
 
 ---
 
+## 2026-08-13 (senare) — Enter sparar anteckningen
+
+Säljarens beskrivning av problemet: "man kan inte trycka enter när man skriver
+en anteckning utan man måste gå vidare."
+
+### Vad som var fel
+
+Anteckningen låg bara i klientens `notes`-state tills samtalet
+dispositionerades. Skrev säljaren något och hoppade leadet var texten borta.
+Och även när den sparades fick hon aldrig se den — historiken kommer med
+leasen och hämtas inte om mitt i ett samtal, så den egna anteckningen dök upp
+först om hon råkade komma tillbaka till bolaget senare.
+
+Panelen `LeadHistory` byggdes 08-12 och fungerade; det som saknades var att
+det aldrig fanns något att visa förrän långt efteråt.
+
+### Vad som byggdes
+
+**Enter sparar, Shift+Enter ger radbrytning.** Anteckningar är ofta
+flerradiga, så att offra Enter helt hade tvingat fram en enda löpande mening.
+Fältet töms direkt vid tryck — kvittot ska komma före nätverket, annars hinner
+säljaren skriva vidare i en textarea som håller på att skickas. Går skrivningen
+fel läggs texten tillbaka och fältet får röd ram.
+
+**`saveCockpitNote` returnerar raden den skapade.** Cockpiten lägger svaret
+överst i historiken direkt. Ingen `revalidatePath` — en revalidering mitt i ett
+samtal river renderingen under säljaren.
+
+**Anteckningen fälls ihop med sitt utfall vid läsning.** Sätter säljaren ett
+utfall försvinner den lösa anteckningsraden och texten flyttar in under
+utfallet: kvar står "Sa nej · Pris", med anteckningen en klickning bort.
+Sammanslagningen sker i `LeadHistory`, inte i databasen — ingenting muteras och
+ingen rad tas bort, vilket loggens oföränderlighet kräver.
+
+### Fallgropen som avgjorde designen
+
+**Kopplingen är `sessionId`, inte tidsnärhet.** Första utkastet lät en
+anteckning höra till nästa samtal på leadet, punkt. Det är fel: en anteckning
+som lämnats utan utfall hade sugits in i nästa samtal på bolaget — som kan
+ligga dagar bort och tillhöra en annan säljare. Nu bär cockpit-anteckningen
+`{ source: "cockpit", sessionId }` och hör bara till ett samtal i samma
+ringpass. Det krävde `sessionId` i `callAttempts`-selecten i `leaseNextLeads`.
+
+`source`-märkningen bär den andra halvan: anteckningar skrivna på lead-sidan
+saknar den och fälls aldrig ihop med någonting.
+
+Verifierat mot sex scenarier före push: två Enter-anteckningar före ett utfall
+blir en rad; anteckning utan utfall ligger kvar; lead-sidans anteckning sugs
+aldrig in; två samtal i samma pass får rätt anteckning var; olika pass slås
+inte ihop; dispositionens egen anteckning och Enter-anteckningen hamnar båda
+under samma utfall i skrivordning.
+
+### Sidofynd
+
+`getDeal` hämtade aktiviteter **utan** `where: { type: "NOTE" }`. Eftersom
+`recordAttempt` skriver en `CALL`-aktivitet när ett samtal bär anteckning hade
+samma text renderats två gånger på `/deals/[id]` — en gång under sitt utfall
+och en gång som lös rad. Filtret är på plats nu, samma som cockpiten haft
+hela tiden.
+
+### Öppna punkter
+
+- [ ] **`CallAttempt.note` fylls inte längre när säljaren använder Enter.**
+      Texten hamnar i `Activity` i stället. Displayen slår ihop dem så det syns
+      inte, men statistik som räknar på `CallAttempt.note` ser numera bara de
+      anteckningar som skickades med dispositionen. Ingen sådan statistik finns
+      idag — men den som bygger den måste läsa båda spåren.
+- [ ] **Ingen ångra-knapp på en sparad anteckning.** Enter är oåterkalleligt.
+      Loggen är oföränderlig med flit, så en radering är inte rätt svar; en
+      rättelse skulle behöva vara en ny rad som pekar på den gamla.
 ## 2026-08-13 — Löftet tillhör den som gav det
 
 Migration 016. Rapporterat som "återkomsten försvinner ur notiserna när tiden

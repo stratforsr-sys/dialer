@@ -139,9 +139,28 @@ Två spår som tidigare inte kände till varandra:
   i en logg vars enda syfte är att gå att läsa.
 - **Lead-sidans anteckning** skriver en `Activity` av typ `NOTE`.
 
-`LeadHistory` i cockpiten slår ihop båda i en tidslinje. Rader är hopfällda till
-tid + utfall; anteckningen fälls ut vid klick. Historiken hämtas i
-`leaseNextLeads` select — **glöm den inte när nya fält tillkommer.**
+**Enter sparar anteckningen direkt** i cockpiten (Shift+Enter ger radbrytning).
+Fältet töms och raden dyker upp i historiken på en gång — `saveCockpitNote` i
+`actions/activities.ts` returnerar den skapade raden, och cockpiten renderar
+svaret ovanpå leasens historik utan att hämta om. Misslyckas skrivningen läggs
+texten tillbaka i fältet; en tappad anteckning som säljaren tror är sparad är
+värre än en som uppenbart inte gick igenom.
+
+**Anteckningen fälls ihop med sitt utfall vid läsning, inte vid skrivning.**
+En cockpit-anteckning bär `{ source: "cockpit", sessionId }` i sin metadata och
+hör till det första samtal som skrivs **efter** den, **i samma ringpass**. Då
+försvinner den egna raden och texten flyttar in under utfallet. Kopplingen är
+`sessionId` och inte tidsnärhet — utan den hade en anteckning som lämnats utan
+utfall sugits in i nästa samtal på bolaget, vilket kan ligga dagar bort och
+tillhöra någon annan. Ingenting muteras och ingen rad tas bort; en anteckning
+utan efterföljande samtal ligger kvar som egen rad för alltid.
+
+Anteckningar skrivna på lead-sidan (`source` saknas) fälls **aldrig** ihop.
+
+`LeadHistory` slår ihop båda spåren i en tidslinje. Rader är hopfällda till
+tid + utfall; anteckningen fälls ut vid klick, på plats. Historiken hämtas i
+`leaseNextLeads` select — **glöm den inte när nya fält tillkommer**, och
+`sessionId` på `callAttempts` är numera ett av dem.
 
 ### User Roles
 - ADMIN: sees all leads, all stats, manages users and products

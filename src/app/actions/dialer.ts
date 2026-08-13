@@ -255,6 +255,10 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
           outcome: true,
           noReason: true,
           note: true,
+          // Kopplingen som fäller ihop en cockpit-anteckning med sitt utfall
+          // i LeadHistory. Utan den blir varje Enter-sparad anteckning en egen
+          // rad bredvid samtalet den hörde till.
+          sessionId: true,
           seller: { select: { name: true } },
         },
         orderBy: { startedAt: "desc" },

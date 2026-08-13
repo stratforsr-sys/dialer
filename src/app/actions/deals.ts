@@ -93,15 +93,19 @@ export async function getDeal(dealId: string) {
           take: 20,
           select: {
             id: true, startedAt: true, result: true, outcome: true,
-            noReason: true, note: true,
+            noReason: true, note: true, sessionId: true,
             seller: { select: { name: true } },
           },
         },
+        // Bara NOTE. `recordAttempt` skriver även en CALL-aktivitet när ett
+        // samtal bär anteckning, och utan filtret hade samma text renderats
+        // två gånger — en gång under sitt utfall och en gång som lös rad.
         activities: {
+          where: { type: "NOTE" },
           orderBy: { timestamp: "desc" },
           take: 20,
           select: {
-            id: true, timestamp: true, type: true, metadata: true,
+            id: true, timestamp: true, metadata: true,
             actor: { select: { name: true } },
           },
         },
