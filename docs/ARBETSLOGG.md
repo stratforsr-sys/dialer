@@ -8,6 +8,123 @@ Nyast först.
 
 ---
 
+## 2026-08-13 (kvällen) — Lynes: mottagning av samtalshändelser
+
+Växeln ska mata dialern med samtal, inspelningar och vem som ringde. Webhooken
+är uppsatt i Lynes med `LYNES_WEBHOOK_SECRET` som delad hemlighet.
+
+### Utgångsläget: ingen dokumentation
+
+Lynes publicerar **ingen fältreferens och ingen webhook-dokumentation**.
+Hjälpcentret hänvisar till "kontakta Lynes för mer information". Det finns
+alltså inget schema att bygga mot, och det förklarar varje designval nedan som
+annars ser överdrivet försiktigt ut.
+
+Två saker var okända: hur nyckeln skickas, och hur payloaden ser ut. Båda är
+lösta genom att acceptera bredden och **skriva ner vad som faktiskt kom**, i
+stället för att gissa och få 100 % fel om gissningen var fel.
+
+### Vad som byggdes
+
+`POST /api/telephony/lynes` — plus catch-all på `/api/telephony/*` och
+`/api/webhooks/*`, eftersom en felgissad URL bara syns hos avsändaren och är
+omöjlig att felsöka från vår sida.
+
+**Nyckeln accepteras på fyra sätt** (`src/lib/telephony/verify.ts`):
+Authorization-bearer, egen header (`X-Api-Key`, `X-Webhook-Secret` m.fl.),
+HMAC-SHA256 över rå body (hex eller base64, med eller utan `sha256=`), och
+`?secret=` i URL:en. Alla jämförelser i konstant tid. Vilket sätt som matchade
+sparas i `TelephonyEvent.authMethod`.
+
+**Payloaden tolkas format-agnostiskt** (`src/lib/telephony/normalize.ts`).
+JSON plattas ut till (sökväg, värde) och varje fält plockas med en aliaslista
+plus ett typtest. Okänsligt för både namngivning (`callId` / `call_id` /
+`uuid`) och nästling (`{call:{id}}` / `{data:{call:{id}}}`).
+
+**Tre nya tabeller** (migration 017):
+
+- `TelephonyEvent` — rå payload på varje accepterad leverans, för alltid.
+- `TelephonyCall` — ett samtal, upsertat av varje händelse om det.
+- `TelephonyAgent` — växelanvändare → `User`, autokopplad **bara** på exakt
+  e-postmatchning.
+
+### Beslutet som är värt mest: rådata före tolkning
+
+`TelephonyEvent` skrivs **innan** någon tolkning görs, i egen transaktion.
+Går matchningen sedan sönder står raden kvar och kan köras om. Motsatt ordning
+hade kastat bort den första okända payloaden i exakt det ögonblick den var som
+mest värdefull — den är ju facit man rättar aliaslistorna mot.
+
+Av samma skäl svarar endpointen **200 så snart rådatat ligger nere**, även när
+tolkningen efteråt misslyckades. 5xx är sparat till det enda fall där
+omleverans hjälper: databasen gick inte att skriva till alls. En växel som får
+5xx försöker om i all evighet, eller stänger av webhooken.
+
+### Varför växelns samtal inte skrivs i CallAttempt
+
+`CallAttempt` är vad SÄLJAREN registrerade och är faktatabellen all statistik
+läses ur. Växelns bild är en **andra, oberoende observation**: den vet ringtid,
+talartid och inspelning, men ingenting om utfallet. Slås de ihop går det inte
+längre att säga om "22 samtal" kom från en människa eller från en växel.
+
+De länkas i stället: `TelephonyCall.callAttemptId`, via `providerCallId` när
+det finns, annars samma säljare + samma nummer inom tio minuter. Bara **tomma**
+fält på registreringen fylls i — växeln får aldrig skriva över en siffra en
+människa satt.
+
+### Fallgropar
+
+**Roten fungerar inte som webhook-URL.** Första försöket pekade Lynes mot
+`https://dialer-five.vercel.app` utan sökväg. Roten är en inloggad sida, så
+varje leverans fick 307 till `/login`. Den kan inte undantas i middleware
+heller — det är en sida, inte en endpoint. URL:en MÅSTE peka på
+`/api/telephony/lynes`.
+
+**`tsconfig.json` saknar `target`.** Två typfel som inte fanns i något annat
+än de här filerna: `for...of` över `headers.keys()` och
+`params.entries()` kräver `downlevelIteration` när target defaultar till ES5.
+Lagat med `forEach`. Värt att veta innan nästa iterator används i repot.
+
+**Anknytningar är också telefonnummer.** Första versionen krävde sex siffror
+för att godta ett nummerfält, vilket tyst kastade bort `"1042"` — och utan
+avsändaranknytningen gick riktningen inte att härleda, vilket pekade ut fel
+part som motpart och matchade samtalet mot fel bolag. Tröskeln är nu tre
+siffror; `toE164` skiljer ändå anknytning från publikt nummer.
+
+**Växelanvändaren heter generiska saker.** `user.id`, `agent.displayName`.
+Ett brett alias som "user" tog första bästa värde under behållaren, så
+användarens id hamnade i namnfältet. Löst med en egen extraktor som skiljer
+på entydiga nycklar (`agentName`) och generiska nycklar som bara godtas inuti
+en behållare (`name` under `user`/`agent`/…).
+
+### Öppna punkter
+
+- [ ] **Strypa nyckelkontrollen till det Lynes faktiskt använder.** Fyra
+      accepterade sätt är en upptäcktsmekanism, inte en säkerhetsmodell. Läs
+      `SELECT authMethod, count(*) FROM TelephonyEvent GROUP BY 1` efter
+      första riktiga leveranserna och ta bort resten ur `verify.ts` — särskilt
+      query-parametern, som hamnar i proxyloggar.
+- [ ] **Verifiera aliaslistorna mot ett riktigt anrop.** Tolkningen är testad
+      mot fyra påhittade payloadformer, inte mot Lynes. Kolla
+      `GET /api/telephony/lynes?recent=20&secret=…` och jämför rå JSON mot vad
+      som hamnade i `TelephonyCall`. Fält som blev `NULL` är aliaslistor som
+      behöver kompletteras — rådatat finns kvar, så inget behöver ringas om.
+- [ ] **Inspelningarna syns ingenstans i gränssnittet.** `recordingUrl` fylls
+      på både `TelephonyCall` och `CallAttempt`, men `LeadHistory` renderar
+      den inte. Frågan som avgör hur den ska renderas: kräver Lynes URL
+      inloggning där? I så fall är det en länk för admin, inte en
+      uppspelningsknapp för säljaren.
+- [ ] **Okopplade växelanvändare behöver en vy.** `TelephonyAgent` med
+      `userId = NULL` betyder att samtalen inte tillskrivs någon säljare.
+      Autokopplingen tar bara exakt e-postmatchning — namn matchas aldrig,
+      eftersom fel säljare på ett samtal förgiftar både statistiken och
+      provisionen. Just nu syns de bara i `?recent=`-svaret.
+- [ ] **Ingen städning av `TelephonyEvent`.** Rådata sparas för alltid och
+      växeln levererar en rad per händelse, inte per samtal. Sätt en gallring
+      när volymen är känd — men inte förrän tolkningen är verifierad.
+
+---
+
 ## 2026-08-13 (senare) — Enter sparar anteckningen
 
 Säljarens beskrivning av problemet: "man kan inte trycka enter när man skriver

@@ -31,6 +31,9 @@ model User {
   dncAdded     DoNotCall[]      @relation("DncAddedBy")
   presence     SellerPresence?
   callbacks    Callback[]       @relation("CallbackSeller")
+
+  telephonyAgents TelephonyAgent[]
+  telephonyCalls  TelephonyCall[]
 }
 
 enum Role {
@@ -115,6 +118,7 @@ model Lead {
   gatekeepers  GatekeeperContact[]
   dnc          DoNotCall?
   callbacks    Callback[]
+  telephonyCalls TelephonyCall[]
 
   @@index([claimedAt])
   @@index([ownerId])
@@ -156,6 +160,7 @@ model Contact {
   activities   Activity[]
   callAttempts CallAttempt[]
   callbacks    Callback[]
+  telephonyCalls TelephonyCall[]
 
   @@index([leadId])
   @@index([directPhoneE164])
@@ -606,6 +611,7 @@ model CallAttempt {
   scriptVersion   ScriptVersion? @relation(fields: [scriptVersionId], references: [id], onDelete: SetNull)
 
   progress CallFrameworkProgress?
+  telephonyCalls TelephonyCall[]
 
   @@index([leadId, startedAt])
   @@index([sellerId, startedAt])
@@ -994,4 +1000,161 @@ model TagOnLead {
 
   @@id([leadId, tagId])
   @@index([tagId])
+}
+
+// ==================== TELEFONI (Lynes) ====================
+//
+// Se prisma/migrations/017_lynes_telefoni.sql för hela motiveringen. Kort:
+// Lynes webhook-format är inte publikt dokumenterat, så mottagningen sparar
+// rådata separat från sin egen tolkning av det.
+
+/// Rå, oförändrad kopia av varje accepterad leverans. Append-only.
+///
+/// Finns för att tolkningen är en gissning tills första riktiga payloaden
+/// setts. Den här tabellen är facit man rättar gissningen mot — och den enda
+/// anledningen till att en feltolkning inte innebär förlorad data.
+model TelephonyEvent {
+  id       String @id @default(cuid())
+  provider String @default("lynes")
+
+  /// Providerns leverans-id. Gör mottagningen idempotent: en växel levererar
+  /// om vid timeout. NULL får förekomma flera gånger — SQLite räknar NULL som
+  /// skilda värden i ett unikt index, vilket är precis vad som behövs här.
+  providerEventId String?
+
+  /// Rått och oöversatt. Att mappa in i en enum innan värdemängden är känd
+  /// hade kastat bort just det som behövs för att skriva mappningen.
+  eventType String?
+  callId    String?
+
+  /// Vilken nyckelplacering som matchade: bearer, header-secret, hmac-sha256
+  /// eller query-param. Enda sättet att se hur Lynes faktiskt autentiserar
+  /// sig, så att de övriga kan stängas av sedan.
+  authMethod String
+
+  handled    Boolean  @default(false)
+  error      String?
+  rawJson    String
+  receivedAt DateTime @default(now())
+
+  @@unique([provider, providerEventId])
+  @@index([receivedAt])
+  @@index([callId])
+  @@index([handled, receivedAt])
+}
+
+/// Växelns användare, mappad mot vår.
+///
+/// Skapas automatiskt med userId = NULL första gången en okänd anknytning
+/// ringer. En synlig okopplad rad är oändligt mycket bättre än ett tyst
+/// bortkastat samtal, och eftersom TelephonyCall pekar på agenten följer hela
+/// historiken med i samma sekund som kopplingen görs.
+model TelephonyAgent {
+  id       String @id @default(cuid())
+  provider String @default("lynes")
+
+  /// Bästa stabila identifierare i payloaden, i fallande ordning: växelns
+  /// användar-id, anknytning, e-post, namn.
+  externalId String
+
+  extension String?
+  email     String?
+  name      String?
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  /// True när kopplingen gjordes automatiskt på e-postmatchning. Endast exakt
+  /// e-post matchas automatiskt — namn aldrig, eftersom fel säljare på ett
+  /// samtal förgiftar både statistiken och provisionen.
+  autoLinked Boolean @default(false)
+
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  calls TelephonyCall[]
+
+  @@unique([provider, externalId])
+  @@index([userId])
+  @@index([email])
+}
+
+/// Ett samtal som växeln ser det. En rad per samtal, uppdaterad av varje
+/// händelse om det.
+///
+/// Skild från CallAttempt med flit: CallAttempt är vad SÄLJAREN registrerade
+/// och är faktatabellen statistiken läses ur. Den här är en andra, oberoende
+/// observation av samma samtal — den vet ringtid, talartid och inspelning men
+/// ingenting om utfallet. Slås de ihop går det inte längre att säga om en
+/// siffra kom från en människa eller från växeln.
+model TelephonyCall {
+  id             String @id @default(cuid())
+  provider       String @default("lynes")
+  providerCallId String
+
+  direction String?
+  /// Härledd: RINGING, ANSWERED, COMPLETED, NO_ANSWER, BUSY, FAILED,
+  /// VOICEMAIL, UNKNOWN. Rå eventtyp sparas i lastEventType vid sidan om.
+  status        String  @default("UNKNOWN")
+  lastEventType String?
+
+  /// Både rått och normaliserat. E.164 är det som går att matcha på,
+  /// råversionen det som går att felsöka med när normaliseringen returnerar
+  /// null — vilket den gör hellre än att gissa.
+  fromRaw  String?
+  toRaw    String?
+  fromE164 String?
+  toE164   String?
+
+  /// to vid utgående, from vid inkommande. Denormaliserad eftersom varje
+  /// uppslag mot lead frågar efter just den, och ett CASE i WHERE gör
+  /// indexet oanvändbart.
+  otherPartyE164 String?
+
+  startedAt  DateTime?
+  answeredAt DateTime?
+  endedAt    DateTime?
+
+  /// durationSec är hela samtalet inklusive ringtid, talkSec bara den
+  /// uppkopplade delen. Skilda för att 40 sekunders ringsignal inte är 40
+  /// sekunders samtal.
+  durationSec Int?
+  talkSec     Int?
+  waitSec     Int?
+
+  hangupCause String?
+  queueName   String?
+
+  /// Pekar med största sannolikhet in i Lynes och kräver inloggning där.
+  /// Sparas ändå — en länk en admin kan öppna är värd mer än ingen.
+  recordingUrl String?
+  recordingId  String?
+
+  agentId String?
+  agent   TelephonyAgent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  leadId String?
+  lead   Lead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  /// Säljarens egen registrering av samma samtal, när den gick att hitta.
+  callAttemptId String?
+  callAttempt   CallAttempt? @relation(fields: [callAttemptId], references: [id], onDelete: SetNull)
+
+  eventCount Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([provider, providerCallId])
+  @@index([userId, startedAt])
+  @@index([startedAt])
+  @@index([leadId, startedAt])
+  @@index([agentId])
+  @@index([callAttemptId])
+  @@index([otherPartyE164, startedAt])
 }

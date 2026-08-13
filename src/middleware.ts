@@ -19,12 +19,21 @@ export const config = {
      * - /api/meeting-outcome Klick i mötesmejl, autentiseras med signerat
      *                        per-möte-token. Länkarna nådde aldrig sin handler.
      * - /api/telephony/*     Inkommande webhooks från växeln, autentiseras med
-     *                        HMAC-signatur. Undantaget finns på plats i förväg
-     *                        eftersom en provider som får 307 gör om anropet i
-     *                        all evighet.
+     *                        LYNES_WEBHOOK_SECRET. Undantaget fanns på plats i
+     *                        förväg eftersom en provider som får 307 gör om
+     *                        anropet i all evighet.
+     * - /api/webhooks/*      Samma mottagning, andra adressen. "webhook" är
+     *                        minst lika naturligt att skriva som "telephony"
+     *                        när man konfigurerar i växelns gränssnitt, och en
+     *                        felstavad URL syns bara hos avsändaren.
      *
      * Varje undantagen route MÅSTE göra sin egen autentisering i handlern.
+     *
+     * OBS: roten "/" är INTE undantagen och kan inte bli det — den är en
+     * inloggad sida. En växel som pekas mot https://dialer-five.vercel.app
+     * utan sökväg får därför 307 till /login på varje leverans. Det är rätt
+     * beteende; felet ligger i konfigurationen hos avsändaren.
      */
-    "/((?!login|api/auth|api/cron|api/meeting-outcome|api/telephony|_next/static|_next/image|favicon.ico|icon.png|apple-icon.png).*)",
+    "/((?!login|api/auth|api/cron|api/meeting-outcome|api/telephony|api/webhooks|_next/static|_next/image|favicon.ico|icon.png|apple-icon.png).*)",
   ],
 };
