@@ -234,6 +234,10 @@ model Callback {
   /// Chefsvyn och morgonjobbet frågar över hela golvet.
   @@index([status, scheduledAt])
   @@index([leadId, status])
+  /// Reservationen i leaseNextLeads: "har det här leadet en öppen återkomst som
+  /// tillhör NÅGON ANNAN än den som leasar?". Ett villkor per lead-kandidat i
+  /// appens hetaste fråga.
+  @@index([leadId, status, sellerId])
 }
 
 enum CallbackStatus {

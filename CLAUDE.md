@@ -208,10 +208,32 @@ Rör man den ena måste man röra den andra (`syncLeadFromCallbacks` i
 `src/app/actions/callbacks.ts`).
 
 - **Missad är inget lagrat status.** Det är `PENDING` med en tid som passerat.
+  Den ligger kvar hur länge som helst — klockan har tak men inget golv.
 - **Bokningen sker i `recordAttempt`**, i samma transaktion som samtalet.
-  Gamla öppna återkomster på leadet stängs FÖRE den nya skapas.
 - **`sellerId` är den som lovade**, inte `Lead.ownerId` — ägarskapet byter hand
   vid nästa disposition, påminnelsen ska ändå gå till rätt person.
+
+#### Ett löfte tillhör den som gav det (migration 016)
+
+En återkomst lämnar klockan på **två** sätt: säljaren som lovade ringde bolaget,
+eller säljaren avbokade den. Tiden är inte ett tredje sätt. Bryts den regeln
+försvinner löften tyst, och det är precis vad som hände fram till 2026-08-13 —
+åtta av nio stängda återkomster stängdes av fel person, sju av dem före utsatt
+tid. Två mekanismer håller regeln:
+
+- **`recordAttempt` stänger bara den ringande säljarens egna, förfallna rader.**
+  Bokas en ny stängs alla mina på bolaget oavsett tid (två löften på samma bolag
+  är alltid fel). Ett terminalt utfall — sålt, fel nummer, ogiltigt nummer —
+  stänger allas: det finns inget kvar att ringa om. En kollegas samtal rör
+  aldrig mitt löfte.
+- **`leaseNextLeads` reserverar bolaget för den som lovade.** Utan det sorteras
+  leadet överst i däcket hos hela golvet i sekunden klockan slår, och en kollega
+  hinner ringa kunden först. Reservationen släpper efter `CALLBACK_RESERVE_DAYS`
+  (14) så att en säljare som slutat inte låser bolag för alltid.
+
+Stänger dispositionen inte alla rader måste `Lead.callbackAt` och `nextActionAt`
+skrivas om från den tidigaste som är kvar — de är ett eko av den öppna raden, och
+ett `null` där hade lämnat löftet i klockan men bolaget utanför däcket.
 
 Utgående e-post finns, men gör exakt en sak: morgonmejlet med dagens
 återkomster. Det skickas **bara** för rader där säljaren kryssat i

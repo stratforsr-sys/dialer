@@ -16,6 +16,16 @@ import type {
   Prisma,
 } from "@/generated/prisma/client";
 
+/**
+ * Hur länge ett lead är reserverat för säljaren som lovade återkomsten.
+ *
+ * Räknas från den utsatta tiden. Inom fönstret serveras bolaget bara till
+ * den som gav löftet; efter det går det tillbaka till golvet så att en säljare
+ * som slutat inte låser bolag för alltid. Återkomsten ligger kvar i klockan
+ * oavsett — reservationen styr vem som får ringa, inte om löftet finns kvar.
+ */
+const CALLBACK_RESERVE_DAYS = 14;
+
 // ── Konfiguration ──────────────────────────────────────────────────────────
 
 export async function getDialerConfig() {
@@ -116,9 +126,25 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
     `EXISTS (SELECT 1 FROM "Contact" c WHERE c."leadId" = l."id")`,
     `NOT EXISTS (SELECT 1 FROM "DoNotCall" d WHERE d."leadId" = l."id"
         AND (d."expiresAt" IS NULL OR d."expiresAt" > ?))`,
+    // Ett lovat samtal tillhör den som lovade. Så länge återkomsten är öppen
+    // serveras leadet inte till någon annan.
+    //
+    // Utan det här villkoret sorterades leadet överst i däcket hos HELA golvet
+    // i samma sekund som klockan slog (se ORDER BY nedan). En kollega fick det
+    // först, ringde kunden, och löftet var förbrukat innan säljaren som gav det
+    // hunnit slå numret. Det var också vägen in i den värre skadan: kollegans
+    // disposition stängde återkomsten och den försvann ur klockan.
+    //
+    // Reservationen släpper efter CALLBACK_RESERVE_DAYS. En säljare som är sjuk
+    // eller slutat får inte låsa ett bolag för alltid — raden ligger kvar i
+    // klockan, men bolaget går tillbaka till golvet.
+    `NOT EXISTS (SELECT 1 FROM "Callback" cb WHERE cb."leadId" = l."id"
+        AND cb."status" = 'PENDING'
+        AND cb."sellerId" <> ?
+        AND cb."scheduledAt" > ?)`,
   ];
-  // Ordningen följer conds ovan exakt. Den sista nowIso hör till
-  // DoNotCall-villkoret, den näst sista till undantaget för lovade återkomster.
+  // Ordningen följer conds ovan exakt. De två sista hör till reservationen av
+  // lovade återkomster, nowIso före dem till DoNotCall-villkoret.
   const args: unknown[] = [
     nowIso,
     cutoffIso,
@@ -127,6 +153,8 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
     cfg.maxAttempts,
     nowIso,
     nowIso,
+    user.id,
+    new Date(now.getTime() - CALLBACK_RESERVE_DAYS * 86_400_000).toISOString(),
   ];
 
   let join = "";
@@ -520,16 +548,44 @@ export async function recordAttempt(input: RecordAttemptInput) {
 
   // ── Återkomster ──────────────────────────────────────────────────────────
   //
-  // Ordningen är avgörande: stäng gamla FÖRE den nya skapas, annars stänger
-  // satsen nedan omedelbart den återkomst som just bokades.
+  // Ett löfte tillhör den som gav det, och det är infriat först när DEN
+  // personen faktiskt ringt bolaget.
   //
-  // Att varje samtal stänger leadets öppna löften är med flit, även när det
-  // ringda samtalet inte var det lovade. `Lead.callbackAt` skrivs om av varje
-  // disposition, och en Callback-rad som levde vidare hade sagt emot leadet
-  // några dagar senare. Ett löfte är infriat när vi faktiskt ringde bolaget.
+  // Tidigare stängde varje samtal på leadet ALLA öppna återkomster, oavsett
+  // vem som lovat och oavsett om tiden var inne. Det såg ut som en städregel
+  // och var i praktiken en läcka: i samma sekund som klockan slog gick leadet
+  // tillbaka i rotationen, sorterades överst i däcket hos hela golvet, och
+  // första kollega som dispositionerade det stängde löftet. Säljaren som gav
+  // det såg återkomsten försvinna ur klockan utan att ha ringt. Åtta av nio
+  // stängda återkomster i produktion stängdes så, sju av dem före utsatt tid.
+  //
+  // Tre regler i stället:
+  //
+  //   1. **Mitt samtal stänger mina förfallna löften.** Tiden var inne och jag
+  //      ringde — det är exakt vad raden bad om.
+  //   2. **Bokar jag en ny stänger den mina övriga på bolaget**, oavsett tid.
+  //      Två öppna löften på samma bolag är alltid ett fel.
+  //   3. **Ett terminalt utfall stänger allas.** Sålt, fel nummer eller
+  //      ogiltigt nummer — det finns inget kvar att ringa om, och en rad som
+  //      låg kvar hade skickat en säljare till ett bolag som är ur spel.
+  //
+  // Kvar står: en kollegas samtal rör inte mitt löfte, och ett samtal före
+  // utsatt tid rör inte ett löfte som fortfarande ligger i framtiden.
+  //
+  // Ordningen är avgörande: stäng gamla FÖRE den nya skapas, annars stänger
+  // satsen omedelbart den återkomst som just bokades.
+  const closeWhere: Prisma.CallbackWhereInput = decision.retired
+    ? { leadId: input.leadId, status: "PENDING" }
+    : {
+        leadId: input.leadId,
+        status: "PENDING",
+        sellerId: user.id,
+        ...(decision.callbackAt ? {} : { scheduledAt: { lte: now } }),
+      };
+
   writes.push(
     db.callback.updateMany({
-      where: { leadId: input.leadId, status: "PENDING" },
+      where: closeWhere,
       data: {
         status: "COMPLETED",
         completedAt: now,
@@ -587,6 +643,29 @@ export async function recordAttempt(input: RecordAttemptInput) {
   }
 
   await db.$transaction(writes);
+
+  // `Lead.callbackAt` är ett eko av den öppna raden, inte sanningen. Sedan
+  // samtalet slutade stänga andras löften kan det finnas en öppen återkomst
+  // kvar som dispositionen inte kände till — kollegans, eller min egen som
+  // ligger i framtiden. Skrev vi då `callbackAt = null` skulle bolaget serveras
+  // enligt rotationen i stället för på den lovade tiden, och löftet vore kvar
+  // i klockan men borta ur däcket.
+  if (!decision.callbackAt && !decision.retired) {
+    const remaining = await db.callback.findFirst({
+      where: { leadId: input.leadId, status: "PENDING" },
+      orderBy: { scheduledAt: "asc" },
+      select: { scheduledAt: true },
+    });
+    if (remaining) {
+      await db.lead.update({
+        where: { id: input.leadId },
+        data: {
+          callbackAt: remaining.scheduledAt,
+          nextActionAt: remaining.scheduledAt,
+        },
+      });
+    }
+  }
 
   if (input.gatekeeper) {
     await upsertGatekeeper(input.leadId, input.gatekeeper);

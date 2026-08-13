@@ -8,6 +8,73 @@ Nyast först.
 
 ---
 
+## 2026-08-13 — Löftet tillhör den som gav det
+
+Migration 016. Rapporterat som "återkomsten försvinner ur notiserna när tiden
+går ut". Den försvann inte av tiden — den stängdes av någon annan.
+
+### Vad som faktiskt hände
+
+`recordAttempt` stängde **alla** öppna återkomster på leadet vid varje samtal,
+oavsett vem som lovat och oavsett om tiden var inne. Det stod som ett medvetet
+val i CLAUDE.md ("ett löfte är infriat när vi faktiskt ringde bolaget") och
+såg oskyldigt ut ända tills det parades ihop med lease-frågan:
+
+    ORDER BY CASE WHEN l."callbackAt" <= now THEN 0 ELSE 1 END, ...
+
+I sekunden en återkomst förföll blev leadet leasbart igen och sorterades
+**överst i däcket hos hela golvet**. Första kollega som dispositionerade
+bolaget stängde löftet. Säljaren som gav det såg raden försvinna ur klockan
+utan att ha ringt — och utan att något i gränssnittet sa varför.
+
+Räknat i produktionsdatabasen innan fixen:
+
+    stängda återkomster totalt                          9
+      stängda av en ANNAN säljare än den som lovade     8
+      stängda FÖRE den utsatta tiden                    7
+
+Det är alltså inte ett kantfall. Nio av nio rader hade passerat mekanismen och
+åtta av dem var fel.
+
+### Regeln nu
+
+En återkomst lämnar klockan på **två** sätt: den ringdes av säljaren som lovade,
+eller den avbokades. Tiden är inte ett tredje sätt.
+
+- `recordAttempt` stänger bara den ringande säljarens **egna, förfallna** rader.
+  Bokar hen en ny stängs alla hens på bolaget oavsett tid. Terminalt utfall
+  (sålt, fel nummer, ogiltigt nummer) stänger allas — inget kvar att ringa om.
+- `leaseNextLeads` **reserverar bolaget för den som lovade** så länge
+  återkomsten är öppen, med släpp efter `CALLBACK_RESERVE_DAYS` (14 dagar efter
+  utsatt tid) så att en säljare som slutat inte låser bolag för alltid.
+- Klockans 30-dagarsgolv för missade är borta. Det gjorde samma sak som buggen,
+  bara långsammare: lät ett löfte försvinna av sig självt.
+
+### Fallgropen som kom med fixen
+
+Stänger dispositionen inte längre alla rader kan en öppen återkomst finnas kvar
+som `computeNext` inte vet om. Skrivs då `Lead.callbackAt = null` ligger löftet
+kvar i klockan medan bolaget aldrig serveras i cockpiten — värre än buggen som
+lagades. Därför skriver `recordAttempt` om ekot från den tidigaste kvarvarande
+raden efter transaktionen. **Rör man den ena kolumnen måste man röra den andra**,
+och det gäller nu på tre ställen: `syncLeadFromCallbacks`, `recordAttempt` och
+migration 016.
+
+### Öppna punkter
+
+- [ ] **Reservationen syns inte i gränssnittet.** Ett bolag som är låst till en
+      kollegas löfte försvinner bara tyst ur däcket. Det är rätt beteende men
+      oförklarat — en admin som undrar var ett lead tog vägen har ingen vy som
+      svarar. Chefsvyn (`scope: "floor"` i klockan) är det närmaste som finns.
+- [ ] **14 dagar är en gissning.** Reservationen släpper efter
+      `CALLBACK_RESERVE_DAYS`, valt för att täcka semester utan att låsa ett
+      bolag ett kvartal. Ingen data bakom siffran ännu.
+- [ ] **Ingen räknare på missade per säljare.** Med golvet borta kan en säljare
+      samla på sig missade återkomster i all oändlighet utan att någon ser det.
+      Statistiken mäter samtal, inte hållna löften.
+
+---
+
 ## 2026-08-13 — Pipelinen bort, Deals in
 
 Frågan som startade passet: "vi jobbar one call close, varför finns det en

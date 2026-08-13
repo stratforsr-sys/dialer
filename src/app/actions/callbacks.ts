@@ -21,9 +21,16 @@ import { ForbiddenError } from "@/lib/guard";
 
 /** Hur långt fram klockan tittar. Längre än så är inte en notis, det är en lista. */
 const HORIZON_DAYS = 7;
-/** Missade äldre än så här slutar skrika. De ligger kvar, men larmar inte. */
-const OVERDUE_LIMIT_DAYS = 30;
-const MAX_ROWS = 60;
+/**
+ * Missade har inget golv.
+ *
+ * Här låg tidigare en gräns på 30 dagar: äldre än så föll ur klockan. Den var
+ * tänkt som ett skydd mot en lista som växer, men den gjorde samma sak som
+ * buggen i dispositionen — den lät ett löfte försvinna av sig självt. En
+ * återkomst lämnar klockan på två sätt: den ringdes, eller den avbokades.
+ * Ingen tredje väg, och tiden är ingen av dem.
+ */
+const MAX_ROWS = 200;
 
 export interface CallbackRow {
   id: string;
@@ -117,12 +124,12 @@ export async function listCallbacks(
 
   const now = new Date();
   const horizon = new Date(now.getTime() + HORIZON_DAYS * 86_400_000);
-  const floorDate = new Date(now.getTime() - OVERDUE_LIMIT_DAYS * 86_400_000);
 
   const rows = await db.callback.findMany({
     where: {
       status: "PENDING",
-      scheduledAt: { gte: floorDate, lte: horizon },
+      // Bara ett tak, inget golv. Allt som förfallit ligger kvar.
+      scheduledAt: { lte: horizon },
       ...(effective === "mine" ? { sellerId: user.id } : {}),
     },
     select: ROW_SELECT,
