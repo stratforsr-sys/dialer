@@ -8,6 +8,115 @@ Nyast först.
 
 ---
 
+## 2026-08-13 — Pipelinen bort, Deals in
+
+Frågan som startade passet: "vi jobbar one call close, varför finns det en
+pipeline?". Svaret var att ingen tagit bort den.
+
+### Vad som faktiskt fanns
+
+CLAUDE.md sa redan "verksamheten är one call close", och mötesbokningen togs
+bort i migration 007. Ändå bar `Deal` hela prognosmaskineriet: ett
+**obligatoriskt** `stageId` mot `PipelineStage`, vars steg hette "Möte bokat",
+"Demo" och "Offert" — funktioner som inte finns — plus `probability` och
+`expectedCloseAt`.
+
+Kanbanbrädet på `/pipeline` hade därför i praktiken en kolumn med innehåll och
+fyra tomma, och registreringsrutan frågade om fem saker varav tre var
+meningslösa: vilket steg affären låg i, hur sannolik den var (reglage, 0–100 %)
+och när den förväntades stängas — på en affär som redan var stängd.
+
+Två vägar ledde dit och de kände inte till varandra. Dispositionen `3 Såld`
+skrev ett `CallAttempt` med `outcome = SOLD` och gick vidare till nästa lead.
+En separat **Deal**-knapp uppe i hörnet öppnade rutan. Inget band ihop dem:
+statistikens "sålt" räknade dispositioner, `/pipeline` räknade knapptryck, och
+en säljare som tryckte 3 och gick vidare hade sålt utan att någon kund fanns i
+systemet.
+
+### Vad som byggdes
+
+**`/deals` ersätter `/pipeline`.** En lista, inte ett bräde: sorterad på
+avslutsdatum, sökbar på bolag, person, ort och org.nr. Ett bräde med kolumner
+beskriver arbete som rör sig genom stadier, och det finns inga stadier här.
+`/deals/[id]` är kunden — belopp, kontaktuppgifter, anteckning och hela
+samtalshistoriken. Historiken är `LeadHistory` rakt av från cockpiten;
+samtalen ligger kvar på leadet, affären pekar bara på samma bolag.
+
+**Registreringen sitter i dispositionen.** `3 Såld` öppnar rutan direkt, och
+Deal-knappen är borta. Samtalet skrivs **först när affären är sparad** — det
+är hela poängen med ordningen. Skrevs dispositionen först skulle "Avbryt" bli
+en tyst datafalsk: ett sålt samtal i statistiken utan kund bakom. Avbryt tar
+en tillbaka till utfallsknapparna och skriver ingenting.
+
+**Fem fält, två obligatoriska.** Kontaktperson och ordervärde krävs;
+e-post, telefon och anteckning är frivilliga. En säljare som inte fick
+e-postadressen ska inte behöva hitta på en för att kunna bokföra sitt sälj.
+Fokus hamnar i beloppsfältet — namnet är förifyllt från kontakten i luren.
+
+**Ett belopp i stället för två.** `oneTimeValue` och `arrValue` slogs ihop till
+`value` + `valueType` (`ONE_TIME` | `MONTHLY`). Två kolumner där bara en får
+vara ifylld är en bugg som väntar. `ARR` blev `MONTHLY` för att säljaren säger
+"2 900 i månaden", inte "34 800 i ARR". Statistiken summerar de två typerna
+var för sig och slår aldrig ihop dem till ett tal.
+
+**Kontaktuppgifterna kopieras till affären** i stället för att pekas ut med en
+`contactId`. Kontakten kan bytas eller tas bort på leadet; vem som skrev på ska
+stå kvar precis som det stod.
+
+**Statistikens "Forecasting" blev "Affärer".** Tratten ritade fem stadier och
+"stadium-till-stadium-konvertering" mellan kolumner som ingen passerade.
+Nu: antal affärer, engångsvärde, månadsvärde och de senaste avsluten.
+Konverteringen mäts i Aktivitet, där den hör hemma.
+
+### Fallgropar
+
+**`ALTER TABLE DROP COLUMN` går inte på `stageId`.** Kolumnen sitter i en
+FOREIGN KEY-klausul i tabelldefinitionen och SQLite vägrar släppa den.
+Migration 015 bygger om tabellen i stället, samma mönster som 002. `PRAGMA
+foreign_keys=OFF` krävs för att `DROP TABLE "Deal"` inte ska kaskadradera
+`DealProduct` — pragmat är verkningslöst inuti en transaktion, men
+`apply-sql.mjs` kör med `executeMultiple()` som inte lindar in filen i någon.
+
+**Enumvärden går att ta bort ur schemat, men inte ur databasen.** `OPEN`
+försvann ur `DealStatus`, och Prisma kastar på en rad som fortfarande bär det.
+Migrationen skriver därför om alla OPEN-rader till WON. Det är ett
+tolkningsbeslut: registreringsrutan var enda vägen att bokföra ett sälj och
+satte alltid OPEN, så en OPEN-rad betyder "någon sålde", inte "affär under
+förhandling". Att kasta dem hade raderat säljhistorik.
+
+`ActivityType.DEAL_STAGE_CHANGE` fick motsatt behandling — värdet står kvar i
+enumet men skrivs aldrig. Aktivitetsloggen är oföränderlig och de raderna finns.
+
+**Modalen måste stoppa tangenter från att nå cockpiten.** Cockpitens lyssnare
+sitter på `window` och hoppar bara över `input` och `textarea`. Engång/Per
+månad-växeln är `<button>` — med fokus där hade en 3:a dispositionerat samtalet
+under den öppna rutan. Rutans yttre div gör `stopPropagation()` på keydown.
+
+**`hasActiveDeal` är fortfarande gatet mot dialern**, inte `retired`. Villkoret
+`l."hasActiveDeal" = 0` i lease-frågan är det som håller kunder utanför kön.
+`cancelDeal` nollställer det igen om ingen annan vunnen affär finns kvar.
+
+### Öppna punkter
+
+- [ ] **`@dnd-kit/core`, `/sortable` och `/utilities` är oanvända.** Kanban var
+      enda stället de fanns. De ligger kvar i `package.json` med flit: att ta
+      bort dem utan att köra om `npm install` ger en `package-lock.json` som
+      inte matchar, och Vercels `npm ci` avbryter på det. Rensa dem i ett pass
+      där låsfilen kan uppdateras samtidigt.
+- [ ] **`Product` / `DealProduct` är frånkopplade.** Produktkatalogen finns
+      kvar under Admin och tabellerna är orörda, men registreringsrutan skapar
+      inga radposter längre — kunden valde ett enda ordervärde. Antingen får
+      produktraderna tillbaka en ingång eller så ska de bort; just nu är de en
+      admin-flik som inte påverkar något.
+- [ ] **`/` redirectar till `/leads`, som redirectar till `/lists`.** Två hopp
+      vid varje inloggning. Fanns före det här passet, orört.
+- [ ] **Ingen väg att registrera en affär i efterhand.** Rutan öppnas bara ur
+      dispositionen. Missar säljaren den finns ingen knapp någonstans som
+      skapar en affär på ett befintligt lead. `closedAt` är redan skild från
+      `createdAt` för att bära ett efterhandsdatum den dagen ingången byggs.
+
+---
+
 ## 2026-08-12 — Återkomster: notisfält, mejlpåminnelse och tre tysta buggar
 
 Frågan som startade passet var "vad händer egentligen när man lägger en

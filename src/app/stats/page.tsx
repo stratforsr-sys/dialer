@@ -1,4 +1,4 @@
-import { getDailyStats, getConversionRates, getFluffStats, getPipelineOverview, getSellerStats } from "@/app/actions/stats";
+import { getDailyStats, getConversionRates, getFluffStats, getDealsOverview, getSellerStats } from "@/app/actions/stats";
 import { requireAuth } from "@/lib/auth";
 import { StatsView } from "@/components/stats/StatsView";
 
@@ -18,11 +18,11 @@ export default async function StatsPage({
   const isAdmin = user.role === "ADMIN";
   const sellerFilter = isAdmin && seller ? seller : null;
 
-  const [daily, conversion, fluff, pipeline, sellers] = await Promise.all([
+  const [daily, conversion, fluff, deals, sellers] = await Promise.all([
     getDailyStats(30, seller),
     getConversionRates(seller),
     getFluffStats(30, seller),
-    getPipelineOverview(seller),
+    getDealsOverview(seller),
     getSellerStats(30),
   ]);
 
@@ -31,7 +31,7 @@ export default async function StatsPage({
       daily={daily}
       conversion={conversion}
       fluff={fluff}
-      pipeline={pipeline}
+      deals={deals}
       sellers={sellers}
       isAdmin={isAdmin}
       sellerFilter={sellerFilter}

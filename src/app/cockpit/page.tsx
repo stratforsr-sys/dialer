@@ -29,9 +29,8 @@ export default async function CockpitPage({
   // Leasen ersätter den gamla findMany som skickade samma 200 leads i samma
   // ordning till varje säljare. Nu får varje säljare ett eget, reserverat
   // block — två personer kan aldrig få samma bolag.
-  const [leads, stages, config, slots] = await Promise.all([
+  const [leads, config, slots] = await Promise.all([
     leaseNextLeads(listId),
-    db.pipelineStage.findMany({ orderBy: { order: "asc" } }),
     getDialerConfig(),
     getCallSlots(),
   ]);
@@ -40,7 +39,6 @@ export default async function CockpitPage({
     <CockpitDb
       initialLeads={leads}
       userId={user.id}
-      stages={stages}
       listId={listId}
       listName={list.name}
       leaseMinutes={config.leaseMinutes}

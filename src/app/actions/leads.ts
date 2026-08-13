@@ -32,7 +32,7 @@ export async function getLeads(filters?: {
     and.push({ ownerId: filters.ownerId });
   }
 
-  // Hide leads that have an active deal (they live in the pipeline now)
+  // Bolag som blivit kunder göms här — de bor i /deals nu och ska inte ringas.
   if (!filters?.includeWithDeals) {
     and.push({ hasActiveDeal: false });
   }
@@ -100,9 +100,8 @@ export async function getLead(id: string) {
       owner: { select: { id: true, name: true, email: true } },
       contacts: { orderBy: { createdAt: "asc" } },
       deals: {
-        orderBy: { createdAt: "desc" },
+        orderBy: { closedAt: "desc" },
         include: {
-          stage: true,
           products: { include: { product: true } },
         },
       },

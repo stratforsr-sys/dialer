@@ -22,7 +22,7 @@ element inte syns tillräckligt: byt yta eller stärk kantlinjen. Höj det inte.
 | 1 | `--shadow-1` | Primärknapp, aktiv flik, hovrad rad |
 | 2 | `--shadow-2` | Dropdown, popover, tooltip, hover-expanderad sidebar |
 | 3 | `--shadow-3` | Modal, side sheet, inloggningskort |
-| 4 | `--shadow-4` | Kanban-kort under drag, toast |
+| 4 | `--shadow-4` | Toast |
 
 Skriv aldrig en `box-shadow` för hand. Tailwinds `shadow-sm/md/lg/xl` är
 ompekade till samma skala i `tailwind.config.ts`, så de går inte att smita förbi.
@@ -80,7 +80,6 @@ ger 2,6:1 i mörkt läge — det är därför tokenet finns.
 - Turso (LibSQL/SQLite) — 9 GB free tier
 - Prisma ORM + @prisma/adapter-libsql
 - NextAuth.js — CredentialsProvider (email + password, bcrypt)
-- @dnd-kit/core — Kanban drag-and-drop
 - Framer Motion — animations
 - xlsx — läser CSV och Excel vid import
 
@@ -129,7 +128,7 @@ som koden pushas — annars kraschar sajten på kolumner som inte finns.
 `/leads` redirectar till `/lists` och finns inte i menyn. Den var en andra,
 parallell ingång till samma bolag som redan ligger i en ringlista. **`/leads/[id]`
 lever vidare och är oförändrad** — det är dit notisklockan, sökträffarna,
-pipeline och research länkar. Lägg inte tillbaka listvyn utan att först fråga.
+affärerna och research länkar. Lägg inte tillbaka listvyn utan att först fråga.
 
 ### Anteckningar
 Två spår som tidigare inte kände till varandra:
@@ -145,23 +144,39 @@ tid + utfall; anteckningen fälls ut vid klick. Historiken hämtas i
 `leaseNextLeads` select — **glöm den inte när nya fält tillkommer.**
 
 ### User Roles
-- ADMIN: sees all leads, all stats, manages users and pipeline stages
+- ADMIN: sees all leads, all stats, manages users and products
 - SELLER: sees only own leads, own stats
 
-### Pipeline Stages (seeded i prisma/seed.mjs, admin-configurable)
-Stegen är bara seed-data — de säger inget om vilka funktioner som finns. "Möte
-bokat" är kvar som steg trots att mötesbokningen togs bort i migration 007.
-1. Fallback (default for new leads)
-2. Möte bokat
-3. Demo
-4. Offert
-5. Stängd vunnen (isWon)
-6. Stängd förlorad (isLost)
+### Affärer — pipelinen är borta (migration 015)
+Det finns **ingen pipeline och inga stadier**. `PipelineStage` är droppad,
+`Deal.stageId`, `probability` och `expectedCloseAt` likaså. Verksamheten är one
+call close: antingen såldes det i samtalet eller inte, och ett bräde med fem
+kolumner hade innehåll i en av dem.
+
+- **En affär skapas i dispositionen.** Trycker säljaren `3 Såld` öppnas
+  `RegisterDealModal` direkt. Samtalet skrivs **först när affären är sparad** —
+  avbryter man rutan skrivs ingenting, så ett feltryck på 3 inte blir ett sålt
+  samtal i statistiken utan kund bakom.
+- **Fem fält:** kontaktperson, e-post, telefon, ordervärde och anteckning.
+  Kontaktperson och belopp är obligatoriska, resten frivilligt.
+- **Ett belopp, inte två.** `Deal.value` + `valueType` (`ONE_TIME` | `MONTHLY`).
+  Engångsbelopp och månadsbelopp summeras alltid var för sig i statistiken och
+  slås aldrig ihop till en siffra.
+- **`DealStatus` är WON | LOST.** Raden föds `WON`. `LOST` betyder ångrad i
+  efterhand, inte "förlorad i pipelinen". `cancelDeal` raderar aldrig — den
+  sätter LOST och släpper tillbaka leadet i rotationen.
+- **Kontaktuppgifterna kopieras till affären**, de pekas inte ut med
+  `contactId`. Vem som skrev på ska stå kvar även om kontakten byts på leadet.
+- **`/deals`** listar alla affärer, **`/deals/[id]`** är kunden. Historiken där
+  är samma `LeadHistory` som i cockpiten — samtalen ligger kvar på leadet.
+- `/pipeline` redirectar till `/deals`. `ActivityType.DEAL_STAGE_CHANGE` står
+  kvar i enumet men skrivs aldrig: loggen är oföränderlig och Prisma kastar på
+  ett enumvärde den inte känner igen.
 
 ### Key Features
-- Kanban board (pipeline view) + Cockpit (power-dialing mode) — both exist
+- Cockpit (power-dialing mode) är den enda arbetsytan för samtal
 - Multiple contacts per lead (company = lead, person = contact)
-- Multiple deals per lead (no pipeline for deals, just status: OPEN/WON/LOST)
+- Multiple deals per lead (status WON/LOST, inga stadier)
 - Activity log on every lead — visible to all users
 - Fluff tracking: auto-measure idle time between calls
 - Sökning efter enskilda leads ligger i sökfältet på **Ringlistor**, inte i en

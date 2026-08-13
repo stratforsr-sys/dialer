@@ -1,7 +1,7 @@
 import { requireAuth } from "@/lib/auth";
 import { AppSidebar } from "@/components/AppSidebar";
 
-export default async function PipelineLayout({
+export default async function DealsLayout({
   children,
 }: {
   children: React.ReactNode;

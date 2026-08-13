@@ -1,170 +1,233 @@
 "use server";
 
+/**
+ * Affärer.
+ *
+ * En affär skapas bara när något faktiskt sålts — det finns ingen väg in hit
+ * som går via ett bokat möte. Därför finns ingen `moveDealToStage` och ingen
+ * `closeDeal`: raden föds stängd. Det enda som kan hända efteråt är att
+ * uppgifterna rättas eller att affären ångras.
+ */
+
 import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { requireLeadAccess, requireDealAccess } from "@/lib/guard";
 import { visibleLeadWhere } from "@/lib/lists";
 import { revalidatePath } from "next/cache";
 
-export type DealWithRelations = Awaited<ReturnType<typeof getDealsForPipeline>>[number];
-
 // ── Queries ────────────────────────────────────────────────────────────────
 
-export async function getDealsForPipeline() {
+/**
+ * Alla affärer användaren har rätt att se, senaste avslut först.
+ *
+ * Ångrade (LOST) tas med. En säljare som letar efter "den där kunden som
+ * hoppade av" ska hitta den — att dölja dem gör bara att någon ringer bolaget
+ * igen utan att veta vad som hänt.
+ */
+export async function getDeals() {
   const user = await requireAuth();
-  return db.deal.findMany({
-    // Säljare ser bara affärer på leads de har tillgång till — pipelinen
-    // visade tidigare hela bolagets affärer för alla.
-    where: { status: "OPEN", lead: visibleLeadWhere(user) },
-    orderBy: { updatedAt: "desc" },
-    include: {
-      stage: true,
-      lead: { select: { id: true, companyName: true, website: true, owner: { select: { id: true, name: true } } } },
-      products: { include: { product: true } },
+
+  const deals = await db.deal.findMany({
+    where: { lead: visibleLeadWhere(user) },
+    orderBy: { closedAt: "desc" },
+    select: {
+      id: true,
+      title: true,
+      contactName: true,
+      contactEmail: true,
+      contactPhone: true,
+      valueType: true,
+      value: true,
+      status: true,
+      closedAt: true,
+      notes: true,
+      lead: {
+        select: { id: true, companyName: true, city: true, industry: true, orgNumber: true },
+      },
+      createdBy: { select: { id: true, name: true } },
     },
   });
+
+  return deals;
 }
+
+export type DealRow = Awaited<ReturnType<typeof getDeals>>[number];
+
+/**
+ * En affär med kundens hela förhistoria.
+ *
+ * Samtalen och anteckningarna ligger kvar på leadet — affären äger dem inte.
+ * De hämtas hit ändå: frågan "vad sa vi till den här kunden?" ställs efter
+ * avslutet minst lika ofta som före, och svaret ska inte kräva att man vet
+ * att det finns en separat lead-sida bakom.
+ */
+export async function getDeal(dealId: string) {
+  const { leadId } = await requireDealAccess(dealId);
+
+  const [deal, lead] = await Promise.all([
+    db.deal.findUnique({
+      where: { id: dealId },
+      include: {
+        createdBy: { select: { id: true, name: true } },
+        products: { select: { id: true, name: true, price: true, quantity: true, isRecurring: true, unit: true } },
+      },
+    }),
+    db.lead.findUnique({
+      where: { id: leadId },
+      select: {
+        id: true,
+        companyName: true,
+        orgNumber: true,
+        website: true,
+        address: true,
+        city: true,
+        industry: true,
+        employees: true,
+        revenue: true,
+        // Leadets kontaktlista hämtas inte. Affären bär sin egen kopia av vem
+        // som skrev på, och den ska stå kvar även om kontakten byts ut på
+        // leadet efteråt — två listor med personer på samma sida hade bara
+        // gjort det oklart vilken som gäller.
+        callAttempts: {
+          orderBy: { startedAt: "desc" },
+          take: 20,
+          select: {
+            id: true, startedAt: true, result: true, outcome: true,
+            noReason: true, note: true,
+            seller: { select: { name: true } },
+          },
+        },
+        activities: {
+          orderBy: { timestamp: "desc" },
+          take: 20,
+          select: {
+            id: true, timestamp: true, type: true, metadata: true,
+            actor: { select: { name: true } },
+          },
+        },
+      },
+    }),
+  ]);
+
+  if (!deal || !lead) return null;
+  return { deal, lead };
+}
+
+export type DealDetail = NonNullable<Awaited<ReturnType<typeof getDeal>>>;
 
 // ── Mutations ──────────────────────────────────────────────────────────────
 
 export async function createDeal(data: {
   leadId: string;
   title: string;
-  stageId: string;
-  valueType: "ONE_TIME" | "ARR";
-  oneTimeValue?: number | null;
-  arrValue?: number | null;
-  probability?: number;
-  expectedCloseAt?: Date | null;
-  notes?: string;
-  products?: Array<{
-    productId?: string | null;
-    name: string;
-    price?: number | null;
-    quantity?: number;
-    isRecurring?: boolean;
-    unit?: string;
-  }>;
+  contactName?: string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+  valueType: "ONE_TIME" | "MONTHLY";
+  value?: number | null;
+  notes?: string | null;
 }) {
   const user = await requireLeadAccess(data.leadId);
 
   const deal = await db.deal.create({
     data: {
       title: data.title,
-      stageId: data.stageId,
+      contactName: data.contactName?.trim() || null,
+      contactEmail: data.contactEmail?.trim() || null,
+      contactPhone: data.contactPhone?.trim() || null,
       valueType: data.valueType,
-      oneTimeValue: data.oneTimeValue ?? null,
-      arrValue: data.arrValue ?? null,
-      probability: data.probability ?? 20,
-      expectedCloseAt: data.expectedCloseAt ?? null,
-      notes: data.notes ?? null,
+      value: data.value ?? null,
+      notes: data.notes?.trim() || null,
+      status: "WON",
       leadId: data.leadId,
       createdById: user.id,
-      products: data.products?.length
-        ? {
-            create: data.products.map((p) => ({
-              productId: p.productId ?? null,
-              name: p.name,
-              price: p.price ?? null,
-              quantity: p.quantity ?? 1,
-              isRecurring: p.isRecurring ?? false,
-              unit: p.unit ?? null,
-            })),
-          }
-        : undefined,
     },
   });
 
-  // Mark lead as having an active deal (hides it from leads list/cockpit)
+  // Bolaget är kund nu och ska inte ringas igen. `hasActiveDeal` är villkoret
+  // som håller det utanför lease-frågan i dialer.ts.
   await db.lead.update({
     where: { id: data.leadId },
     data: { hasActiveDeal: true },
   });
 
-  // Log activity
+  // DEAL_CREATED och DEAL_WON är samma händelse här — affären föds vunnen.
+  // En rad, inte två: loggen ska gå att läsa.
   await db.activity.create({
     data: {
-      type: "DEAL_CREATED",
+      type: "DEAL_WON",
       actorId: user.id,
       leadId: data.leadId,
-      metadata: JSON.stringify({ dealId: deal.id, title: deal.title }),
+      metadata: JSON.stringify({ dealId: deal.id, title: deal.title, value: deal.value, valueType: deal.valueType }),
     },
   });
 
-  revalidatePath("/pipeline");
-  revalidatePath("/leads");
+  revalidatePath("/deals");
   revalidatePath(`/leads/${data.leadId}`);
   return deal;
-}
-
-export async function moveDealToStage(dealId: string, stageId: string) {
-  const { user } = await requireDealAccess(dealId);
-
-  const deal = await db.deal.findUnique({ where: { id: dealId }, include: { stage: true } });
-  if (!deal) throw new Error("Deal not found");
-
-  const toStage = await db.pipelineStage.findUnique({ where: { id: stageId } });
-  if (!toStage) throw new Error("Stage not found");
-
-  await db.deal.update({ where: { id: dealId }, data: { stageId } });
-
-  await db.activity.create({
-    data: {
-      type: "DEAL_STAGE_CHANGE",
-      actorId: user.id,
-      leadId: deal.leadId,
-      metadata: JSON.stringify({ dealId, from: deal.stage.name, to: toStage.name }),
-    },
-  });
-
-  revalidatePath("/pipeline");
-}
-
-export async function closeDeal(dealId: string, status: "WON" | "LOST", notes?: string) {
-  const { user } = await requireDealAccess(dealId);
-
-  const deal = await db.deal.findUnique({ where: { id: dealId } });
-  if (!deal) throw new Error("Deal not found");
-
-  await db.deal.update({ where: { id: dealId }, data: { status, notes: notes ?? deal.notes } });
-
-  // If no more open deals → un-hide the lead
-  const openDeals = await db.deal.count({
-    where: { leadId: deal.leadId, status: "OPEN", id: { not: dealId } },
-  });
-  if (openDeals === 0) {
-    await db.lead.update({ where: { id: deal.leadId }, data: { hasActiveDeal: false } });
-  }
-
-  await db.activity.create({
-    data: {
-      type: status === "WON" ? "DEAL_WON" : "DEAL_LOST",
-      actorId: user.id,
-      leadId: deal.leadId,
-      metadata: JSON.stringify({ dealId, title: deal.title }),
-    },
-  });
-
-  revalidatePath("/pipeline");
-  revalidatePath(`/leads/${deal.leadId}`);
 }
 
 export async function updateDeal(
   dealId: string,
   data: {
     title?: string;
-    valueType?: "ONE_TIME" | "ARR";
-    oneTimeValue?: number | null;
-    arrValue?: number | null;
-    probability?: number;
-    expectedCloseAt?: Date | null;
-    notes?: string;
-    stageId?: string;
+    contactName?: string | null;
+    contactEmail?: string | null;
+    contactPhone?: string | null;
+    valueType?: "ONE_TIME" | "MONTHLY";
+    value?: number | null;
+    notes?: string | null;
+    closedAt?: Date;
   }
 ) {
   await requireDealAccess(dealId);
   const deal = await db.deal.update({ where: { id: dealId }, data });
-  revalidatePath("/pipeline");
+
+  revalidatePath("/deals");
+  revalidatePath(`/deals/${dealId}`);
   revalidatePath(`/leads/${deal.leadId}`);
   return deal;
+}
+
+/**
+ * Affären ångras — kunden hoppade av innan den blev en kund.
+ *
+ * Raden raderas inte. Ett avslut som gick tillbaka är information, både för
+ * den som ska ringa bolaget igen och för den som räknar stängningsgrad på
+ * riktigt. Leadet släpps tillbaka i rotationen om ingen annan affär håller
+ * det kvar.
+ */
+export async function cancelDeal(dealId: string, reason?: string) {
+  const { user } = await requireDealAccess(dealId);
+
+  const deal = await db.deal.findUnique({ where: { id: dealId } });
+  if (!deal) throw new Error("Affären finns inte");
+
+  await db.deal.update({
+    where: { id: dealId },
+    data: {
+      status: "LOST",
+      notes: reason?.trim() ? [deal.notes, `Ångrad: ${reason.trim()}`].filter(Boolean).join("\n\n") : deal.notes,
+    },
+  });
+
+  const stillWon = await db.deal.count({
+    where: { leadId: deal.leadId, status: "WON", id: { not: dealId } },
+  });
+  if (stillWon === 0) {
+    await db.lead.update({ where: { id: deal.leadId }, data: { hasActiveDeal: false } });
+  }
+
+  await db.activity.create({
+    data: {
+      type: "DEAL_LOST",
+      actorId: user.id,
+      leadId: deal.leadId,
+      metadata: JSON.stringify({ dealId, title: deal.title, note: reason?.trim() || null }),
+    },
+  });
+
+  revalidatePath("/deals");
+  revalidatePath(`/deals/${dealId}`);
+  revalidatePath(`/leads/${deal.leadId}`);
 }

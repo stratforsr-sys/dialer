@@ -2,8 +2,10 @@
  * Seed script — run with: node prisma/seed.mjs
  *
  * Creates:
- *   - 6 pipeline stages (Fallback → Stängd förlorad)
  *   - 1 admin user (change email/password below before running)
+ *
+ * Pipeline-stegen seedades här fram till migration 015. De togs bort med
+ * tabellen: verksamheten är one call close och en affär har inga stadier.
  */
 import { createClient } from "@libsql/client";
 import { config } from "dotenv";
@@ -35,33 +37,7 @@ function cuid() {
   return "c" + timestamp + random;
 }
 
-const stages = [
-  { id: cuid(), name: "Fallback",        order: 0, color: "#6B7280", isDefault: true,  isWon: false, isLost: false },
-  { id: cuid(), name: "Möte bokat",      order: 1, color: "#3B82F6", isDefault: false, isWon: false, isLost: false },
-  { id: cuid(), name: "Demo",            order: 2, color: "#8B5CF6", isDefault: false, isWon: false, isLost: false },
-  { id: cuid(), name: "Offert",          order: 3, color: "#F59E0B", isDefault: false, isWon: false, isLost: false },
-  { id: cuid(), name: "Stängd vunnen",   order: 4, color: "#10B981", isDefault: false, isWon: true,  isLost: false },
-  { id: cuid(), name: "Stängd förlorad", order: 5, color: "#EF4444", isDefault: false, isWon: false, isLost: true  },
-];
-
 console.log("🌱 Seeding database...\n");
-
-for (const stage of stages) {
-  await client.execute({
-    sql: `INSERT OR IGNORE INTO PipelineStage (id, name, "order", color, isDefault, isWon, isLost, createdAt)
-          VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-    args: [
-      stage.id,
-      stage.name,
-      stage.order,
-      stage.color,
-      stage.isDefault ? 1 : 0,
-      stage.isWon ? 1 : 0,
-      stage.isLost ? 1 : 0,
-    ],
-  });
-  console.log(`  ✓ Stage: ${stage.name}`);
-}
 
 const adminId = cuid();
 const passwordHash = bcrypt.hashSync(ADMIN_PASSWORD, 12);

@@ -306,38 +306,44 @@ model ListAccess {
   @@index([userId])
 }
 
-// ==================== PIPELINE ====================
+// ==================== AFFÄRER ====================
 
-model PipelineStage {
-  id        String   @id @default(cuid())
-  name      String
-  order     Int
-  color     String   @default("#6B7280")
-  isDefault Boolean  @default(false)
-  isWon     Boolean  @default(false)
-  isLost    Boolean  @default(false)
-  createdAt DateTime @default(now())
-
-  deals Deal[]
-}
-
-// ==================== DEALS ====================
-
+/// En affär är ett avslut, inte en prognos.
+///
+/// Verksamheten är one call close: det finns ingen väg från "intresserad" till
+/// "kund" som går via ett möte, en demo och en offert. Antingen såldes det i
+/// samtalet eller inte. Pipeline-steg, sannolikhet och förväntat avslutsdatum
+/// togs därför bort i migration 015 — de beskrev ett arbetssätt som aldrig
+/// användes, och tre av fyra fält i registreringsrutan bar dem.
+///
+/// Raden skapas i samma ögonblick som säljaren dispositionerar "Såld", och
+/// bär det som behövs för att någon annan ska kunna ta över kunden: vem man
+/// pratade med, vad de betalar och vad som sades. Historiken — samtalen och
+/// anteckningarna före avslutet — ligger kvar på leadet och hämtas därifrån.
 model Deal {
-  id              String     @id @default(cuid())
-  title           String
-  valueType       ValueType  @default(ONE_TIME)
-  oneTimeValue    Float?
-  arrValue        Float?
-  probability     Int        @default(20)
-  expectedCloseAt DateTime?
-  notes           String?
-  status          DealStatus @default(OPEN)
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
-
-  stageId     String
-  stage       PipelineStage @relation(fields: [stageId], references: [id])
+  id           String     @id @default(cuid())
+  title        String
+  /// Personen som sa ja. Kopieras hit i stället för att pekas ut med en
+  /// `contactId`: kontakten kan tas bort eller bytas ut på leadet, men vem
+  /// som skrev på ska stå kvar precis som det stod när affären gjordes.
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+  /// Ett belopp, inte två. `valueType` säger om det är ett engångsbelopp
+  /// eller en månadskostnad — ett avtal är aldrig både och, och två kolumner
+  /// där bara en får vara ifylld är en bugg som väntar.
+  valueType    ValueType  @default(ONE_TIME)
+  value        Float?
+  notes        String?
+  /// WON är förvalet eftersom raden bara skapas när affären redan är gjord.
+  /// LOST betyder ångrad/avbokad i efterhand, inte "förlorad i pipelinen".
+  status       DealStatus @default(WON)
+  /// När affären gjordes. Separat från `createdAt` så att en affär som
+  /// registreras i efterhand kan dateras till dagen den faktiskt stängdes —
+  /// statistiken frågar efter säljdatum, inte efter när någon hann fylla i.
+  closedAt     DateTime   @default(now())
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 
   leadId      String
   lead        Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
@@ -348,19 +354,18 @@ model Deal {
   products    DealProduct[]
 
   @@index([leadId])
-  @@index([stageId, status])
+  @@index([status, closedAt])
   @@index([createdById])
 }
 
 enum DealStatus {
-  OPEN
   WON
   LOST
 }
 
 enum ValueType {
   ONE_TIME
-  ARR
+  MONTHLY
 }
 
 // ==================== PRODUCTS ====================
@@ -431,6 +436,9 @@ enum ActivityType {
   CONTACT_ADDED
   STATUS_CHANGE
   DEAL_CREATED
+  /// Skrivs inte längre — pipelinen togs bort i migration 015. Värdet står
+  /// kvar för att gamla rader ska gå att läsa: aktivitetsloggen är
+  /// oföränderlig, och Prisma kastar på ett enumvärde den inte känner igen.
   DEAL_STAGE_CHANGE
   DEAL_WON
   DEAL_LOST

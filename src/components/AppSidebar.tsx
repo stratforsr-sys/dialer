@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { useEffect, useState } from "react";
 import {
-  LayoutGrid, Upload, BarChart2, ShieldCheck, LogOut, Zap, Search,
+  Handshake, Upload, BarChart2, ShieldCheck, LogOut, Zap, Search,
   FolderOpen, Radio, MessageSquare, SlidersHorizontal, PanelLeftClose, PanelLeftOpen,
   Settings,
 } from "lucide-react";
@@ -19,8 +19,11 @@ const NAV = [
   // samma bolag som redan ligger i en ringlista, och den enda som behövde den
   // var den som letade efter ETT lead — vilket sökfältet på Ringlistor nu gör
   // bättre. `/leads/[id]` finns kvar och är fortfarande dit allt länkar:
-  // notisklockan, sökträffarna, pipeline och research.
-  { href: "/pipeline",      label: "Pipeline",   icon: LayoutGrid },
+  // notisklockan, sökträffarna, affärerna och research.
+  //
+  // Deals ersatte Pipeline. Kanbanbrädet visade stadier som aldrig användes —
+  // one call close har inga stadier, bara avslut. `/pipeline` redirectar hit.
+  { href: "/deals",         label: "Deals",      icon: Handshake },
   { href: "/research",      label: "Research",   icon: Search },
   // Sidan redirectar redan säljare till /lists, så länken var en återvändsgränd
   // för alla utom admin. Dölj den i stället för att låta den se klickbar ut.

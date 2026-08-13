@@ -1,29 +1,20 @@
-import { requireAuth } from "@/lib/auth";
-import { db } from "@/lib/db";
-import { PipelineView } from "@/components/pipeline/PipelineView";
+import { redirect } from "next/navigation";
 
-export default async function PipelinePage() {
-  await requireAuth();
-
-  const [stages, deals] = await Promise.all([
-    db.pipelineStage.findMany({ orderBy: { order: "asc" } }),
-    db.deal.findMany({
-      where: { status: "OPEN" },
-      orderBy: { updatedAt: "desc" },
-      include: {
-        stage: true,
-        lead: {
-          select: {
-            id: true,
-            companyName: true,
-            website: true,
-            owner: { select: { id: true, name: true } },
-          },
-        },
-        products: { select: { id: true, name: true } },
-      },
-    }),
-  ]);
-
-  return <PipelineView stages={stages} deals={deals} />;
+/**
+ * Pipelinen är avvecklad.
+ *
+ * Kanbanbrädet beskrev en säljprocess som inte finns: leadet skulle vandra
+ * från "Möte bokat" via "Demo" och "Offert" till "Stängd vunnen". Verksamheten
+ * är one call close — möten togs bort redan i migration 007 — så varje affär
+ * skapades direkt i det sista steget och brädet hade en kolumn med innehåll
+ * och fyra tomma.
+ *
+ * `/deals` är det som ersätter den: alla affärer, senaste avslut först.
+ *
+ * Redirect och inte 404, av samma skäl som `/leads`: adressen ligger i
+ * bokmärken och i länkar som skickats mellan säljare. En 404 hade sett ut som
+ * ett fel i systemet.
+ */
+export default function PipelinePage() {
+  redirect("/deals");
 }

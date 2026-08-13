@@ -14,7 +14,7 @@ import { redirect } from "next/navigation";
  * sett ut som ett fel i systemet.
  *
  * **`/leads/[id]` lever vidare** och är oförändrad — det är dit notisklockan,
- * sökträffarna, pipeline och research länkar.
+ * sökträffarna, affärerna och research länkar.
  */
 export default function LeadsPage() {
   redirect("/lists");

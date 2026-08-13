@@ -42,5 +42,5 @@ export async function logCall(
   });
 
   revalidatePath(`/leads/${leadId}`);
-  revalidatePath("/pipeline");
+  revalidatePath("/deals");
 }

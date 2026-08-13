@@ -3,14 +3,21 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { BarChart3, TrendingUp, AlertTriangle, Phone, Calendar, Target, Clock, Trophy, ArrowUp, ArrowDown, Minus } from "lucide-react";
+import { BarChart3, Handshake, AlertTriangle, Phone, Calendar, Target, Clock, Trophy, ArrowUp, ArrowDown, Minus, Repeat, Undo2 } from "lucide-react";
 
 type DailyRow = { date: string; calls: number; connected: number; sold: number };
 type Conversion = { totalCalls: number; connected: number; reachedDm: number; totalSold: number; callbacks: number; connectRate: string; dmRate: string; closeRate: string; dmToClose: string };
 type Fluff = { sessions: number; totalCalls: number; totalIdleSeconds: number; avgIdlePerCall: number };
-type PipelineStage = { id: string; name: string; color: string; leadCount: number; totalValue: number };
+type DealRecent = {
+  id: string; leadId: string; companyName: string; contactName: string | null;
+  value: number | null; valueType: string; status: string; closedAt: Date | string; seller: string;
+};
+type DealsOverview = {
+  days: number; count: number; cancelled: number;
+  oneTimeTotal: number; monthlyTotal: number; recent: DealRecent[];
+};
 type Seller = { id: string; name: string; calls: number; sold: number; convRate: string; avgIdlePerCall: number; totalIdleMins: number; callsPerDay: number };
-type Tab = "activity" | "forecasting" | "inefficiency";
+type Tab = "activity" | "deals" | "inefficiency";
 
 function BarChart({ data, valueKey, color }: { data: DailyRow[]; valueKey: "calls" | "sold"; color: string }) {
   const last14 = data.slice(-14);
@@ -55,33 +62,66 @@ function KpiCard({ label, value, sub, icon }: { label: string; value: string | n
   );
 }
 
-function PipelineFunnel({ stages }: { stages: PipelineStage[] }) {
-  const maxCount = Math.max(...stages.map((s) => s.leadCount), 1);
+function money(n: number): string {
+  return n.toLocaleString("sv-SE", { maximumFractionDigits: 0 });
+}
+
+/**
+ * Senaste avsluten.
+ *
+ * Ersätter pipeline-tratten. Tratten ritade fem stadier med allt innehåll i
+ * ett av dem — det finns inga stadier i one call close, bara samtal som blev
+ * affärer och samtal som inte blev det. Konverteringen mäts i Aktivitet, där
+ * den hör hemma; här står vad som faktiskt såldes.
+ */
+function RecentDeals({ deals }: { deals: DealRecent[] }) {
+  const router = useRouter();
+
+  if (deals.length === 0) {
+    return (
+      <p className="text-[13px] py-6 text-center" style={{ color: "var(--text-dim)" }}>
+        Inga affärer i perioden.
+      </p>
+    );
+  }
+
   return (
-    <div className="flex flex-col gap-2">
-      {stages.map((stage) => {
-        const pct = Math.round((stage.leadCount / maxCount) * 100);
+    <div className="flex flex-col">
+      {deals.map((d) => {
+        const cancelled = d.status === "LOST";
         return (
-          <div key={stage.id} className="flex items-center gap-3">
-            <span className="text-[12px] font-medium w-[120px] text-right truncate" style={{ color: "var(--text)" }}>{stage.name}</span>
-            <div className="flex-1 h-[28px] rounded-sm overflow-hidden" style={{ background: "var(--surface-inset)" }}>
-              <motion.div
-                initial={{ width: 0 }} animate={{ width: `${pct}%` }}
-                transition={{ duration: 0.6, ease: "easeOut" }}
-                className="h-full rounded-sm flex items-center px-2"
-                style={{ background: stage.color + "30", border: `1px solid ${stage.color}40` }}
-              >
-                {stage.leadCount > 0 && (
-                  <span className="text-[11px] font-semibold" style={{ color: stage.color, fontFamily: "var(--font-mono)" }}>{stage.leadCount}</span>
-                )}
-              </motion.div>
-            </div>
-            {stage.totalValue > 0 && (
-              <span className="text-[11px] w-[80px] text-right" style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-                {stage.totalValue.toLocaleString("sv-SE")} kr
-              </span>
+          <button
+            key={d.id}
+            onClick={() => router.push(`/deals/${d.id}`)}
+            className="flex items-center gap-3 px-1 py-[9px] text-left"
+            style={{ borderTop: "1px solid var(--border-subtle)", opacity: cancelled ? 0.55 : 1 }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-hover)")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+          >
+            <span className="text-[11px] mono-nums shrink-0" style={{ color: "var(--text-dim)", minWidth: 74 }}>
+              {new Date(d.closedAt).toLocaleDateString("sv-SE", { day: "numeric", month: "short" })}
+            </span>
+
+            <span
+              className="text-[13px] font-medium flex-1 truncate"
+              style={{ color: "var(--text)", textDecoration: cancelled ? "line-through" : "none" }}
+            >
+              {d.companyName}
+            </span>
+
+            {cancelled && (
+              <Undo2 size={11} className="shrink-0" style={{ color: "var(--danger)" }} />
             )}
-          </div>
+
+            <span className="text-[11px] truncate hidden lg:block" style={{ color: "var(--text-dim)", width: 120 }}>
+              {d.seller}
+            </span>
+
+            <span className="flex items-center gap-1 text-[13px] font-semibold mono-nums shrink-0" style={{ color: "var(--text)" }}>
+              {d.value != null ? `${money(d.value)} kr` : "—"}
+              {d.valueType === "MONTHLY" && <Repeat size={10} style={{ color: "var(--text-dim)" }} />}
+            </span>
+          </button>
         );
       })}
     </div>
@@ -89,9 +129,9 @@ function PipelineFunnel({ stages }: { stages: PipelineStage[] }) {
 }
 
 export function StatsView({
-  daily, conversion, fluff, pipeline, sellers, isAdmin, sellerFilter,
+  daily, conversion, fluff, deals, sellers, isAdmin, sellerFilter,
 }: {
-  daily: DailyRow[]; conversion: Conversion; fluff: Fluff; pipeline: PipelineStage[]; sellers: Seller[]; isAdmin: boolean;
+  daily: DailyRow[]; conversion: Conversion; fluff: Fluff; deals: DealsOverview; sellers: Seller[]; isAdmin: boolean;
   /** Vald säljare, eller null för hela golvet. Alltid null för säljare —
    *  servern struntar i parametern för dem, så den ska inte visas heller. */
   sellerFilter: string | null;
@@ -103,11 +143,10 @@ export function StatsView({
   const totalCallsWeek = last7.reduce((s, d) => s + d.calls, 0);
   const avgCalls = Math.round(totalCallsWeek / 7);
   const totalSoldWeek = last7.reduce((s, d) => s + d.sold, 0);
-  const totalPipelineLeads = pipeline.reduce((s, p) => s + p.leadCount, 0);
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "activity",    label: "Aktivitet",   icon: <BarChart3 size={13} /> },
-    { id: "forecasting", label: "Forecasting", icon: <TrendingUp size={13} /> },
+    { id: "deals",       label: "Affärer",     icon: <Handshake size={13} /> },
     ...(isAdmin ? [{ id: "inefficiency" as Tab, label: "Ineffektivitet", icon: <AlertTriangle size={13} /> }] : []),
   ];
 
@@ -215,43 +254,49 @@ export function StatsView({
             </motion.div>
           )}
 
-          {/* ── Forecasting ────────────────────────────────────────────────── */}
-          {tab === "forecasting" && (
-            <motion.div key="forecasting" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.18 }} className="p-6">
-              <div className="grid grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-4 mb-6">
-                <KpiCard label="Aktiva leads" value={totalPipelineLeads} sub="I alla stadier" icon={<Target size={14} style={{ color: "var(--text-muted)" }} />} />
-                <KpiCard label="Pipeline value" value={`${pipeline.reduce((s, p) => s + p.totalValue, 0).toLocaleString("sv-SE")} kr`} sub="Vunna deals" icon={<TrendingUp size={14} style={{ color: "var(--text-muted)" }} />} />
-                <KpiCard label="Stängningsgrad" value={`${conversion.closeRate}%`} sub="Samtal → Såld" icon={<Trophy size={14} style={{ color: "var(--text-muted)" }} />} />
-              </div>
-
-              <div className="p-5 rounded-lg mb-6" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
-                <p className="text-[13px] font-semibold mb-5" style={{ color: "var(--text)" }}>Pipeline per stadium</p>
-                <PipelineFunnel stages={pipeline} />
+          {/* ── Affärer ───────────────────────────────────────────────────── */}
+          {tab === "deals" && (
+            <motion.div key="deals" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.18 }} className="p-6">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                <KpiCard
+                  label="Affärer"
+                  value={deals.count}
+                  sub={`Senaste ${deals.days} dagarna`}
+                  icon={<Handshake size={14} style={{ color: "var(--text-muted)" }} />}
+                />
+                {/* Två summor, aldrig en. Engångsintäkt och månadsintäkt är
+                    inte samma valuta i verksamheten — en totalsumma hade dolt
+                    vilken av dem som växte. */}
+                <KpiCard
+                  label="Engångsvärde"
+                  value={`${money(deals.oneTimeTotal)} kr`}
+                  sub="Summa engångsbelopp"
+                  icon={<Target size={14} style={{ color: "var(--text-muted)" }} />}
+                />
+                <KpiCard
+                  label="Månadsvärde"
+                  value={`${money(deals.monthlyTotal)} kr`}
+                  sub={deals.monthlyTotal > 0 ? `${money(deals.monthlyTotal * 12)} kr per år` : "Löpande avtal"}
+                  icon={<Repeat size={14} style={{ color: "var(--text-muted)" }} />}
+                />
+                <KpiCard
+                  label="Stängningsgrad"
+                  value={`${conversion.closeRate}%`}
+                  sub="Samtal → Såld"
+                  icon={<Trophy size={14} style={{ color: "var(--text-muted)" }} />}
+                />
               </div>
 
               <div className="p-5 rounded-lg" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
-                <p className="text-[13px] font-semibold mb-4" style={{ color: "var(--text)" }}>Stadium-till-stadium konvertering</p>
-                <div className="flex flex-col gap-3">
-                  {pipeline.filter((_, i) => i < pipeline.length - 1).map((stage, i) => {
-                    const next = pipeline[i + 1];
-                    const rate = stage.leadCount > 0 ? ((next.leadCount / stage.leadCount) * 100).toFixed(0) : "—";
-                    return (
-                      <div key={stage.id} className="flex items-center gap-3">
-                        <div className="flex items-center gap-2 w-[120px]">
-                          <div className="w-2 h-2 rounded-full" style={{ background: stage.color }} />
-                          <span className="text-[11px] truncate" style={{ color: "var(--text-muted)" }}>{stage.name}</span>
-                        </div>
-                        <div className="flex-1 h-[1px]" style={{ background: "var(--border)" }} />
-                        <span className="text-[12px] font-semibold w-[48px] text-center" style={{ color: "var(--text)", fontFamily: "var(--font-mono)" }}>{rate}{rate !== "—" ? "%" : ""}</span>
-                        <div className="flex-1 h-[1px]" style={{ background: "var(--border)" }} />
-                        <div className="flex items-center gap-2 w-[120px] justify-end">
-                          <span className="text-[11px] truncate" style={{ color: "var(--text-muted)" }}>{next.name}</span>
-                          <div className="w-2 h-2 rounded-full" style={{ background: next.color }} />
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[13px] font-semibold" style={{ color: "var(--text)" }}>Senaste avsluten</p>
+                  {deals.cancelled > 0 && (
+                    <span className="flex items-center gap-1 text-[11px]" style={{ color: "var(--text-dim)" }}>
+                      <Undo2 size={10} /> {deals.cancelled} ångrade i perioden
+                    </span>
+                  )}
                 </div>
+                <RecentDeals deals={deals.recent} />
               </div>
             </motion.div>
           )}

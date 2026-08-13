@@ -250,7 +250,7 @@ export async function deleteList(listId: string): Promise<DeleteListResult> {
 
   revalidatePath("/lists");
   revalidatePath("/leads");
-  revalidatePath("/pipeline");
+  revalidatePath("/deals");
 
   return { deletedLeads: toDelete.length, keptDuplicates, keptInOtherLists: shared.size };
 }

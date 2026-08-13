@@ -2,13 +2,11 @@
 
 import { useState, useTransition } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Users, Layers, Plus, Trash2, Package, ToggleLeft, ToggleRight } from "lucide-react";
+import { Users, Plus, Trash2, Package, ToggleLeft, ToggleRight } from "lucide-react";
 import { createUser, deleteUser, updateUserRole } from "@/app/actions/users";
-import { createStage, deleteStage, updateStage } from "@/app/actions/pipeline";
 import { createProduct, updateProduct, deleteProduct } from "@/app/actions/products";
 
 type UserRow = { id: string; name: string; email: string; role: string; createdAt: Date };
-type Stage = { id: string; name: string; color: string; order: number; isDefault: boolean; isWon: boolean; isLost: boolean };
 type Product = { id: string; name: string; description: string | null; basePrice: number | null; isRecurring: boolean; unit: string | null; active: boolean };
 
 function Section({ title, icon: Icon, children }: { title: string; icon: React.ElementType; children: React.ReactNode }) {
@@ -23,13 +21,11 @@ function Section({ title, icon: Icon, children }: { title: string; icon: React.E
   );
 }
 
-export function AdminView({ users, stages, products }: { users: UserRow[]; stages: Stage[]; products: Product[] }) {
+export function AdminView({ users, products }: { users: UserRow[]; products: Product[] }) {
   const [isPending, startTransition] = useTransition();
-  const [tab, setTab] = useState<"users" | "pipeline" | "products">("users");
+  const [tab, setTab] = useState<"users" | "products">("users");
   const [showNewUser, setShowNewUser] = useState(false);
   const [newUser, setNewUser] = useState({ name: "", email: "", password: "", role: "SELLER" as "ADMIN" | "SELLER" });
-  const [showNewStage, setShowNewStage] = useState(false);
-  const [newStage, setNewStage] = useState({ name: "", color: "#6B7280" });
   const [showNewProduct, setShowNewProduct] = useState(false);
   const [newProduct, setNewProduct] = useState({ name: "", description: "", basePrice: "", isRecurring: false, unit: "" });
   const [error, setError] = useState("");
@@ -42,19 +38,6 @@ export function AdminView({ users, stages, products }: { users: UserRow[]; stage
         await createUser(newUser);
         setNewUser({ name: "", email: "", password: "", role: "SELLER" });
         setShowNewUser(false);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Fel");
-      }
-    });
-  }
-
-  function handleCreateStage(e: React.FormEvent) {
-    e.preventDefault();
-    startTransition(async () => {
-      try {
-        await createStage({ name: newStage.name, color: newStage.color, order: stages.length });
-        setNewStage({ name: "", color: "#6B7280" });
-        setShowNewStage(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Fel");
       }
@@ -86,7 +69,7 @@ export function AdminView({ users, stages, products }: { users: UserRow[]; stage
         style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
         <h1 className="text-[15px] font-semibold" style={{ color: "var(--text)" }}>Admin</h1>
         <div className="flex gap-1 p-1 rounded-md" style={{ background: "var(--surface-inset)" }}>
-          {(["users", "pipeline", "products"] as const).map((t) => (
+          {(["users", "products"] as const).map((t) => (
             <button key={t} onClick={() => setTab(t)}
               className="px-3 py-[5px] text-[12px] font-medium rounded-sm transition-colors"
               style={{
@@ -94,7 +77,7 @@ export function AdminView({ users, stages, products }: { users: UserRow[]; stage
                 color: tab === t ? "var(--text)" : "var(--text-muted)",
                 boxShadow: tab === t ? "var(--shadow-1)" : "none",
               }}>
-              {t === "users" ? "Användare" : t === "pipeline" ? "Pipeline" : "Produkter"}
+              {t === "users" ? "Användare" : "Produkter"}
             </button>
           ))}
         </div>
@@ -173,59 +156,6 @@ export function AdminView({ users, stages, products }: { users: UserRow[]; stage
                         <button type="submit" disabled={isPending} className="flex-1 py-2 text-[13px] font-medium rounded-md"
                           style={{ background: "var(--accent)", color: "var(--on-accent)" }}>Skapa</button>
                       </div>
-                    </motion.form>
-                  )}
-                </Section>
-              </motion.div>
-            )}
-
-            {tab === "pipeline" && (
-              <motion.div key="pipeline" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-                <Section title="Pipeline-steg" icon={Layers}>
-                  <div className="flex flex-col gap-2 mb-4">
-                    {stages.map((s) => (
-                      <div key={s.id} className="flex items-center gap-3 px-3 py-2 rounded-md"
-                        style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
-                        <input type="color" value={s.color}
-                          onChange={(e) => { const c = e.target.value; startTransition(async () => { await updateStage(s.id, { color: c }); }); }}
-                          className="w-6 h-6 rounded cursor-pointer border-0 bg-transparent" />
-                        <p className="flex-1 text-[13px] font-medium" style={{ color: "var(--text)" }}>{s.name}</p>
-                        <div className="flex gap-1">
-                          {s.isDefault && <span className="text-[10px] px-2 py-[2px] rounded-full" style={{ background: "var(--info-bg)", color: "var(--info)" }}>Default</span>}
-                          {s.isWon && <span className="text-[10px] px-2 py-[2px] rounded-full" style={{ background: "var(--success-bg)", color: "var(--success)" }}>Vunnen</span>}
-                          {s.isLost && <span className="text-[10px] px-2 py-[2px] rounded-full" style={{ background: "var(--danger-bg)", color: "var(--danger)" }}>Förlorad</span>}
-                        </div>
-                        {!s.isDefault && !s.isWon && !s.isLost && (
-                          <button onClick={() => startTransition(async () => { try { await deleteStage(s.id); } catch (err) { alert(err instanceof Error ? err.message : "Fel"); } })}
-                            className="w-7 h-7 flex items-center justify-center rounded-full"
-                            style={{ color: "var(--text-dim)" }}
-                            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--danger)")}
-                            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-dim)")}>
-                            <Trash2 size={13} />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-
-                  {!showNewStage ? (
-                    <button onClick={() => setShowNewStage(true)}
-                      className="flex items-center gap-2 w-full py-2 text-[13px] font-medium rounded-md justify-center"
-                      style={{ border: "1.5px dashed var(--border-strong)", color: "var(--text-muted)" }}>
-                      <Plus size={14} /> Lägg till steg
-                    </button>
-                  ) : (
-                    <motion.form initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
-                      onSubmit={handleCreateStage} className="flex gap-2 overflow-hidden">
-                      <input type="color" value={newStage.color} onChange={(e) => setNewStage((s) => ({ ...s, color: e.target.value }))}
-                        className="w-10 h-9 rounded-md cursor-pointer border-0 shrink-0" style={{ background: "var(--surface-inset)", border: "1px solid var(--border-strong)" }} />
-                      <input value={newStage.name} onChange={(e) => setNewStage((s) => ({ ...s, name: e.target.value }))}
-                        placeholder="Stegnamn" required className="flex-1 text-[13px] outline-none px-3 py-2 rounded-md"
-                        style={{ background: "var(--surface-inset)", border: "1px solid var(--border-strong)", color: "var(--text)" }} />
-                      <button type="button" onClick={() => setShowNewStage(false)} className="px-3 py-2 text-[12px] rounded-md"
-                        style={{ background: "var(--surface-inset)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>Avbryt</button>
-                      <button type="submit" disabled={isPending} className="px-3 py-2 text-[12px] font-medium rounded-md"
-                        style={{ background: "var(--accent)", color: "var(--on-accent)" }}>Skapa</button>
                     </motion.form>
                   )}
                 </Section>

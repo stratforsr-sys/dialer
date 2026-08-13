@@ -6,13 +6,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Phone, Globe, Linkedin, ChevronLeft, ChevronRight, ExternalLink, Mail,
   ArrowLeft, SkipForward, Clock, Building2, Zap, X, AlertTriangle, Copy,
-  Check, TrendingUp, Loader2, CalendarClock, MapPin, Users, Banknote,
+  Check, Loader2, CalendarClock, MapPin, Users, Banknote,
   Search, Star, Trophy, Tag,
 } from "lucide-react";
 import { startSession, endSession } from "@/app/actions/sessions";
 import { leaseNextLeads, releaseLeases } from "@/app/actions/dialer";
 import { heartbeat, goOffline } from "@/app/actions/presence";
-import { CreateDealModal } from "@/components/deals/CreateDealModal";
+import { RegisterDealModal } from "@/components/deals/RegisterDealModal";
 import { DispositionBar } from "@/components/cockpit/DispositionBar";
 import { GatekeeperPanel, EMPTY_GATEKEEPER, type GatekeeperDraft } from "@/components/cockpit/GatekeeperPanel";
 import { FrameworkRail, FrameworkTap } from "@/components/cockpit/FrameworkPanel";
@@ -32,7 +32,6 @@ import type {
 } from "@/generated/prisma/client";
 
 type LeasedLead = Awaited<ReturnType<typeof leaseNextLeads>>[number];
-type Stage = { id: string; name: string; color: string };
 type Slot = { id: string; name: string; startMinute: number; endMinute: number };
 type DrawerTab = "website" | "linkedin" | null;
 
@@ -505,7 +504,6 @@ function claimSentence(c: LeasedLead["dossier"] extends { claims: (infer C)[] } 
 export function CockpitDb({
   initialLeads,
   userId,
-  stages,
   listId,
   listName,
   leaseMinutes,
@@ -513,7 +511,6 @@ export function CockpitDb({
 }: {
   initialLeads: LeasedLead[];
   userId: string;
-  stages: Stage[];
   listId: string;
   listName: string;
   leaseMinutes: number;
@@ -670,6 +667,7 @@ export function CockpitDb({
     setCloseAttempts(0);
     setObjections([]);
     setNotes("");
+    setShowDealModal(false);
   }, []);
 
   const advance = useCallback(() => {
@@ -773,6 +771,16 @@ export function CockpitDb({
     if (outcome === "CALLBACK_BOOKED") {
       setFlow((f) => ({ ...f, outcome }));
       setAskCallback(true);
+      return;
+    }
+
+    // Såld: rutan öppnas direkt, och samtalet skrivs FÖRST när affären är
+    // registrerad. Att skriva dispositionen här och registrera affären sedan
+    // hade gjort "Avbryt" till en tyst datafalsk — ett sålt samtal i
+    // statistiken utan någon kund bakom.
+    if (outcome === "SOLD") {
+      setFlow((f) => ({ ...f, outcome }));
+      setShowDealModal(true);
       return;
     }
 
@@ -1032,12 +1040,6 @@ export function CockpitDb({
                       )}
                     </div>
                   </div>
-                  <button onClick={() => setShowDealModal(true)}
-                    className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-md shrink-0"
-                    style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text-muted)" }}
-                    title="Skapa deal">
-                    <TrendingUp size={11} /> Deal
-                  </button>
                 </div>
 
                 {/* Bolagsfakta från importen. Ligger direkt under rubriken och
@@ -1347,13 +1349,21 @@ export function CockpitDb({
       </AnimatePresence>
 
       {showDealModal && (
-        <CreateDealModal
+        <RegisterDealModal
           leadId={lead.id}
           companyName={lead.companyName}
-          stages={stages}
-          defaultStageId={stages.find((s) => s.name.toLowerCase().includes("möte"))?.id ?? stages[0]?.id ?? ""}
-          onClose={() => setShowDealModal(false)}
-          onCreated={() => { setShowDealModal(false); advance(); }}
+          defaultContactName={contact?.name ?? null}
+          defaultContactEmail={contact?.email ?? null}
+          defaultContactPhone={contact?.directPhoneE164 ?? contact?.directPhone ?? null}
+          // Avbryt skriver ingenting och tar en tillbaka till utfallsknapparna.
+          // Ett feltryck på 3 ska gå att ta tillbaka, och en affär som inte
+          // registrerades ska inte räknas som ett sälj.
+          onClose={() => { setShowDealModal(false); setFlow((f) => ({ ...f, outcome: null })); }}
+          // Affären är sparad — nu skrivs samtalet och kön går vidare.
+          onCreated={() => {
+            setShowDealModal(false);
+            if (flow.result) commit({ result: flow.result, outcome: "SOLD" });
+          }}
         />
       )}
     </div>

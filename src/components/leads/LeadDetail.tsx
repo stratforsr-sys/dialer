@@ -264,37 +264,40 @@ export function LeadDetail({
             </div>
           </div>
 
-          {/* Deals */}
+          {/* Affärer. Raderna länkar till /deals/[id] — det är där kunden
+              bor, och den som klickar vill se avtalet, inte bara att det
+              finns. */}
           <div className="p-5">
             <h3 className="text-[12px] font-semibold uppercase tracking-wide mb-3" style={{ color: "var(--text-muted)" }}>
-              Deals ({lead.deals.length})
+              Affärer ({lead.deals.length})
             </h3>
             {lead.deals.length === 0 ? (
-              <p className="text-[12px]" style={{ color: "var(--text-dim)" }}>Inga deals än</p>
+              <p className="text-[12px]" style={{ color: "var(--text-dim)" }}>Inga affärer än</p>
             ) : (
               <div className="flex flex-col gap-2">
                 {lead.deals.map((d) => (
-                  <div key={d.id} className="p-3 rounded-md flex items-center justify-between"
+                  <Link key={d.id} href={`/deals/${d.id}`}
+                    className="p-3 rounded-md flex items-center justify-between"
                     style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
                     <div>
                       <p className="text-[13px] font-medium" style={{ color: "var(--text)" }}>{d.title}</p>
-                      {(d.oneTimeValue || d.arrValue) && (
+                      {d.value != null && (
                         <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>
-                          {(d.oneTimeValue ?? d.arrValue ?? 0).toLocaleString("sv-SE")} kr
-                          {d.valueType === "ARR" ? " /år" : ""}
+                          {d.value.toLocaleString("sv-SE")} kr
+                          {d.valueType === "MONTHLY" ? " /mån" : ""}
                         </p>
                       )}
                     </div>
                     <span
                       className="text-[11px] px-2 py-[3px] rounded-full font-medium"
                       style={{
-                        background: d.status === "WON" ? "var(--success-bg)" : d.status === "LOST" ? "var(--danger-bg)" : "var(--info-bg)",
-                        color: d.status === "WON" ? "var(--success)" : d.status === "LOST" ? "var(--danger)" : "var(--info)",
+                        background: d.status === "WON" ? "var(--success-bg)" : "var(--danger-bg)",
+                        color: d.status === "WON" ? "var(--success)" : "var(--danger)",
                       }}
                     >
-                      {d.status === "WON" ? "Vunnen" : d.status === "LOST" ? "Förlorad" : "Öppen"}
+                      {d.status === "WON" ? "Kund" : "Ångrad"}
                     </span>
-                  </div>
+                  </Link>
                 ))}
               </div>
             )}

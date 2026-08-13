@@ -221,31 +221,66 @@ export async function getSellerStats(days = 30) {
   return results.sort((a, b) => b.calls - a.calls);
 }
 
-export async function getPipelineOverview(sellerId?: string) {
+/**
+ * Vad som faktiskt sålts.
+ *
+ * Ersätter den viktade pipelineöversikten. Det fanns ingen prognos att räkna:
+ * en affär i det här systemet är redan gjord när raden skapas, och att
+ * multiplicera ett stängt avslut med en sannolikhet gav ett tal som inte
+ * betydde någonting.
+ *
+ * Engångsbelopp och månadsbelopp summeras var för sig och slås aldrig ihop.
+ * 50 000 kr i engångsintäkt och 50 000 kr i månadsintäkt är inte samma sak,
+ * och en enda totalsumma hade dolt vilket av dem som växte.
+ */
+export async function getDealsOverview(sellerId?: string, days = 90) {
   const user = await requireAuth();
   const who = statsScope(user, sellerId);
 
-  const dealOwnerFilter = who ? { lead: { ownerId: who } } : {};
+  const since = new Date();
+  since.setDate(since.getDate() - days);
 
-  const stages = await db.pipelineStage.findMany({
-    orderBy: { order: "asc" },
-    include: {
-      _count: { select: { deals: true } },
-      deals: {
-        where: { status: "OPEN", ...dealOwnerFilter },
-        select: { oneTimeValue: true, arrValue: true, valueType: true, probability: true },
-      },
+  // Vem som gjorde affären, inte vem som råkar äga leadet just nu —
+  // `Lead.ownerId` byter hand vid varje disposition.
+  const deals = await db.deal.findMany({
+    where: {
+      closedAt: { gte: since },
+      ...(who ? { createdById: who } : {}),
+    },
+    orderBy: { closedAt: "desc" },
+    select: {
+      id: true,
+      title: true,
+      value: true,
+      valueType: true,
+      status: true,
+      closedAt: true,
+      contactName: true,
+      lead: { select: { id: true, companyName: true } },
+      createdBy: { select: { name: true } },
     },
   });
 
-  return stages.map((s) => ({
-    id: s.id,
-    name: s.name,
-    color: s.color,
-    leadCount: s._count.deals,
-    totalValue: s.deals.reduce((sum, d) => {
-      const v = d.valueType === "ARR" ? (d.arrValue ?? 0) : (d.oneTimeValue ?? 0);
-      return sum + v * (d.probability / 100);
-    }, 0),
-  }));
+  const won = deals.filter((d) => d.status === "WON");
+
+  return {
+    days,
+    count: won.length,
+    cancelled: deals.length - won.length,
+    oneTimeTotal: won.filter((d) => d.valueType === "ONE_TIME").reduce((s, d) => s + (d.value ?? 0), 0),
+    monthlyTotal: won.filter((d) => d.valueType === "MONTHLY").reduce((s, d) => s + (d.value ?? 0), 0),
+    recent: deals.slice(0, 10).map((d) => ({
+      id: d.id,
+      leadId: d.lead.id,
+      companyName: d.lead.companyName,
+      contactName: d.contactName,
+      value: d.value,
+      valueType: d.valueType,
+      status: d.status,
+      closedAt: d.closedAt,
+      seller: d.createdBy.name,
+    })),
+  };
 }
+
+export type DealsOverview = Awaited<ReturnType<typeof getDealsOverview>>;
