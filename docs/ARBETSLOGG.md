@@ -171,11 +171,25 @@ ringpass. Det krävde `sessionId` i `callAttempts`-selecten i `leaseNextLeads`.
 `source`-märkningen bär den andra halvan: anteckningar skrivna på lead-sidan
 saknar den och fälls aldrig ihop med någonting.
 
-Verifierat mot sex scenarier före push: två Enter-anteckningar före ett utfall
-blir en rad; anteckning utan utfall ligger kvar; lead-sidans anteckning sugs
-aldrig in; två samtal i samma pass får rätt anteckning var; olika pass slås
-inte ihop; dispositionens egen anteckning och Enter-anteckningen hamnar båda
-under samma utfall i skrivordning.
+### Regeln ligger i ett test nu
+
+Sammanslagningen låg först inbakad i en `useMemo` i `LeadHistory` och gick
+därför inte att köra. Den är utbruten till `src/lib/history-merge.ts` — ren
+logik, inget UI, samma uppdelning som `cockpit-flow.ts` — och täcks av
+`scripts/test-history-merge.ts` i `npm test`.
+
+Det är inte pedanteri. Båda felen den här regeln kan göra är **tysta**: en
+anteckning som försvinner och en som hamnar under fel samtal ger inget
+felmeddelande, texten står bara på fel ställe eller inte alls. Ingen upptäcker
+det förrän en säljare undrar vart hennes anteckning tog vägen.
+
+Nio scenarier, sexton kontroller: två Enter-anteckningar före ett utfall blir
+en rad; anteckning utan utfall ligger kvar; lead-sidans anteckning sugs aldrig
+in; två samtal i samma pass får rätt anteckning var; olika pass slås inte ihop;
+dispositionens egen anteckning och Enter-anteckningen hamnar båda under samma
+utfall i skrivordning; en anteckning skriven **efter** samtalet hör inte till
+det; samtal utan `sessionId` (rader äldre än funktionen) sväljer aldrig något;
+trasig JSON i metadata fäller inte cockpiten.
 
 ### Sidofynd
 

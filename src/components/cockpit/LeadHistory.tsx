@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { ChevronRight, StickyNote, History } from "lucide-react";
 import { RESULT_OPTIONS, OUTCOME_OPTIONS, REASON_OPTIONS } from "@/lib/cockpit-flow";
 import { formatWhen } from "@/lib/time";
+import { mergeCockpitNotes } from "@/lib/history-merge";
 import type { CallResult, ConversationOutcome, NoReason } from "@/generated/prisma/client";
 
 /**
@@ -88,26 +89,6 @@ function labelFor(
   return { label: r?.label ?? result, color: r?.color ?? "var(--text-muted)" };
 }
 
-/** Innehållet i en Activitys metadata. Trasig JSON tystas — loggen får aldrig
- *  fälla cockpiten. */
-function parseMetadata(
-  metadata: string | null
-): { note: string | null; source: string | null; sessionId: string | null } {
-  if (!metadata) return { note: null, source: null, sessionId: null };
-  try {
-    const p = JSON.parse(metadata) as {
-      note?: string; notes?: string; source?: string; sessionId?: string | null;
-    };
-    return {
-      note: p.note ?? p.notes ?? null,
-      source: p.source ?? null,
-      sessionId: p.sessionId ?? null,
-    };
-  } catch {
-    return { note: null, source: null, sessionId: null };
-  }
-}
-
 export function LeadHistory({
   attempts,
   activities,
@@ -118,65 +99,47 @@ export function LeadHistory({
   const [openId, setOpenId] = useState<string | null>(null);
 
   const entries = useMemo<Entry[]>(() => {
-    // Samtalen först, i tidsordning, så varje anteckning kan hitta det
-    // närmaste samtalet efter sig.
-    const calls = [...attempts]
-      .map((a) => ({ ...a, at: new Date(a.startedAt) }))
-      .sort((a, b) => a.at.getTime() - b.at.getTime());
-
-    // Text som ska fällas in under ett visst samtal.
-    const absorbed = new Map<string, string[]>();
-    const standalone: Entry[] = [];
-
-    for (const act of activities) {
-      const meta = parseMetadata(act.metadata);
-      if (!meta.note) continue;
-      const at = new Date(act.timestamp);
-
-      // Bara cockpit-anteckningar fälls ihop, och bara med ett samtal i samma
-      // ringpass. En anteckning skriven på lead-sidan står alltid för sig.
-      const owner =
-        meta.source === "cockpit" && meta.sessionId
-          ? calls.find(
-              (c) => c.sessionId === meta.sessionId && c.at.getTime() >= at.getTime()
-            )
-          : undefined;
-
-      if (owner) {
-        const list = absorbed.get(owner.id) ?? [];
-        list.push(meta.note);
-        absorbed.set(owner.id, list);
-        continue;
-      }
-
-      standalone.push({
+    // Regeln för vad som fälls ihop med vad ligger i history-merge.ts och
+    // testas av scripts/test-history-merge.ts. Här stannar bara etiketterna.
+    const { noteForAttempt, standalone } = mergeCockpitNotes(
+      attempts.map((a) => ({
+        id: a.id,
+        at: new Date(a.startedAt),
+        sessionId: a.sessionId ?? null,
+        note: a.note,
+      })),
+      activities.map((act) => ({
         id: act.id,
-        at,
-        label: "Anteckning",
-        color: "var(--info)",
-        note: meta.note,
+        at: new Date(act.timestamp),
+        metadata: act.metadata,
         who: act.actor.name,
-      });
-    }
+      }))
+    );
 
-    const out: Entry[] = calls.map((a) => {
+    const out: Entry[] = attempts.map((a) => {
       const { label, color } = labelFor(a.result, a.outcome, a.noReason);
-      // Anteckningen som skickades med dispositionen först, sedan de som
-      // sparades med Enter under samtalet — i den ordning de skrevs.
-      const parts = [a.note, ...(absorbed.get(a.id) ?? [])].filter(Boolean);
       return {
         id: a.id,
-        at: a.at,
+        at: new Date(a.startedAt),
         label,
         color,
-        note: parts.length > 0 ? parts.join("\n\n") : null,
+        note: noteForAttempt.get(a.id) ?? null,
         who: a.seller.name,
       };
     });
 
-    return [...out, ...standalone]
-      .sort((a, b) => b.at.getTime() - a.at.getTime())
-      .slice(0, 10);
+    for (const n of standalone) {
+      out.push({
+        id: n.id,
+        at: n.at,
+        label: "Anteckning",
+        color: "var(--info)",
+        note: n.note,
+        who: n.who,
+      });
+    }
+
+    return out.sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, 10);
   }, [attempts, activities]);
 
   // Ny kontakt utan historik ska inte få en tom ruta som stjäl plats.
