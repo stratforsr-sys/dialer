@@ -213,11 +213,25 @@ const EVENT_ID = [
 ];
 
 const EVENT_TYPE = [
-  "eventtype", "event_type", "event", "calltype", "action", "trigger",
-  "callstatus", "call_status", "status", "state", "type",
+  // itemType först. Lynes skickar `itemType: "OUTGOING_CALL"` OCH
+  // `callType: "Inbound"` i samma payload, och de säger emot varandra —
+  // se DIRECTION nedan för vilken som är sann.
+  "itemtype", "item_type",
+  "eventtype", "event_type", "event", "action", "trigger",
+  "callstatus", "call_status", "status", "state", "calltype", "type",
 ];
 
-const DIRECTION = ["direction", "calldirection", "call_direction", "way", "leg"];
+// itemType före callType, och det är inte en detalj: i den första riktiga
+// Lynes-payloaden stod `itemType: "OUTGOING_CALL"` bredvid
+// `callType: "Inbound"`. itemType är den som stämmer — den överensstämmer både
+// med payloadens egen bodytext ("Call from user: <säljarens adress>") och med
+// vilket av numren som tillhör bolaget. callType beskriver något annat,
+// troligen benet in mot växeln. Väljs fel pekas SÄLJARENS eget nummer ut som
+// motpart, och samtalet matchas mot fel bolag eller inget alls.
+const DIRECTION = [
+  "itemtype", "item_type", "direction", "calldirection", "call_direction",
+  "calltype", "call_type", "way", "leg",
+];
 
 const FROM = [
   "fromnumber", "from_number", "callernumber", "caller_number", "callerid",
@@ -327,6 +341,36 @@ function inAgentContainer(path: string): boolean {
   return segments.slice(0, -1).some((s) => AGENT_CONTAINERS.includes(s));
 }
 
+/**
+ * Sista utväg för att identifiera säljaren: leta e-postadress i fritext.
+ *
+ * Lynes lägger användaren i ett människoläsbart fält och ingen annanstans:
+ *
+ *     "body": "Call to: +46…\nCall from user: namn@företaget.se (+46…)\n…"
+ *
+ * Strukturerat finns bara ett `userId` med ett UUID, som inte går att koppla
+ * till någon `User` hos oss. Utan den här funktionen blir alltså varje samtal
+ * tillskrivet ingen alls — och statistik per säljare är hela poängen.
+ *
+ * Villkoret att det ska finnas EXAKT en unik adress i hela payloaden är
+ * avsiktligt strängt. Två adresser betyder att vi inte vet vilken som är
+ * växelanvändarens, och att gissa fel tillskriver en kollega samtalet — vilket
+ * är värre än att lämna det otillskrivet, eftersom felet inte syns.
+ */
+function emailFromFreeText(flat: FlatPayload): string | null {
+  const found: string[] = [];
+  for (const entry of flat) {
+    if (typeof entry.value !== "string") continue;
+    const matches = entry.value.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g);
+    if (!matches) continue;
+    for (const m of matches) {
+      const lower = m.toLowerCase();
+      if (!found.includes(lower)) found.push(lower);
+    }
+  }
+  return found.length === 1 ? found[0] : null;
+}
+
 function agentField(
   flat: FlatPayload,
   specificKeys: string[],
@@ -405,6 +449,7 @@ function deriveStatus(
   answeredAt: Date | null,
   endedAt: Date | null,
   talkSec: number | null,
+  durationSec: number | null,
   voicemail: boolean
 ): TelephonyStatus {
   const t = `${eventType ?? ""} ${hangupCause ?? ""}`.toLowerCase();
@@ -414,6 +459,18 @@ function deriveStatus(
   if (/no[_\s-]?answer|noanswer|missed|unanswered|obesvarad|missat|timeout|cancel|abandon/.test(t))
     return "NO_ANSWER";
   if (/fail|error|congestion|rejected|unavailable|invalid|misslyck/.test(t)) return "FAILED";
+
+  // Samtalsposter. Lynes rapporterar `itemType: OUTGOING_CALL` i SAMMA sekund
+  // som samtalet börjar — den första riktiga leveransen kom 0,7 sekunder efter
+  // sin egen startTime — och då är duration alltid 0.
+  //
+  // Att läsa den nollan som "ingen svarade" hade märkt varenda påbörjat samtal
+  // som obesvarat, vilket är den värsta sortens fel: siffran ser rimlig ut och
+  // är systematiskt lögnaktig. Nolla utan sluttid betyder "har inte hänt än".
+  if (/outgoing_call|incoming_call|call_item|calllog|call_log/.test(t)) {
+    if ((talkSec ?? 0) > 0 || (durationSec ?? 0) > 0) return "COMPLETED";
+    return endedAt ? "NO_ANSWER" : "RINGING";
+  }
   if (/ring|initiat|dial|start|calling|setup|new/.test(t) && !/end|hangup|complet/.test(t))
     return "RINGING";
   if (/end|hangup|complet|finish|disconnect|avslut|terminated/.test(t)) {
@@ -497,10 +554,11 @@ export function normalizePayload(payload: unknown): NormalizedCall {
         ? fromE164
         : (toE164Value ?? fromE164);
 
-  const agentEmail = agentField(flat, AGENT_EMAIL_KEYS, [], (v) => {
-    const s = str(v);
-    return !!s && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
-  });
+  const agentEmail =
+    agentField(flat, AGENT_EMAIL_KEYS, [], (v) => {
+      const s = str(v);
+      return !!s && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
+    }) ?? emailFromFreeText(flat);
   const agentExtension = agentField(flat, AGENT_EXT_KEYS, [], (v) => {
     const s = str(v);
     return !!s && /^\d{1,6}$/.test(s);
@@ -519,7 +577,9 @@ export function normalizePayload(payload: unknown): NormalizedCall {
     providerCallId: str(pick(flat, CALL_ID, isNonEmptyString)),
     providerEventId: str(pick(flat, EVENT_ID, isNonEmptyString)),
     eventType,
-    status: deriveStatus(eventType, hangupCause, answeredAt, endedAt, talkSec, voicemail),
+    status: deriveStatus(
+      eventType, hangupCause, answeredAt, endedAt, talkSec, durationSec, voicemail
+    ),
     direction,
 
     fromRaw,

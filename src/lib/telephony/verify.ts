@@ -125,11 +125,15 @@ export function verifyWebhook(
     if (v && hmacMatches(secret, rawBody, v)) return { ok: true, method: "hmac-sha256" };
   }
 
-  // 4. Query-parameter. Sist och svagast, se filhuvudet.
-  for (const name of ["secret", "token", "key", "apikey", "api_key"]) {
-    const v = url.searchParams.get(name);
-    if (v && safeEqual(v, secret)) return { ok: true, method: "query-param" };
-  }
+  // Query-parametern är BORTTAGEN. Den fanns med som upptäcktsmekanism medan
+  // det var okänt hur Lynes skickar sin nyckel. Det är det inte längre: första
+  // riktiga leveransen kom med `Authorization: Bearer`, verifierat i
+  // TelephonyEvent.authMethod. En hemlighet i URL:en hamnar i proxyloggar och
+  // referrers och ska inte ligga kvar när den bevisligen inte behövs.
+  //
+  // Bearer, egen header och HMAC står kvar: alla tre är header-burna och
+  // kostar ingenting, och de täcker att Lynes byter mekanism för andra
+  // händelsetyper utan att förvarna.
 
   // forEach och inte spread: tsconfig sätter inget `target`, och att sprida
   // en Headers-iterator kräver då downlevelIteration.

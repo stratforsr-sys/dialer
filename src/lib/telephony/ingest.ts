@@ -54,6 +54,40 @@ function syntheticCallId(n: NormalizedCall): string {
 }
 
 /**
+ * Samma samtal som ett vi redan har en rad för?
+ *
+ * Lynes skickar INGEN samtalsidentifierare — verifierat mot en riktig
+ * leverans. Utan en sådan blir varje händelse ett eget "samtal", och ett
+ * samtal som rapporteras både när det börjar och när det slutar hamnar på två
+ * rader med halva sanningen på var sin: den ena har starttid, den andra har
+ * längd och inspelning. Ingen av dem är användbar.
+ *
+ * Regeln: finns redan ett OAVSLUTAT samtal mot samma motpart, av samma
+ * växelanvändare, den senaste timmen — då är det samma samtal.
+ *
+ * Alla tre villkoren behövs. Utan agenten slås två säljares samtal till samma
+ * bolag ihop. Utan `endedAt: null` skrivs ett avslutat samtal över av nästa
+ * samtal till samma nummer. Utan tidsfönstret slås gårdagens ihop med dagens.
+ */
+async function openCallId(n: NormalizedCall, agentId: string | null): Promise<string | null> {
+  if (!n.otherPartyE164 || !agentId) return null;
+
+  const open = await db.telephonyCall.findFirst({
+    where: {
+      provider: PROVIDER,
+      otherPartyE164: n.otherPartyE164,
+      agentId,
+      endedAt: null,
+      startedAt: { gte: new Date(Date.now() - 60 * 60 * 1000) },
+    },
+    orderBy: { startedAt: "desc" },
+    select: { providerCallId: true },
+  });
+
+  return open?.providerCallId ?? null;
+}
+
+/**
  * Hittar eller skapar växelanvändaren, och kopplar den till en User när
  * e-posten matchar exakt.
  *
@@ -256,9 +290,14 @@ export async function ingestEvent(
 
   // ── Steg 2: tolkningen. Fel här får inte kasta bort råraden ─────────────
   try {
-    const providerCallId = n.providerCallId ?? syntheticCallId(n);
     const { agentId, userId } = await resolveAgent(n);
     const { leadId, contactId } = await resolveLead(n.otherPartyE164);
+
+    // Agenten måste vara löst FÖRE samtals-id:t: saknar payloaden id är det
+    // agenten plus motparten som avgör om det här är ett pågående samtal vi
+    // redan känner till. Se openCallId.
+    const providerCallId =
+      n.providerCallId ?? (await openCallId(n, agentId)) ?? syntheticCallId(n);
 
     const call = await db.telephonyCall.upsert({
       where: { provider_providerCallId: { provider: PROVIDER, providerCallId } },

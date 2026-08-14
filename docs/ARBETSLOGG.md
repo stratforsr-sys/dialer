@@ -8,6 +8,102 @@ Nyast först.
 
 ---
 
+## 2026-08-14 — Lynes: den riktiga payloaden, och tre fel den avslöjade
+
+Första äkta leveransen kom in 07:06:18 UTC. Den ser inte ut som något av
+antagandena i gårdagens mottagning. Här är den ordagrant — det är den enda
+dokumentation av Lynes webhook-format som finns, eftersom Lynes inte
+publicerar någon:
+
+    {
+      "toNumber":   "+46XXXXXXXXX",
+      "fromNumber": "+46XXXXXXXXX",
+      "duration":   0,
+      "body":       "Call to: +46XXXXXXXXX\nCall from user: <säljarens
+                     e-post> (+46XXXXXXXXX)\nCall type: Inbound",
+      "startTime":  1786691178000,
+      "callType":   "Inbound",
+      "userId":     "e9f59b10-64b0-43eb-bed7-f5b52337ef20",
+      "itemType":   "OUTGOING_CALL"
+    }
+
+**Nyckeln kommer som `Authorization: Bearer`.** Verifierat i
+`TelephonyEvent.authMethod`. Query-parametern är därför borttagen ur
+`verify.ts` — en hemlighet i URL:en hamnar i proxyloggar och behövs
+bevisligen inte. Bearer, egen header och HMAC står kvar.
+
+### Tre fel som bara verkligheten kunde visa
+
+**1. `callType` och `itemType` säger emot varandra.** `callType: "Inbound"`
+står bredvid `itemType: "OUTGOING_CALL"` i samma payload. itemType är den som
+stämmer: bodytexten säger "Call from user: <säljaren>", och det är `toNumber`
+som tillhör bolaget. Väljs callType pekas SÄLJARENS eget nummer ut som motpart,
+och samtalet matchas mot fel bolag eller inget alls. `itemType` ligger nu först
+i både `DIRECTION` och `EVENT_TYPE`. Före fixen blev riktningen `null`.
+
+**2. `duration: 0` betyder inte "ingen svarade".** Leveransen kom **0,7
+sekunder efter sin egen `startTime`** — Lynes rapporterar alltså när samtalet
+BÖRJAR, inte när det slutar. Att läsa nollan som obesvarat hade märkt varenda
+påbörjat samtal som obesvarat: en siffra som ser rimlig ut och är systematiskt
+lögnaktig. `deriveStatus` behandlar nu samtalsposter separat — nolla utan
+sluttid är `RINGING`, duration över noll är `COMPLETED`.
+
+**3. Säljaren finns bara i fritext.** Strukturerat finns bara
+`userId` med ett UUID som inte betyder något hos oss. E-postadressen — det
+enda som går att koppla till en `User` — ligger inne i `body`-strängen.
+`emailFromFreeText` letar därför e-post i alla textvärden, men **bara om det
+finns exakt en unik adress** i hela payloaden: två adresser betyder att vi
+inte vet vilken som är växelanvändarens, och fel säljare på ett samtal är
+värre än ingen säljare, eftersom felet inte syns.
+
+### Lynes skickar ingen samtalsidentifierare
+
+Ingen. Det gör att start- och sluthändelse om samma samtal hamnar på var sin
+rad med halva sanningen på var sin — den ena har starttid, den andra längd och
+inspelning.
+
+`openCallId` löser det: finns redan ett **oavslutat** samtal mot samma motpart,
+av samma växelanvändare, den senaste timmen — då är det samma samtal. Alla tre
+villkoren behövs. Utan agenten slås två säljares samtal till samma bolag ihop,
+utan `endedAt IS NULL` skrivs ett avslutat samtal över av nästa till samma
+nummer, utan tidsfönstret slås gårdagens ihop med dagens. Faller det ut används
+en syntetisk nyckel med prefixet `synthetic:`, så att det syns i databasen att
+id:t är vår gissning.
+
+### Vad som faktiskt fungerade direkt
+
+Numren, tidsstämpeln (epoch i millisekunder) och **matchningen mot lead** —
+`toNumber` hittade rätt bolag på `Contact.directPhoneE164` utan justering.
+Rådataraden gjorde hela den här kalibreringen möjlig: felen upptäcktes genom
+att jämföra `rawJson` mot `TelephonyCall`, och inget behövde ringas om.
+
+### Fallgrop: två migrationer heter 017
+
+`017_lynes_telefoni.sql` och `017_lasning_styrs_av_utfallet.sql` skrevs samma
+dag i olika pass. Båda är applicerade och bokförda — `apply-sql.mjs` nycklar på
+filnamn, inte på nummer, så ingenting går sönder. Men ordningen mellan dem är
+inte längre läsbar ur numret. **Nästa migration är 018.**
+
+### Öppna punkter
+
+- [ ] **Vet inte om Lynes skickar en sluthändelse.** Bara startevenemanget är
+      observerat. Kommer ingen andra leverans får vi aldrig samtalslängd,
+      slutstatus eller inspelning — och då är `duration`, `talkSec` och
+      `recordingUrl` permanent tomma. Kolla `SELECT status, count(*) FROM
+      TelephonyCall GROUP BY 1` efter en dags trafik: står allt kvar på
+      `RINGING` skickar Lynes bara en händelse per samtal, och då måste
+      resten hämtas ur deras API i stället.
+- [ ] **`callType` är fortfarande oförklarad.** "Inbound" på ett utgående
+      samtal betyder troligen benet in mot växeln, men det är en gissning.
+      Fråga Lynes innan fältet används till något.
+- [ ] **Inspelningar har aldrig setts.** Inget `recordingUrl` i den observerade
+      payloaden. Antingen skickas de i sluthändelsen, eller så måste de hämtas
+      separat.
+- [ ] Kvarstår från gårdagen: ingen vy för inspelningar, ingen vy för okopplade
+      växelanvändare, ingen gallring av `TelephonyEvent`.
+
+---
+
 ## 2026-08-13 — Bolaget ut ur däcket, låset till utfallet
 
 Migration 017. Fortsättning samma dag på passet nedanför, efter två
