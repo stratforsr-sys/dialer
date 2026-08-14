@@ -152,6 +152,25 @@ export async function handleWebhookPost(request: Request): Promise<Response> {
 export async function handleWebhookGet(request: Request): Promise<Response> {
   const url = new URL(request.url);
 
+  // Varje GET loggas, inte bara de som gör något.
+  //
+  // Blind fläck som kostade ett felsökningsvarv: en växel som gör
+  // NUMMERUPPSLAG frågar med GET ("vem är +4670...?") i stället för att
+  // rapportera med POST. Den vägen skrev varken en rad i databasen eller en
+  // loggrad, så ett fungerande anrop och ett anrop som aldrig gjordes såg
+  // exakt likadana ut. Nu syns skillnaden i `vercel logs`.
+  //
+  // Query-strängen loggas med maskerad hemlighet: den kommer ofta som
+  // ?secret= i URL:en, och loggar sparas längre än man tror.
+  const safeQuery = url.search.replace(
+    /((?:secret|token|key|apikey|api_key)=)[^&]+/gi,
+    "$1***"
+  );
+  console.log(
+    `[lynes] GET ${url.pathname}${safeQuery}` +
+      ` | user-agent: ${request.headers.get("user-agent") ?? "saknas"}`
+  );
+
   const challenge =
     url.searchParams.get("challenge") ??
     url.searchParams.get("hub.challenge") ??
