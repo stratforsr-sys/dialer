@@ -8,6 +8,85 @@ Nyast först.
 
 ---
 
+## 2026-08-14 (senare) — Lynes skickar millisekunder, och rapporterar efteråt
+
+Tretton riktiga leveranser räckte för att avgöra två saker som en enda inte
+kunde. Mönstret som avgjorde båda:
+
+    mottagen  startTime  duration   mottagen − startTime
+    07:55:35  07:55:26   7000       9,2 s
+    07:59:15  07:59:10   5000       5,7 s
+    08:00:48  08:00:26   22000      22,3 s
+    08:02:17  08:01:26   51000      51,6 s
+    08:02:53  08:01:35   78000      78,4 s
+
+`mottagen − startTime ≈ duration / 1000`, varje gång, inom en halv sekund.
+
+### 1. `duration` är MILLISEKUNDER
+
+Alla lagrade längder var 1000 gånger för stora — 78000 "sekunder" är 21
+timmar. Att det inte upptäcktes direkt beror på att siffrorna såg rimliga ut
+i en kolumn ingen ännu läser.
+
+Värre: typtestet hade ett tak på 86400, satt i tron att det skulle fånga
+millisekunder. Det gjorde tvärtom. Varje samtal **längre än 86,4 sekunder**
+skickade en duration över taket och fick sin längd **tyst förkastad** — alltså
+föll precis de samtal bort som är värda något, medan de korta blev kvar och
+var fel. Taket är nu ett dygn i millisekunder, och `toSeconds` avgör enheten:
+jämnt delbart med 1000, eller större än 86400, betyder millisekunder.
+
+Kvarvarande svaghet: en längd i millisekunder som inte är jämna sekunder
+(1500) läses som sekunder. Lynes skickar bara jämna tusental, så fallet är
+teoretiskt.
+
+### 2. RÄTTELSE: Lynes rapporterar EFTER samtalet, inte vid start
+
+Anteckningen nedan drog slutsatsen att Lynes rapporterar när samtalet BÖRJAR,
+utifrån att den första leveransen kom 0,7 sekunder efter sin egen `startTime`
+med `duration: 0`. Det var fel, och felet var att generalisera från ett enda
+fall: det samtalet var faktiskt noll sekunder långt. Ingen svarade.
+
+Rätt tolkning: **en händelse per samtal, skickad när samtalet är slut.**
+`duration: 0` betyder alltså obesvarat, inte "har inte hänt än". Statusen är
+`NO_ANSWER`, inte `RINGING`.
+
+Följdändring: sluttiden härleds nu som `startTime + duration`, eftersom Lynes
+inte skickar någon. Utan den står varje samtal kvar som pågående för alltid —
+och `openCallId`, som letar efter oavslutade rader, slår då ihop nästa samtal
+till samma bolag med det förra.
+
+### 3. Den syntetiska nyckeln slog ihop olika samtal
+
+Samtals-id:t hashades på avrundad MINUT, i tron att det skulle knyta ihop
+flera händelser om samma samtal. Effekten blev den motsatta: en säljare som
+ringer samma bolag två gånger inom samma minut — ett omedelbart nytt försök,
+det vanligaste som finns — fick båda samtalen hopslagna till EN rad. Ett
+samtal i produktionsdatan hade `eventCount = 3`, alltså tre riktiga samtal
+begravda i ett. Nyckeln hashas nu på exakt starttid.
+
+### Vad rådataloggen var värd
+
+Alla tre felen rättades utan att ett enda samtal behövde ringas om: raderna
+kördes om ur `TelephonyEvent.rawJson` mot den nya tolkningen. Det var precis
+det scenariot tabellen skrevs för, och det är enda anledningen till att en
+felkalibrerad mottagning inte kostade en dags samtalsdata.
+
+### Öppna punkter
+
+- [ ] **Inspelningar finns inte i payloaden.** Tretton leveranser, noll
+      `recordingUrl`. Fältet skickas alltså inte i webhooken — inspelningar
+      måste hämtas ur Lynes API, eller så är de avstängda på kontot. Fråga
+      Lynes vilket.
+- [ ] **`talkSec` är alltid tom.** Lynes skickar en enda längd. Om `startTime`
+      är när det ringde eller när det svarades är okänt — och det avgör om
+      `duration` är samtalstid eller total tid. Skillnaden syns i
+      svarsfrekvensen.
+- [ ] **Ett nummer matchade inget bolag** (+46848001501). Väntat för samtal
+      utanför ringlistorna, men värt att följa: många omatchade betyder att
+      kontakternas nummer inte är normaliserade.
+
+---
+
 ## 2026-08-14 — Lynes: den riktiga payloaden, och tre fel den avslöjade
 
 Första äkta leveransen kom in 07:06:18 UTC. Den ser inte ut som något av

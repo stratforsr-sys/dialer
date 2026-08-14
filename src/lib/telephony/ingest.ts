@@ -46,10 +46,18 @@ export interface IngestResult {
  * vår gissning och inte växelns.
  */
 function syntheticCallId(n: NormalizedCall): string {
-  const minute = n.startedAt
-    ? new Date(Math.floor(n.startedAt.getTime() / 60000) * 60000).toISOString()
-    : "okand-tid";
-  const seed = `${n.fromRaw ?? "?"}|${n.toRaw ?? "?"}|${minute}`;
+  // EXAKT starttid, inte avrundad till minuten.
+  //
+  // Först avrundades den, i tron att det skulle knyta ihop flera händelser om
+  // samma samtal. Effekten blev den motsatta av vad som behövdes: Lynes
+  // skickar en händelse per samtal, och en säljare som ringer samma bolag två
+  // gånger inom samma minut — ett omedelbart återuppringningsförsök, alltså
+  // det vanligaste som finns — fick båda samtalen hopslagna till en rad.
+  //
+  // Exakt tid separerar dem. Två leveranser om SAMMA samtal bär samma
+  // startTime och hamnar fortfarande på samma rad, vilket är hela syftet.
+  const when = n.startedAt ? String(n.startedAt.getTime()) : "okand-tid";
+  const seed = `${n.fromRaw ?? "?"}|${n.toRaw ?? "?"}|${when}`;
   return `synthetic:${createHash("sha1").update(seed).digest("hex").slice(0, 16)}`;
 }
 

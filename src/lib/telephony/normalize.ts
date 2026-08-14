@@ -120,11 +120,20 @@ const looksLikePhone: Predicate = (v) => {
 const looksLikeUrl: Predicate = (v) =>
   typeof v === "string" && /^https?:\/\/\S+$/i.test(v.trim());
 
-/** Ett tal i sekunder. Tar emot både 42 och "42". Taket på ett dygn fångar
- *  att providern skickade millisekunder eller en tidsstämpel i fältet. */
+/**
+ * Ett tal som kan vara en samtalslängd — i sekunder ELLER millisekunder.
+ *
+ * Taket låg först på 86400 ("ett dygn i sekunder") i tron att det fångade
+ * millisekunder. Det gjorde tvärtom: Lynes skickar millisekunder, så varje
+ * samtal längre än 86,4 sekunder föll över taket och fick sin längd tyst
+ * förkastad. De korta blev kvar och var 1000 gånger för långa. Värsta
+ * kombinationen — data som finns, ser rimlig ut och är fel.
+ *
+ * Taket är nu ett dygn i MILLISEKUNDER. Enheten avgörs i toSeconds.
+ */
 const looksLikeSeconds: Predicate = (v) => {
   const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
-  return Number.isFinite(n) && n >= 0 && n <= 86400;
+  return Number.isFinite(n) && n >= 0 && n <= 86_400_000;
 };
 
 /** ISO-sträng, "YYYY-MM-DD HH:MM:SS", eller epoch i sekunder/millisekunder. */
@@ -175,10 +184,35 @@ export function parseTimestamp(v: unknown): Date | null {
   return d;
 }
 
+/**
+ * Till sekunder, oavsett vilken enhet providern skickade.
+ *
+ * Lynes skickar MILLISEKUNDER. Det är mätt, inte gissat: över tretton
+ * leveranser låg `mottagningstid − startTime` konsekvent inom en halv sekund
+ * från `duration / 1000` (7000 → 9,2 s; 51000 → 51,6 s; 78000 → 78,4 s).
+ * Samma payload skickar dessutom `startTime` som epoch i millisekunder, så
+ * enheten är genomgående.
+ *
+ * Två tecken på millisekunder, och det räcker med ett:
+ *
+ *   1. Jämnt delbart med 1000. En äkta sekundlängd som råkar bli exakt 5000
+ *      sekunder är ett samtal på 83 minuter — det händer inte i kalla samtal,
+ *      medan 5000 ms (5 sekunder) är vardag.
+ *   2. Större än 86400. Som sekunder vore det över ett dygn.
+ *
+ * Kvar som osäkert: en längd i millisekunder som INTE är jämna sekunder,
+ * t.ex. 1500. Den läses som 1500 sekunder. Lynes skickar bara jämna
+ * tusental, så fallet är teoretiskt — men det är den kvarvarande svagheten.
+ */
 function toSeconds(v: unknown): number | null {
   const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
-  if (!Number.isFinite(n) || n < 0 || n > 86400) return null;
-  return Math.round(n);
+  if (!Number.isFinite(n) || n < 0) return null;
+
+  const isMillis = (n >= 1000 && n % 1000 === 0) || n > 86400;
+  const seconds = isMillis ? n / 1000 : n;
+
+  if (seconds > 86400) return null;
+  return Math.round(seconds);
 }
 
 function toBool(v: unknown): boolean {
@@ -460,16 +494,18 @@ function deriveStatus(
     return "NO_ANSWER";
   if (/fail|error|congestion|rejected|unavailable|invalid|misslyck/.test(t)) return "FAILED";
 
-  // Samtalsposter. Lynes rapporterar `itemType: OUTGOING_CALL` i SAMMA sekund
-  // som samtalet börjar — den första riktiga leveransen kom 0,7 sekunder efter
-  // sin egen startTime — och då är duration alltid 0.
+  // Samtalsposter (`itemType: OUTGOING_CALL` / `INCOMING_CALL`).
   //
-  // Att läsa den nollan som "ingen svarade" hade märkt varenda påbörjat samtal
-  // som obesvarat, vilket är den värsta sortens fel: siffran ser rimlig ut och
-  // är systematiskt lögnaktig. Nolla utan sluttid betyder "har inte hänt än".
+  // RÄTTELSE till en tidigare tolkning här: den första leveransen såg ut att
+  // komma i samma sekund som samtalet BÖRJADE, och nollan i duration lästes
+  // därför som "har inte hänt än" → RINGING. Fel. Mätt över tretton
+  // leveranser ligger mottagningstiden konsekvent `startTime + duration`,
+  // alltså rapporterar Lynes EFTER samtalet. Den första hade duration 0 för
+  // att samtalet faktiskt var noll sekunder långt — ingen svarade.
+  //
+  // Nollan betyder alltså obesvarat, och det är den tolkningen som gäller.
   if (/outgoing_call|incoming_call|call_item|calllog|call_log/.test(t)) {
-    if ((talkSec ?? 0) > 0 || (durationSec ?? 0) > 0) return "COMPLETED";
-    return endedAt ? "NO_ANSWER" : "RINGING";
+    return (talkSec ?? 0) > 0 || (durationSec ?? 0) > 0 ? "COMPLETED" : "NO_ANSWER";
   }
   if (/ring|initiat|dial|start|calling|setup|new/.test(t) && !/end|hangup|complet/.test(t))
     return "RINGING";
@@ -528,7 +564,7 @@ export function normalizePayload(payload: unknown): NormalizedCall {
 
   const startedAt = parseTimestamp(pick(flat, STARTED_AT, looksLikeTimestamp));
   const answeredAt = parseTimestamp(pick(flat, ANSWERED_AT, looksLikeTimestamp));
-  const endedAt = parseTimestamp(pick(flat, ENDED_AT, looksLikeTimestamp));
+  const reportedEndedAt = parseTimestamp(pick(flat, ENDED_AT, looksLikeTimestamp));
 
   const durationSec = toSeconds(pick(flat, DURATION, looksLikeSeconds));
   const talkSec = toSeconds(pick(flat, TALK_SEC, looksLikeSeconds));
@@ -536,6 +572,20 @@ export function normalizePayload(payload: unknown): NormalizedCall {
 
   const hangupCause = str(pick(flat, HANGUP_CAUSE, isNonEmptyString));
   const voicemail = toBool(pick(flat, VOICEMAIL, isBooleanish));
+
+  // Sluttiden härleds när providern bara skickar start och längd.
+  //
+  // Lynes skickar ingen sluttid alls, men rapporterar efter samtalet — mätt:
+  // mottagningstiden ligger `startTime + duration` plus en halv sekund. Finns
+  // en längd är samtalet alltså över, och utan det här står varje samtal kvar
+  // som pågående för alltid. Det får två följder som båda är fel: statistiken
+  // hittar aldrig ett avslutat samtal, och `openCallId` slår ihop nästa samtal
+  // till samma bolag med det förra, eftersom det letar efter oavslutade rader.
+  const endedAt =
+    reportedEndedAt ??
+    (startedAt && durationSec !== null
+      ? new Date(startedAt.getTime() + durationSec * 1000)
+      : null);
 
   const direction = deriveDirection(
     str(pick(flat, DIRECTION, isNonEmptyString)),
