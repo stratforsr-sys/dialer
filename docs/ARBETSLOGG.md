@@ -91,16 +91,52 @@ systemet kunde visa tidigare.
 - [ ] **148 av 485 samtal saknar fortfarande disposition.** Efter backfillen är
       det inte längre ett kopplingsfel utan verkligt bortfall: växeln såg
       samtalet, ingen sa vad det ledde till. Siffran står i coachingvyn.
-- [ ] **`CallAttempt.hourOfDay` sätts med `now.getHours()`** i `recordAttempt`,
-      alltså i UTC på Vercel. Varje rad är två timmar fel sommartid. Coachingen
-      rör den inte — den använder `hourOfDay()` i `src/lib/time.ts` mot växelns
-      tidsstämpel — men allt annat som läser kolumnen är förskjutet, och en
-      rättelse kräver backfill för att inte blanda två betydelser i samma
-      kolumn.
+- [x] **`CallAttempt.hourOfDay` och `.weekday` räknades i UTC.** Rättat samma
+      dag, se avsnittet nedan.
 - [ ] **`talkSec` och `waitSec` är fortfarande tomma.** De går att fylla den dag
       Lynes kan skicka en svarstidpunkt. Tills dess är ringtidsmedianen
       approximationen, och den är gemensam för alla samtal — en säljare vars
       samtal genomgående ringer längre får sin uppkopplade tid överskattad.
+
+---
+
+## 2026-08-15 (senare) — Timme och veckodag räknades i UTC
+
+`recordAttempt` skrev `hourOfDay` och `weekday` med `now.getHours()` och
+`now.getDay()`. Vercel kör i UTC, så varje rad bar UTC-tiden: ett samtal
+klockan 09:30 svensk sommartid stod som timme 7.
+
+Buggen bekräftades på att **alla 1 106 rader hade `hourOfDay` exakt lika med
+UTC-timmen**, och rättelsen på att alla 1 106 låg exakt två timmar fel — inte
+en enda avvikelse åt något håll. Ett spritt utfall hade betytt att antagandet
+var fel.
+
+`weekday` bar samma fel, fast tystare: ett samtal 00:30 natten till måndag är
+söndag i UTC och hamnar i fel vecka utan att något ser konstigt ut. Ingen rad
+råkade ligga där, men felet fanns.
+
+**Rättelsen gjordes trots att ingen vy läser kolumnerna — just därför.**
+Blandas två betydelser i samma kolumn går den aldrig att lita på igen, och
+felet hade upptäckts först den dag någon byggde "bästa tid att ringa" ovanpå
+den. `prisma/backfill-hour-weekday.mjs` räknar om ur `startedAt`, som är en
+riktig tidsstämpel och därmed entydig. Idempotent — en omkörning rapporterar
+noll att rätta.
+
+Fördelningen efteråt ser ut som en arbetsdag, vilket den inte gjorde förut:
+
+    kl 09    9
+    kl 10   84
+    kl 11  230
+    kl 12   37     ← lunch
+    kl 13  188
+    kl 14  122
+    kl 15  237
+    kl 16  176
+    kl 17   21
+
+`hourOfDay()` och `weekdayOf()` i `src/lib/time.ts` är vägen framåt. **Använd
+dem i allt som skriver eller läser tid** — `Date.getHours()` och `getDay()` är
+fel i produktion varje dag på året.
 
 ---
 
