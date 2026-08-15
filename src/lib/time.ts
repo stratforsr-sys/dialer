@@ -94,6 +94,24 @@ export function hourOfDay(at: Date, tz: string = TZ): number {
   return wallClock(at, tz).hh;
 }
 
+/**
+ * Veckodagen på den svenska kalendern. 1 = måndag, 7 = söndag.
+ *
+ * Samma fälla som `hourOfDay`, fast tystare: ett samtal klockan 00:30 natten
+ * till måndag är söndag i UTC. Det slår sällan till i ett ringpass, men när
+ * det gör det hamnar raden i fel vecka utan att något ser konstigt ut.
+ *
+ * Veckodagen räknas ur det svenska KALENDERDATUMET och inte ur tidpunkten:
+ * `Date.UTC` av år/månad/dag ger en tidpunkt vars UTC-veckodag är den svenska
+ * dagens, oavsett var i dygnet originalet låg.
+ */
+export function weekdayOf(at: Date, tz: string = TZ): number {
+  const w = wallClock(at, tz);
+  const day = new Date(Date.UTC(w.y, w.m - 1, w.d)).getUTCDay();
+  // getUTCDay ger 0 för söndag; kolumnen är 1–7 med måndag = 1.
+  return day === 0 ? 7 : day;
+}
+
 /** Samma svenska kalenderdag? */
 export function isSameDay(a: Date, b: Date, tz: string = TZ): boolean {
   const wa = wallClock(a, tz);

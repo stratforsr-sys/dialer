@@ -9,6 +9,7 @@ import { resolveScript, firstNameOf, type ResolverVariant } from "@/lib/script-r
 import { getActiveScripts } from "@/app/actions/scripts";
 import { RESULT_OPTIONS, OUTCOME_OPTIONS } from "@/lib/cockpit-flow";
 import { findPendingCall, linkAttemptToCall } from "@/lib/telephony/link";
+import { hourOfDay, weekdayOf } from "@/lib/time";
 import type {
   CallResult,
   ConversationOutcome,
@@ -476,8 +477,12 @@ export async function recordAttempt(input: RecordAttemptInput) {
       sessionId: input.sessionId ?? null,
       attemptNo: lead.attemptCount + 1,
       slotId: currentSlot?.id ?? null,
-      hourOfDay: now.getHours(),
-      weekday: now.getDay() === 0 ? 7 : now.getDay(),
+      // Svensk väggklocka, inte serverns. Vercel kör i UTC, och fram till
+      // 2026-08-15 skrevs båda kolumnerna med getHours()/getDay() — alla 1 106
+      // rader som fanns då bär UTC-timmen och är två timmar fel sommartid.
+      // Rättade i efterhand ur startedAt av backfill-hour-weekday.mjs.
+      hourOfDay: hourOfDay(now),
+      weekday: weekdayOf(now),
       result: input.result,
       outcome: input.outcome ?? null,
       noReason: input.noReason ?? null,
