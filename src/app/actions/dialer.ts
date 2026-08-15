@@ -8,6 +8,7 @@ import { computeNext, slotAt, type Slot, type SchedulerConfig } from "@/lib/sche
 import { resolveScript, firstNameOf, type ResolverVariant } from "@/lib/script-resolver";
 import { getActiveScripts } from "@/app/actions/scripts";
 import { RESULT_OPTIONS, OUTCOME_OPTIONS } from "@/lib/cockpit-flow";
+import { findPendingCall, linkAttemptToCall } from "@/lib/telephony/link";
 import type {
   CallResult,
   ConversationOutcome,
@@ -702,6 +703,29 @@ export async function recordAttempt(input: RecordAttemptInput) {
 
   if (input.gatekeeper) {
     await upsertGatekeeper(input.leadId, input.gatekeeper);
+  }
+
+  // ── Växelsamtalet som väntar på sitt utfall ──────────────────────────────
+  //
+  // Lynes rapporterar när luren läggs på, säljaren dispositionerar sekunderna
+  // efter. Webhooken kommer alltså nästan alltid FÖRST och hittar då ingen
+  // registrering att koppla till — 368 av 471 samtal den 14 augusti låg kvar
+  // okopplade av precis det skälet.
+  //
+  // Här stängs cirkeln från andra hållet. Efter transaktionen med flit: en
+  // koppling som fallerar får kosta en samtalslängd, aldrig ett samtal.
+  const match = await findPendingCall({
+    sellerId: user.id,
+    leadId: input.leadId,
+    dialedE164: input.dialedE164 ?? null,
+    at: now,
+  });
+  if (match) {
+    await linkAttemptToCall({
+      attemptId: attempt.id,
+      attemptDurationSec: Math.max(0, Math.trunc(input.durationSec ?? 0)),
+      match,
+    });
   }
 
   return { attemptId: attempt.id, nextActionAt: decision.nextActionAt, retired: decision.retired };
