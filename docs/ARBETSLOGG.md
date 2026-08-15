@@ -8,6 +8,102 @@ Nyast först.
 
 ---
 
+## 2026-08-15 — Kopplingen åt rätt håll, och coachingvyn den öppnade
+
+### Webhooken kommer alltid först
+
+Kopplingen mellan växelsamtal och disposition gjordes bara vid mottagandet av
+webhooken. Den riktningen är fel för nästan varje samtal: Lynes rapporterar i
+samma ögonblick som luren läggs på, och säljaren dispositionerar sekunderna
+efter. Webhooken letade alltså efter en rad som ännu inte fanns.
+
+Mätt på 471 utgående samtal den 14 augusti:
+
+    dispositionen skrevs EFTER webhooken kom      368
+    dispositionen fanns redan när webhooken kom    13
+    ingen disposition alls                         63
+
+Trettio samtal av 508 var kopplade. `recordAttempt` letar nu upp det väntande
+växelsamtalet efter att transaktionen gått igenom, och
+`prisma/backfill-telephony-links.mjs` gjorde samma sak bakåt. **337 av 485 är
+kopplade nu.**
+
+**Fönstret mäts från samtalets SLUT, inte dess start.** Ett samtal i
+produktionsdatan är 2 033 sekunder långt — mätt från starten hamnar
+dispositionen en halvtimme bort och faller utanför varje rimligt fönster,
+trots att den skrevs direkt efter påläggningen. Fördelningen från slut till
+disposition: 313 inom 30 s, 41 inom två minuter, 15 längre bort. De sista
+lämnas omatchade med flit; där hann säljaren ringa ett samtal till.
+
+### RÄTTELSE: `duration` innehåller ringtiden
+
+Den öppna punkten om `talkSec` är besvarad, och svaret är att `durationSec`
+inte är samtalstid. Kopplingen avgjorde det: **obesvarade samtal har 17
+sekunders median-duration**, och ett obesvarat samtal består av ingenting
+annat än ringtid.
+
+Följden är att växelns svarsfrekvens var falsk. Växeln såg 63 obesvarade
+utgående den 14:e; säljarna registrerade 173. De 110 däremellan är samtal som
+ringde 20–45 sekunder utan att någon svarade, och som räknades som besvarade
+för att durationen var över noll. "86 % svarsfrekvens" är i verkligheten
+omkring 62 %.
+
+Coachingvyn drar därför bort ringtiden från varje längd, och räknar om
+medianen vid varje anrop i stället för att hårdkoda den — ändrar växeln sin
+timeout följer måttet med.
+
+### Cockpitens `durationSec` mäter fel sak
+
+Den mäter tiden dispositionsrutan var öppen, inte samtalet. Före kopplingen
+stod det **3 sekunder** i snitt på en bokad återkomst och 5 på ett DM-nej.
+Växelns siffror för samma rader: 89 respektive 108 sekunder. Backfillen skrev
+in den riktiga längden där kolumnen stod på noll.
+
+### `/coaching`
+
+Egen sida och inte en flik i Statistik, därför att den svarar på en annan
+fråga: statistiken räknar utfall ur säljarens registrering, coachingen mäter
+beteende ur växelns samtal. Tre mått per säljare — andel korta samtal, dödtid
+mellan samtal, taltid per timme på dagen — var och en ställd mot golvets
+median.
+
+**Jämförelsen är alltid mot medianen, aldrig mot ett uppsatt mål.** Ett mål är
+en gissning; medianen är bevisligen nåbar, eftersom halva golvet redan når
+den. Flaggor sätts bara vid marginal utöver medianen (10 procentenheter,
+faktor 1,5, faktor 0,6) — utan marginalerna flaggas halva golvet varje dag och
+listan slutar betyda något.
+
+Första körningen mot riktig data: Josef gör flest samtal (194) men har 39 %
+korta mot golvets 24 och 35 sekunders medianlängd mot golvets 60. Han ringer
+mest och kommer minst in i samtalen — exakt den motsättning ingen siffra i
+systemet kunde visa tidigare.
+
+### Öppna punkter
+
+- [ ] **Inspelningar finns inte i webhooken, och kommer inte att göra det.**
+      513 payloads, alla med exakt samma åtta fält (`toNumber`, `fromNumber`,
+      `duration`, `body`, `startTime`, `callType`, `userId`, `itemType`). Noll
+      innehåller ordet "record". Ljudet måste hämtas ur ett Lynes-API.
+      **Frågan att ställa Lynes:** finns ett REST-API för att lista och ladda
+      ner inspelningar, hur autentiseras det, och vilket fält knyter en
+      inspelning till ett samtal — webhooken skickar ingen samtalsidentifierare,
+      bara `startTime`, `userId` och nummer.
+- [ ] **148 av 485 samtal saknar fortfarande disposition.** Efter backfillen är
+      det inte längre ett kopplingsfel utan verkligt bortfall: växeln såg
+      samtalet, ingen sa vad det ledde till. Siffran står i coachingvyn.
+- [ ] **`CallAttempt.hourOfDay` sätts med `now.getHours()`** i `recordAttempt`,
+      alltså i UTC på Vercel. Varje rad är två timmar fel sommartid. Coachingen
+      rör den inte — den använder `hourOfDay()` i `src/lib/time.ts` mot växelns
+      tidsstämpel — men allt annat som läser kolumnen är förskjutet, och en
+      rättelse kräver backfill för att inte blanda två betydelser i samma
+      kolumn.
+- [ ] **`talkSec` och `waitSec` är fortfarande tomma.** De går att fylla den dag
+      Lynes kan skicka en svarstidpunkt. Tills dess är ringtidsmedianen
+      approximationen, och den är gemensam för alla samtal — en säljare vars
+      samtal genomgående ringer längre får sin uppkopplade tid överskattad.
+
+---
+
 ## 2026-08-14 (senare) — Lynes skickar millisekunder, och rapporterar efteråt
 
 Tretton riktiga leveranser räckte för att avgöra två saker som en enda inte

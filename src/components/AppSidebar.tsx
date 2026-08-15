@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import {
   Handshake, Upload, BarChart2, ShieldCheck, LogOut, Zap, Search,
   FolderOpen, Radio, MessageSquare, SlidersHorizontal, PanelLeftClose, PanelLeftOpen,
-  Settings,
+  Settings, Gauge,
 } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 
@@ -29,6 +29,10 @@ const NAV = [
   // för alla utom admin. Dölj den i stället för att låta den se klickbar ut.
   { href: "/import",        label: "Importera",  icon: Upload, adminOnly: true },
   { href: "/stats",         label: "Statistik",  icon: BarChart2 },
+  // Egen ingång och inte en flik i Statistik: den svarar på en annan fråga.
+  // Statistiken räknar utfall ur säljarens registrering, coachingen mäter
+  // beteende ur växelns samtal — och det är två olika sanningar om samma dag.
+  { href: "/coaching",      label: "Coaching",   icon: Gauge },
   { href: "/admin/floor",   label: "Golvet",     icon: Radio, adminOnly: true },
   { href: "/admin/scripts", label: "Manus",      icon: MessageSquare, adminOnly: true },
   { href: "/admin/dialer",  label: "Dialer",     icon: SlidersHorizontal, adminOnly: true },

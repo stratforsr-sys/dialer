@@ -82,6 +82,18 @@ export function endOfDay(at: Date = new Date(), tz: string = TZ): Date {
   return new Date(nextDay.getTime() - 1);
 }
 
+/**
+ * Timmen på den svenska väggklockan, 0–23.
+ *
+ * `Date.getHours()` duger inte: Vercel kör i UTC, och ett samtal klockan 08:30
+ * svensk sommartid hade räknats som 06. En fördelning över arbetsdagen blir då
+ * systematiskt två timmar förskjuten och ser ut som om golvet börjar ringa före
+ * gryningen.
+ */
+export function hourOfDay(at: Date, tz: string = TZ): number {
+  return wallClock(at, tz).hh;
+}
+
 /** Samma svenska kalenderdag? */
 export function isSameDay(a: Date, b: Date, tz: string = TZ): boolean {
   const wa = wallClock(a, tz);
