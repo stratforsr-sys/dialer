@@ -27,7 +27,14 @@ export default async function CockpitPage({
   // ligger först i kön. Leasen tas här och inte i klienten: hinner en kollega
   // före ska säljaren mötas av ett besked, inte av ett bolag som tyst byttes ut.
   if (leadId) {
-    const opened = await leaseSpecificLead(leadId);
+    // Länken till ett uppslaget bolag går att skicka vidare, och mottagaren har
+    // inte nödvändigtvis tillgång till mappen den ligger i. `requireLeadAccess`
+    // kastar då, och en obehandlad kastning här är en generisk felsida — säg
+    // vad som hände i stället.
+    const opened = await leaseSpecificLead(leadId).catch(() => ({
+      ok: false as const,
+      message: "Du har inte tillgång till det här bolaget.",
+    }));
 
     if (!opened.ok) {
       return <Blocked message={opened.message} leadId={leadId} />;
