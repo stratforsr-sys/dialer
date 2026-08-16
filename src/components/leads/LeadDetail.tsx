@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowLeft, Globe, Phone, Mail, Linkedin,
+  ArrowLeft, Globe, Phone, PhoneOutgoing, Mail, Linkedin,
   Plus, Send, Edit2, Trash2, Building2, Users,
 } from "lucide-react";
 import type { LeadDetail as LeadDetailType } from "@/app/actions/leads";
@@ -83,6 +83,17 @@ export function LeadDetail({
         </span>
 
         <div className="ml-auto" />
+
+        {/* Samma väg in som från sökträffen. Bolagskortet är dit notisklockan,
+            affärerna och researchen länkar — därifrån ska nästa steg vara att
+            ringa, inte att leta rätt på vilken ringlista bolaget råkar ligga i. */}
+        <Link
+          href={`/cockpit?leadId=${lead.id}`}
+          className="flex items-center gap-1.5 px-3 py-[6px] rounded-md text-[12px] font-medium"
+          style={{ background: "var(--accent)", color: "var(--on-accent)" }}
+        >
+          <PhoneOutgoing size={13} /> Öppna i dialer
+        </Link>
       </div>
 
       {/* Main content */}

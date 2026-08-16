@@ -9,7 +9,7 @@ import { resolveScript, firstNameOf, type ResolverVariant } from "@/lib/script-r
 import { getActiveScripts } from "@/app/actions/scripts";
 import { RESULT_OPTIONS, OUTCOME_OPTIONS } from "@/lib/cockpit-flow";
 import { findPendingCall, linkAttemptToCall } from "@/lib/telephony/link";
-import { hourOfDay, weekdayOf } from "@/lib/time";
+import { hourOfDay, weekdayOf, formatTime, formatWhen } from "@/lib/time";
 import type {
   CallResult,
   ConversationOutcome,
@@ -213,6 +213,19 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
   const ids = rows.map((r) => r.id);
   if (ids.length === 0) return [];
 
+  return hydrateLeads(ids, user);
+}
+
+/**
+ * Hämtar allt cockpiten behöver om ett redan leasat block: fakta, kontakter,
+ * historik, växelminne, dossier och färdigupplösta manus.
+ *
+ * Bruten ur `leaseNextLeads` när `leaseSpecificLead` tillkom. De två tar leads
+ * på helt olika sätt — den ena ur rotationen, den andra på namn — men det
+ * cockpiten renderar måste vara identiskt, annars hade ett uppslaget bolag
+ * saknat exempelvis historiken och skillnaden bara synts som en tom panel.
+ */
+async function hydrateLeads(ids: string[], user: { name: string }) {
   const leads = await db.lead.findMany({
     where: { id: { in: ids } },
     select: {
@@ -368,6 +381,165 @@ export async function releaseLeases(leadIds: string[]) {
     data: { leasedById: null, leasedUntil: null },
   });
   return { released: res.count };
+}
+
+// ── Öppna ett utpekat bolag i cockpiten ────────────────────────────────────
+
+/** En sak säljaren bör veta innan hen slår numret. */
+export type OpenWarning = { tone: "warn" | "danger"; text: string };
+
+/**
+ * Reserverar EXAKT det bolag någon pekat ut — vägen in från sökningen.
+ *
+ * `leaseNextLeads` svarar på "vilket bolag står på tur". Den här gör tvärtom:
+ * den tar bolaget säljaren skrev namnet på och struntar i däckets filter. Det
+ * är avsiktligt. Filtren finns för att avgöra vad rotationen ska servera — en
+ * fråga ingen ställde när någon sökte upp ett namn och tryckte "Öppna i
+ * dialer". Att då svara "nej, det ligger utanför däcket" vore att låtsas att
+ * rotationen vet bättre än personen som redan har kunden på tråden.
+ *
+ * Ett enda undantag: det korta arbetslåset. Ligger bolaget i en kollegas
+ * leasade block just nu sitter hen sannolikt i samtalet, och två säljare på
+ * samma nummer är precis vad låset finns för. Då öppnas det inte.
+ *
+ * Allt annat — spärrat, aktiv affär, öppen återkomst, spärrlista, maxade
+ * försök — släpps igenom med en varning i stället. Notera särskilt återkomsten:
+ * den ligger utanför däcket och ska ringas via notisklockan, men den som
+ * medvetet söker upp bolaget får se löftet och vem som gav det, inte en stängd
+ * dörr utan förklaring.
+ */
+export async function leaseSpecificLead(leadId: string) {
+  const user = await requireLeadAccess(leadId);
+
+  const info = await db.lead.findUnique({
+    where: { id: leadId },
+    select: {
+      id: true,
+      companyName: true,
+      retired: true,
+      retiredReason: true,
+      hasActiveDeal: true,
+      attemptCount: true,
+      claimedAt: true,
+      ownerId: true,
+      leasedById: true,
+      leasedUntil: true,
+      owner: { select: { name: true } },
+      lists: { select: { list: { select: { id: true, name: true } } } },
+      callbacks: {
+        where: { status: "PENDING" },
+        orderBy: { scheduledAt: "asc" },
+        take: 1,
+        select: { scheduledAt: true, seller: { select: { name: true } } },
+      },
+      dnc: { select: { expiresAt: true, reason: true } },
+      _count: { select: { contacts: true } },
+    },
+  });
+
+  if (!info) {
+    return { ok: false as const, reason: "notFound" as const, message: "Bolaget finns inte längre." };
+  }
+
+  const now = new Date();
+  const cfg = await getDialerConfig();
+
+  // Kollegans arbetslås. `leasedUntil` i dåtid är ett utlöpt lås, inte ett lås.
+  if (info.leasedById && info.leasedById !== user.id && info.leasedUntil && info.leasedUntil > now) {
+    const holder = await db.user.findUnique({
+      where: { id: info.leasedById },
+      select: { name: true },
+    });
+    return {
+      ok: false as const,
+      reason: "leased" as const,
+      message: `${holder?.name ?? "En kollega"} har ${info.companyName} reserverat till ${formatTime(info.leasedUntil)}.`,
+    };
+  }
+
+  // Samma dubbelkoll som i däckets sats: det yttre villkoret upprepar det vi
+  // just läste, så en kollega som hinner emellan vinner i stället för att bli
+  // överskriven.
+  const taken = await db.$queryRawUnsafe<{ id: string }[]>(
+    `UPDATE "Lead"
+        SET "leasedById" = ?, "leasedUntil" = ?
+      WHERE "id" = ?
+        AND ("leasedUntil" IS NULL OR "leasedUntil" < ? OR "leasedById" = ?)
+      RETURNING "id"`,
+    user.id,
+    new Date(now.getTime() + cfg.leaseMinutes * 60_000).toISOString(),
+    leadId,
+    now.toISOString(),
+    user.id
+  );
+  if (taken.length === 0) {
+    return {
+      ok: false as const,
+      reason: "leased" as const,
+      message: `En kollega hann före och har ${info.companyName} uppe just nu.`,
+    };
+  }
+
+  const warnings: OpenWarning[] = [];
+
+  if (info.retired) {
+    warnings.push({
+      tone: "danger",
+      text: info.retiredReason ? `Spärrat: ${info.retiredReason}` : "Bolaget är spärrat",
+    });
+  }
+  if (info.dnc && (info.dnc.expiresAt === null || info.dnc.expiresAt > now)) {
+    warnings.push({
+      tone: "danger",
+      text: info.dnc.reason ? `Spärrlista: ${info.dnc.reason}` : "Står på spärrlistan",
+    });
+  }
+  if (info._count.contacts === 0) {
+    warnings.push({ tone: "danger", text: "Bolaget har ingen kontakt med telefonnummer" });
+  }
+  const promise = info.callbacks[0];
+  if (promise) {
+    warnings.push({
+      tone: "warn",
+      text: `${promise.seller.name} lovade återkomma ${formatWhen(promise.scheduledAt, now)}`,
+    });
+  }
+  if (info.hasActiveDeal) {
+    warnings.push({ tone: "warn", text: "Bolaget är redan kund — det finns en aktiv affär" });
+  }
+  if (info.attemptCount >= cfg.maxAttempts) {
+    warnings.push({
+      tone: "warn",
+      text: `${info.attemptCount} försök gjorda — taket är ${cfg.maxAttempts}`,
+    });
+  }
+  if (info.claimedAt && info.claimedAt > claimCutoff(now) && info.ownerId !== user.id) {
+    warnings.push({ tone: "warn", text: `${info.owner.name} jobbar bolaget` });
+  }
+
+  const [lead] = await hydrateLeads([leadId], user);
+  if (!lead) {
+    return { ok: false as const, reason: "notFound" as const, message: "Bolaget finns inte längre." };
+  }
+
+  // Cockpiten körs i en mapps kontext. Ligger bolaget i flera tas den första
+  // säljaren faktiskt kommer åt — en mapp hen saknar behörighet till hade
+  // fått påfyllningen att kasta direkt efter första samtalet.
+  let list: { id: string; name: string } | null = null;
+  for (const entry of info.lists) {
+    if (await canAccessList(user, entry.list.id)) {
+      list = entry.list;
+      break;
+    }
+  }
+
+  return {
+    ok: true as const,
+    lead,
+    listId: list?.id ?? null,
+    listName: list?.name ?? null,
+    warnings,
+  };
 }
 
 // ── Registrera ett samtal ──────────────────────────────────────────────────

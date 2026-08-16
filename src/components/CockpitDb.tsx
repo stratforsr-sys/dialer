@@ -10,7 +10,8 @@ import {
   Search, Star, Trophy, Tag,
 } from "lucide-react";
 import { startSession, endSession } from "@/app/actions/sessions";
-import { leaseNextLeads, releaseLeases } from "@/app/actions/dialer";
+import { leaseNextLeads, releaseLeases, leaseSpecificLead, type OpenWarning } from "@/app/actions/dialer";
+import type { LeadSearchHit } from "@/app/actions/leads";
 import { heartbeat, goOffline } from "@/app/actions/presence";
 import { saveCockpitNote } from "@/app/actions/activities";
 import { RegisterDealModal } from "@/components/deals/RegisterDealModal";
@@ -20,6 +21,7 @@ import { FrameworkRail, FrameworkTap } from "@/components/cockpit/FrameworkPanel
 import { ScriptPanel } from "@/components/cockpit/ScriptPanel";
 import { CallbackForm, EMPTY_CALLBACK, type CallbackDraft } from "@/components/cockpit/CallbackForm";
 import { LeadHistory, type HistoryActivity } from "@/components/cockpit/LeadHistory";
+import { LeadSwitcher } from "@/components/cockpit/LeadSwitcher";
 import { useDispositionQueue } from "@/hooks/useDispositionQueue";
 import { formatSwedish } from "@/lib/phone";
 import { formatWhen } from "@/lib/time";
@@ -509,13 +511,20 @@ export function CockpitDb({
   listName,
   leaseMinutes,
   slots,
+  openedLeadId = null,
+  openedWarnings = [],
 }: {
   initialLeads: LeasedLead[];
   userId: string;
-  listId: string;
-  listName: string;
+  /** Null när bolaget slogs upp via sökningen och inte ligger i någon mapp
+   *  säljaren kommer åt. Påfyllningen tar då ur hela det egna däcket. */
+  listId: string | null;
+  listName: string | null;
   leaseMinutes: number;
   slots: Slot[];
+  /** Bolaget som slogs upp via sökningen, om vägen in var "Öppna i dialer". */
+  openedLeadId?: string | null;
+  openedWarnings?: OpenWarning[];
 }) {
   const router = useRouter();
   const queue = useDispositionQueue();
@@ -542,6 +551,14 @@ export function CockpitDb({
   const [savedNotes, setSavedNotes] = useState<HistoryActivity[]>([]);
   const [savingNote, setSavingNote] = useState(false);
   const [noteError, setNoteError] = useState(false);
+
+  // Bolaget som slogs upp på namn — vid ingången eller senare med ⌘K. Bärs som
+  // state och inte bara som prop: varningarna hör till det uppslagna bolaget,
+  // och byter man bolag mitt i passet är det de nya som gäller.
+  const [opened, setOpened] = useState<{ id: string; warnings: OpenWarning[] } | null>(
+    openedLeadId ? { id: openedLeadId, warnings: openedWarnings } : null
+  );
+  const [showSwitcher, setShowSwitcher] = useState(false);
 
   const [flow, setFlow] = useState<FlowState>(INITIAL_FLOW);
   const [gk, setGk] = useState<GatekeeperDraft>(EMPTY_GATEKEEPER);
@@ -695,6 +712,43 @@ export function CockpitDb({
     setContactIndex(0);
     resetFlow();
   }, [resetFlow]);
+
+  /**
+   * Byt till ett uppslaget bolag utan att lämna passet.
+   *
+   * Bolaget läggs direkt efter det aktuella och blir nästa i kön — inte i
+   * stället för kön. Det pågående samtalet hoppas över precis som med `s`:
+   * ingen disposition skrivs, bolaget ligger kvar och kommer tillbaka.
+   *
+   * Att i stället navigera om till /cockpit?leadId=… hade avslutat
+   * ringsessionen och startat en ny, vilket delar säljarens pass i två i
+   * statistiken varje gång någon slår upp ett bolag.
+   */
+  const openSearched = useCallback(async (hit: LeadSearchHit): Promise<string | null> => {
+    const res = await leaseSpecificLead(hit.id);
+    if (!res.ok) return res.message;
+
+    const cur = indexRef.current;
+    const hasCurrent = Boolean(leadsRef.current[cur]);
+    const at = hasCurrent ? cur + 1 : cur;
+
+    setLeads((prev) => {
+      // En dubblett längre fram i kön plockas bort — annars serveras bolaget
+      // en gång till om ett par samtal, nu utan att någon bett om det.
+      const kept = prev.filter((l, i) => i < at || l.id !== res.lead.id);
+      return [...kept.slice(0, at), res.lead, ...kept.slice(at)];
+    });
+    setOpened({ id: res.lead.id, warnings: res.warnings });
+
+    if (hasCurrent) {
+      advance();
+    } else {
+      setContactIndex(0);
+      setIdleSeconds(0);
+      resetFlow();
+    }
+    return null;
+  }, [advance, resetFlow]);
 
   // ── Anteckning: Enter sparar ───────────────────────────────────────────
   //
@@ -874,6 +928,14 @@ export function CockpitDb({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      // Sökrutan går före allt annat, också när markören står i
+      // anteckningsfältet: den ska svara likadant var i vyn man än befinner sig.
+      if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setShowSwitcher(true);
+        return;
+      }
+
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         if (e.key === "Escape") (e.target as HTMLElement).blur();
         return;
@@ -939,15 +1001,26 @@ export function CockpitDb({
           {refilling ? <Loader2 size={28} className="animate-spin" style={{ color: "var(--success)" }} /> : <Zap size={28} style={{ color: "var(--success)" }} />}
         </div>
         <h2 className="text-[20px] font-semibold" style={{ color: "var(--text)" }}>
-          {refilling ? "Hämtar fler..." : `${listName} är slut`}
+          {refilling ? "Hämtar fler..." : `${listName ?? "Kön"} är slut`}
         </h2>
         <p className="text-[14px] text-center max-w-[380px]" style={{ color: "var(--text-muted)" }}>
           {totalCalls} samtal denna session.
           {exhausted && " Inga fler leads är ringbara just nu — resten väntar på sin tur i uppföljningen."}
         </p>
-        <button onClick={() => router.push(`/lists/${listId}`)} className="px-5 py-2 text-[13px] font-medium rounded-md mt-2" style={{ background: "var(--accent)", color: "var(--on-accent)" }}>
-          Tillbaka till listan
-        </button>
+        <div className="flex items-center gap-2 mt-2">
+          <button onClick={() => router.push(listId ? `/lists/${listId}` : "/lists")} className="px-5 py-2 text-[13px] font-medium rounded-md" style={{ background: "var(--accent)", color: "var(--on-accent)" }}>
+            {listId ? "Tillbaka till listan" : "Till ringlistorna"}
+          </button>
+          {/* Kön är slut, men ett bolag man vet namnet på går fortfarande att
+              ringa — annars är enda vägen dit att lämna cockpiten. */}
+          <button onClick={() => setShowSwitcher(true)} className="flex items-center gap-1.5 px-4 py-2 text-[13px] rounded-md" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
+            <Search size={13} /> Sök bolag
+          </button>
+        </div>
+
+        {showSwitcher && (
+          <LeadSwitcher onClose={() => setShowSwitcher(false)} onPick={openSearched} />
+        )}
       </div>
     );
   }
@@ -977,11 +1050,15 @@ export function CockpitDb({
       {/* Toppfält */}
       <div className="flex items-center justify-between px-5 h-[52px] border-b shrink-0" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
         <div className="flex items-center gap-2.5 min-w-0">
-          <button onClick={() => router.push(`/lists/${listId}`)} className="flex items-center gap-1 text-[13px] shrink-0" style={{ color: "var(--text-muted)" }}>
+          <button onClick={() => router.push(listId ? `/lists/${listId}` : "/lists")} className="flex items-center gap-1 text-[13px] shrink-0" style={{ color: "var(--text-muted)" }}>
             <ArrowLeft size={14} /> Avsluta
           </button>
           <span className="text-[13px]" style={{ color: "var(--border-strong)" }}>/</span>
-          <span className="text-[13px] font-medium truncate" style={{ color: "var(--text)" }}>{listName}</span>
+          {/* Utan mapp är kön hela det egna däcket — säg det, i stället för att
+              låta rubriken stå tom och se ut som ett fel. */}
+          <span className="text-[13px] font-medium truncate" style={{ color: listName ? "var(--text)" : "var(--text-muted)" }}>
+            {listName ?? "Alla mina leads"}
+          </span>
           {currentSlotName && (
             <span className="text-[11px] px-2 py-[2px] rounded-full shrink-0" style={{ background: "var(--surface-inset)", color: "var(--text-dim)", border: "1px solid var(--border)" }}>
               {currentSlotName}
@@ -990,6 +1067,14 @@ export function CockpitDb({
         </div>
 
         <div className="flex items-center gap-4">
+          <button
+            onClick={() => setShowSwitcher(true)}
+            title="Sök upp ett bolag (⌘K)"
+            className="flex items-center gap-1.5 px-2 py-[3px] rounded-sm text-[11px] shrink-0"
+            style={{ background: "var(--surface-inset)", border: "1px solid var(--border)", color: "var(--text-dim)" }}
+          >
+            <Search size={11} /> <span className="tracking-wide">⌘K</span>
+          </button>
           <PaceMeter
             totalCalls={totalCalls}
             idleSeconds={idleSeconds}
@@ -1029,6 +1114,38 @@ export function CockpitDb({
                 transition={{ duration: 0.09, ease: "easeOut" }}
                 className={`w-full ${DASH_W} py-5`}
               >
+                {/* Uppslaget bolag. Bandet svarar på frågan säljaren annars
+                    ställer sig: varför ligger det HÄR bolaget i kön, och vad är
+                    det jag inte vet innan jag slår numret? Rotationens filter
+                    gäller inte den som söker upp ett namn — men skälen till att
+                    de finns ska stå framför näsan. */}
+                {opened && opened.id === lead.id && (
+                  <div className="mb-3 rounded-md overflow-hidden" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                    <div
+                      className="flex items-center gap-2 px-3 py-[6px]"
+                      style={{ borderBottom: opened.warnings.length > 0 ? "1px solid var(--border-subtle)" : undefined }}
+                    >
+                      <Search size={11} style={{ color: "var(--text-dim)" }} />
+                      <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>
+                        Uppslaget via sökningen
+                      </span>
+                    </div>
+                    {opened.warnings.map((w, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-2 px-3 py-[6px] text-[12px] font-medium"
+                        style={{
+                          color: w.tone === "danger" ? "var(--danger)" : "var(--warning)",
+                          borderTop: i > 0 ? "1px solid var(--border-subtle)" : undefined,
+                        }}
+                      >
+                        <AlertTriangle size={11} className="shrink-0" />
+                        {w.text}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {/* Bolagsrubrik */}
                 <div className="flex items-center gap-3 mb-3">
                   <div className="w-10 h-10 rounded-lg flex items-center justify-center text-[15px] font-bold shrink-0"
@@ -1442,6 +1559,10 @@ export function CockpitDb({
             if (flow.result) commit({ result: flow.result, outcome: "SOLD" });
           }}
         />
+      )}
+
+      {showSwitcher && (
+        <LeadSwitcher onClose={() => setShowSwitcher(false)} onPick={openSearched} />
       )}
     </div>
   );

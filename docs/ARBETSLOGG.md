@@ -8,6 +8,70 @@ Nyast först.
 
 ---
 
+## 2026-08-15 (senare) — Öppna i dialer: från sökträff till samtal
+
+Sökningen kunde hitta ett bolag men inte ringa det. Vägen var bolagskort →
+ringlista → starta pass → hoppas att bolaget dyker upp, och sista steget höll
+inte: ett bolag med öppen återkomst, maxade försök eller aktiv affär serveras
+aldrig av rotationen. Man kunde alltså se företaget på skärmen och ändå inte nå
+det.
+
+**`leaseSpecificLead` i `actions/dialer.ts`** är motsatsen till
+`leaseNextLeads`. Den senare svarar på "vilket bolag står på tur"; den nya tar
+bolaget någon skrev namnet på och **struntar i däckets filter**. Det är
+avsiktligt — filtren avgör vad rotationen ska servera, en fråga ingen ställde
+när säljaren sökte upp ett namn. I stället för att stänga dörren skickar den med
+varningar som cockpiten renderar över bolagsrubriken: spärrat, spärrlista, öppen
+återkomst med namn på den som lovade, aktiv affär, försök över taket, låst av
+kollega, ingen kontakt med nummer.
+
+**Ett undantag släpps inte igenom: kollegans arbetslås.** Ligger bolaget i någon
+annans leasade block just nu sitter hen sannolikt i samtalet, och två säljare på
+samma nummer är precis vad låset finns för. Då visas en skärm med namn och tid i
+stället för cockpiten. Låset tas med samma dubbelkollande UPDATE som däcket
+använder, så en kollega som hinner emellan vinner i stället för att skrivas
+över.
+
+**Cockpiten kör nu också utan mapp.** `listId` är `string | null`: ett uppslaget
+bolag som inte ligger i någon ringlista säljaren kommer åt öppnas ändå, och
+påfyllningen tar då ur hela det egna däcket (`leaseNextLeads(null)`, som redan
+fanns). Rubriken säger "Alla mina leads" så att den tomma platsen inte läser som
+ett fel.
+
+**⌘K i cockpiten** (`components/cockpit/LeadSwitcher.tsx`) byter bolag mitt i
+passet. Bolaget läggs **efter** det aktuella och blir nästa i kön — det pågående
+samtalet hoppas över precis som med `s`, ingen disposition skrivs. Den viktiga
+detaljen är att bytet sker i klienten och inte med en navigering till
+`/cockpit?leadId=…`: en navigering hade avslutat ringsessionen och startat en
+ny, vilket delat säljarens pass i två i statistiken varje gång någon slog upp
+ett bolag. Att dispositionstangenterna inte fyrar medan rutan är öppen sköts av
+cockpitens befintliga lyssnare, som släpper igenom allt som kommer från ett
+`input` — "3" skriver en trea i sökfältet i stället för att registrera ett sålt
+samtal.
+
+Ingången finns på tre ställen: knappen i sökträffen på Ringlistor, knappen i
+topplisten på `/leads/[id]`, och ⌘K inne i cockpiten.
+
+`hydrateLeads` bröts ur `leaseNextLeads` och delas nu av båda vägarna. Det är
+inte kosmetika: hade den uppslagna vägen haft en egen select hade bolaget saknat
+exempelvis historiken, och skillnaden bara synts som en tom panel.
+
+Ingen migration — inga nya kolumner.
+
+### Öppna punkter
+
+- [ ] **Varningarna är oräknade.** Det går inte att svara på hur ofta någon
+      öppnar ett bolag med öppen återkomst, alltså inte heller på om undantaget
+      används som avsett eller har blivit en genväg förbi notisklockan. En rad i
+      aktivitetsloggen vid uppslag hade besvarat det.
+- [ ] **Kollegans lås blockerar även den som bara vill titta.** Skärmen länkar
+      till bolagskortet, men en säljare som fått kunden på tråden medan kollegan
+      har bolaget uppe har ingen väg in i cockpiten alls. Om det visar sig
+      hända i verkligheten är övertagande med varning nästa steg — det valdes
+      bort nu för att det kan rycka undan ett pågående samtal.
+
+---
+
 ## 2026-08-15 — Kopplingen åt rätt håll, och coachingvyn den öppnade
 
 ### Webhooken kommer alltid först

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Building2, Phone, CalendarClock, Ban, Briefcase } from "lucide-react";
+import { Loader2, Building2, Phone, PhoneOutgoing, CalendarClock, Ban, Briefcase } from "lucide-react";
 import { searchAssignedLeads, type LeadSearchHit } from "@/app/actions/leads";
 import { formatSwedish } from "@/lib/phone";
 import { formatWhen } from "@/lib/time";
@@ -100,57 +100,82 @@ export function LeadSearchResults({ query }: { query: string }) {
       )}
 
       {hits.map((hit) => (
-        <button
+        <div
           key={hit.id}
-          onClick={() => router.push(`/leads/${hit.id}`)}
-          className="flex items-center gap-3 w-full px-4 py-[9px] text-left"
+          className="flex items-center gap-3 w-full px-4 py-[9px]"
           style={{ borderTop: "1px solid var(--border-subtle)" }}
           onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-hover)")}
           onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
         >
-          <Building2 size={13} className="shrink-0" style={{ color: "var(--text-dim)" }} />
+          <button
+            onClick={() => router.push(`/leads/${hit.id}`)}
+            className="flex items-center gap-3 min-w-0 flex-1 text-left"
+          >
+            <Building2 size={13} className="shrink-0" style={{ color: "var(--text-dim)" }} />
 
-          <span className="min-w-0 flex-1">
-            <span className="flex items-center gap-2">
-              <span
-                className="text-[13px] font-medium truncate"
-                style={{ color: "var(--text)" }}
-              >
-                {hit.companyName}
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-2">
+                <span
+                  className="text-[13px] font-medium truncate"
+                  style={{ color: "var(--text)" }}
+                >
+                  {hit.companyName}
+                </span>
+
+                {hit.retired && (
+                  <Tag icon={<Ban size={9} />} color="var(--danger)" label={hit.retiredReason ?? "Spärrat"} />
+                )}
+                {hit.hasActiveDeal && (
+                  <Tag icon={<Briefcase size={9} />} color="var(--success)" label="Affär" />
+                )}
+                {hit.callbackAt && !hit.retired && (
+                  <Tag
+                    icon={<CalendarClock size={9} />}
+                    color="var(--accent)"
+                    label={formatWhen(new Date(hit.callbackAt))}
+                  />
+                )}
               </span>
 
-              {hit.retired && (
-                <Tag icon={<Ban size={9} />} color="var(--danger)" label={hit.retiredReason ?? "Spärrat"} />
-              )}
-              {hit.hasActiveDeal && (
-                <Tag icon={<Briefcase size={9} />} color="var(--success)" label="Affär" />
-              )}
-              {hit.callbackAt && !hit.retired && (
-                <Tag
-                  icon={<CalendarClock size={9} />}
-                  color="var(--accent)"
-                  label={formatWhen(new Date(hit.callbackAt))}
-                />
-              )}
+              <span className="flex items-center gap-2 text-[11px] mt-[1px]" style={{ color: "var(--text-muted)" }}>
+                {hit.contactName && <span className="truncate">{hit.contactName}</span>}
+                {hit.city && <span className="truncate">{hit.city}</span>}
+                {hit.listName && <span className="truncate">· {hit.listName}</span>}
+              </span>
             </span>
 
-            <span className="flex items-center gap-2 text-[11px] mt-[1px]" style={{ color: "var(--text-muted)" }}>
-              {hit.contactName && <span className="truncate">{hit.contactName}</span>}
-              {hit.city && <span className="truncate">{hit.city}</span>}
-              {hit.listName && <span className="truncate">· {hit.listName}</span>}
-            </span>
-          </span>
+            {hit.phone && (
+              <span
+                className="flex items-center gap-1 text-[11px] shrink-0 mono-nums"
+                style={{ color: "var(--text-muted)" }}
+              >
+                <Phone size={10} />
+                {formatSwedish(hit.phone)}
+              </span>
+            )}
+          </button>
 
-          {hit.phone && (
-            <span
-              className="flex items-center gap-1 text-[11px] shrink-0 mono-nums"
-              style={{ color: "var(--text-muted)" }}
-            >
-              <Phone size={10} />
-              {formatSwedish(hit.phone)}
-            </span>
-          )}
-        </button>
+          {/* Vägen från "var ligger bolaget?" till "jag ringer dem nu". Utan den
+              är turen bolagskort → ringlista → starta pass → hoppas att bolaget
+              dyker upp, och det sista steget håller inte: ett bolag med öppen
+              återkomst eller maxade försök serveras aldrig av rotationen. */}
+          <button
+            onClick={() => router.push(`/cockpit?leadId=${hit.id}`)}
+            title="Öppna bolaget i cockpiten"
+            className="flex items-center gap-1.5 shrink-0 px-2 py-[3px] rounded-sm text-[11px] font-medium"
+            style={{ background: "var(--surface-inset)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "var(--accent)";
+              e.currentTarget.style.color = "var(--accent)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "var(--border)";
+              e.currentTarget.style.color = "var(--text-muted)";
+            }}
+          >
+            <PhoneOutgoing size={11} /> Öppna i dialer
+          </button>
+        </div>
       ))}
     </div>
   );

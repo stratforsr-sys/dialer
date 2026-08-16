@@ -213,6 +213,17 @@ kolumner hade innehåll i en av dem.
   egen lead-vy. Söker på bolagsnamn, kontaktperson, ort, org.nr och telefon
   (siffernormaliserat, så "070-123 45 67" hittar "+46701234567"), begränsat till
   det användaren har tillgång till. `searchAssignedLeads` i `actions/leads.ts`.
+- **Öppna i dialer** tar ett utpekat bolag rakt in i cockpiten:
+  `/cockpit?leadId=…` → `leaseSpecificLead`. Den **struntar i däckets filter** —
+  spärrat, aktiv affär, öppen återkomst, spärrlista och maxade försök släpps
+  igenom med en varning över bolagsrubriken i stället för att stängas ute.
+  Rotationens filter avgör vad som ska *serveras*, inte vad någon får slå upp.
+  Enda spärren är en kollegas levande arbetslås: hen sitter sannolikt i
+  samtalet. Ingångarna är sökträffen på Ringlistor, knappen på `/leads/[id]`
+  och ⌘K inne i cockpiten (`LeadSwitcher` — byter bolag i klienten, aldrig med
+  en navigering, som hade delat ringsessionen i två). Cockpitens `listId` är
+  därför `string | null`; ett bolag utan ringlista körs mot hela det egna
+  däcket.
 - Manus per ramverkssteg, i prioritetsordnade varianter (`src/lib/script-resolver.ts`).
   Manustexten visas ordagrant — radbrytningar och blankrader är en del av manuset,
   så alla vyer som renderar den måste ha `whitespace-pre-wrap`
