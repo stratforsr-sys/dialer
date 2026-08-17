@@ -413,7 +413,7 @@ export async function renewLeases(leadIds: string[]) {
   const user = await requireAuth();
   // Kön är ett block på 25; taket finns bara för att en trasig klient inte ska
   // kunna skicka in tusen id:n och spränga SQLites parametergräns.
-  const ids = [...new Set(leadIds)].slice(0, 200);
+  const ids = Array.from(new Set(leadIds)).slice(0, 200);
   if (ids.length === 0) return { held: [] as string[], lost: [] as LostLease[] };
 
   const cfg = await getDialerConfig();
@@ -435,7 +435,7 @@ export async function renewLeases(leadIds: string[]) {
 
   const held = new Set(rows.map((r) => r.id));
   const lostIds = ids.filter((id) => !held.has(id));
-  if (lostIds.length === 0) return { held: [...held], lost: [] as LostLease[] };
+  if (lostIds.length === 0) return { held: Array.from(held), lost: [] as LostLease[] };
 
   // Namnet på den som tog över hämtas bara när något faktiskt gått förlorat.
   // `leasedById` är en naken kolumn utan relation, så användaren slås upp
@@ -444,15 +444,19 @@ export async function renewLeases(leadIds: string[]) {
     where: { id: { in: lostIds } },
     select: { id: true, leasedById: true },
   });
-  const holderIds = [...new Set(takenRows.map((r) => r.leasedById).filter(Boolean))] as string[];
+  const holderIds = Array.from(
+    new Set(takenRows.map((r) => r.leasedById).filter(Boolean))
+  ) as string[];
   const holders = holderIds.length
     ? await db.user.findMany({ where: { id: { in: holderIds } }, select: { id: true, name: true } })
     : [];
-  const nameById = new Map(holders.map((h) => [h.id, h.name]));
-  const holderByLead = new Map(takenRows.map((r) => [r.id, r.leasedById]));
+  const nameById = new Map<string, string>(holders.map((h) => [h.id, h.name] as const));
+  const holderByLead = new Map<string, string | null>(
+    takenRows.map((r) => [r.id, r.leasedById] as const)
+  );
 
   return {
-    held: [...held],
+    held: Array.from(held),
     lost: lostIds.map((id) => {
       const holderId = holderByLead.get(id);
       return { id, holder: holderId ? nameById.get(holderId) ?? null : null };
