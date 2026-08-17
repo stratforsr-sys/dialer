@@ -8,6 +8,70 @@ Nyast först.
 
 ---
 
+## 2026-08-17 — Två säljare på samma bolag: parkeringen gick ut mitt i passet
+
+Rapporterat från golvet: två personer ringde i dialern samtidigt och fick upp
+samma bolag. Arbetslåset var inte trasigt — **det gick ut medan bolaget
+fortfarande stod på skärmen.**
+
+Räkna på det som fanns: `leaseBlockSize` är 25 och `leaseMinutes` är 15 (båda
+verifierade i produktionsdatabasen). Ett block är alltså över en timmes samtal
+på en parkering som dör efter en kvart. Från minut femton och framåt låg
+svansen av kön olåst i databasen medan den fortfarande stod i säljarens
+webbläsare, och `leaseNextLeads` — vars enda krav är `leasedUntil < now` —
+serverade den vidare till nästa säljare som startade ett pass. Ingen kollision
+i själva utdelningen: den är atomär och har alltid varit det. Kollisionen låg i
+att kön levde längre än låset.
+
+**Förnyelsen fanns bara som rubrik.** Intervallet i `CockpitDb` stod under
+kommentaren "Leasen går ut efter en stund — förnya innan den gör det" och
+anropade `refill()`. Den leasar bara *nya* bolag och rör aldrig dem som redan
+ligger i kön. Förnyelse har alltså aldrig existerat i koden, bara i
+kommentaren — värt att notera för nästa gång en kommentar läses som ett bevis.
+
+**`renewLeases` i `actions/dialer.ts`** förlänger `leasedUntil` på det oringda
+i kön (`leads.slice(index)`), var femte minut — en tredjedel av leasen, så två
+tappade nätverksanrop i rad kostar inte kön — och direkt när fliken vaknar ur
+viloläge. En dator som somnar kör inga intervall, och utan `visibilitychange`
+hade första samtalet efter lunch varit det som krockade.
+
+Det avgörande är `AND "leasedById" = ?` i satsen: bara rader jag fortfarande
+äger förlängs. Har en kollega redan hunnit ta ett bolag matchar raden inte, och
+id:t kommer tillbaka som **förlorat** i stället för att skrivas över.
+Förnyelsen kan därför aldrig stjäla tillbaka ett bolag från någon som sitter i
+samtalet, och kön i webbläsaren kan aldrig innehålla ett bolag som någon annan
+äger — förlorade rader plockas bort ur `leads` direkt.
+
+**Ett undantag: bolaget säljaren står på just nu yanks aldrig.** Svaret kan
+landa i sekunden hen har kunden på tråden, och att byta skärm mitt i ett samtal
+är värre än dubbelringningen som redan pågår. Det får i stället ett rött band
+över bolagsrubriken med namnet på den som tagit över, och dispositionen skrivs
+klart som vanligt.
+
+`leaseMinutes` lämnades på 15. Den är inte längre ett arbetsfönster utan en
+**dödmansgrepp**: dör fliken utan att `pagehide` hinner köra `releaseLeases`
+frigörs bolagen efter en kvart. Höj den inte i tron att det löser något —
+förnyelsen är det som håller kön, tiden är bara städningen efteråt.
+
+Ingen migration — inga nya kolumner.
+
+### Öppna punkter
+
+- [ ] **Ingen mätning av hur ofta det händer.** `renewLeases` vet exakt när ett
+      bolag byter ägare under ett pass, men skriver ingenting. En rad i
+      aktivitetsloggen vid förlorad lease hade svarat på om felet är borta i
+      praktiken, inte bara i resonemanget.
+- [ ] **En säljare som går på lunch med fliken öppen håller kvar 25 bolag.**
+      Förnyelsen tickar vidare oavsett om någon ringer. Presence-heartbeaten vet
+      redan om säljaren är aktiv (`status: "DIALING"`, var 15:e sekund) — att
+      låta förnyelsen kräva ett livstecken från de senaste minuterna vore nästa
+      steg om hamstringen syns i datan.
+- [ ] **`leaseBlockSize` 25 är otestat mot verkligheten.** Med förnyelsen på
+      plats spelar storleken mindre roll för krockar, men ett mindre block hade
+      gjort fönstret där något kan gå fel mindre. Mät innan du ändrar.
+
+---
+
 ## 2026-08-15 (senare) — Öppna i dialer: från sökträff till samtal
 
 Sökningen kunde hitta ett bolag men inte ringa det. Vägen var bolagskort →
