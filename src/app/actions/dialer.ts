@@ -383,6 +383,83 @@ export async function releaseLeases(leadIds: string[]) {
   return { released: res.count };
 }
 
+/** Ett bolag som försvunnit ur kön för att någon annan hunnit ta det. */
+export type LostLease = { id: string; holder: string | null };
+
+/**
+ * Förnyar arbetslåset på de bolag som fortfarande ligger oringda i cockpitens kö.
+ *
+ * Leasen är en parkering med tidsgräns, inte ett evigt lås: `leasedUntil` finns
+ * för att en kraschad flik inte ska binda upp ett helt block för alltid. Men
+ * blocket räcker mycket längre än leasen — 25 bolag är över en timmes samtal på
+ * en parkering som dör efter en kvart — så kön måste förnyas medan säljaren
+ * arbetar sig igenom den.
+ *
+ * Fram till 2026-08-17 gjordes ingen förnyelse alls. Intervallet i cockpiten
+ * hette "förnya innan leasen går ut" men anropade `refill`, som bara leasar NYA
+ * bolag och aldrig rör dem som redan ligger i kön. Svansen låg alltså olåst
+ * efter en kvart medan den fortfarande stod i säljarens webbläsare, och nästa
+ * säljare som startade ett pass fick samma bolag serverat av rotationen. Två
+ * säljare ringde samma företag — precis det parkeringen finns för att hindra.
+ *
+ * **`leasedById = ?` i WHERE är hela poängen.** Satsen förlänger bara rader jag
+ * fortfarande äger. Har en kollega redan tagit ett bolag — för att min lease
+ * hann gå ut medan datorn låg och sov — matchar raden inte, och id:t kommer
+ * tillbaka som förlorat i stället för att skrivas över. Förnyelsen kan därför
+ * aldrig stjäla tillbaka ett bolag från någon som sitter i samtalet, och kön i
+ * webbläsaren kan aldrig innehålla ett bolag som någon annan äger.
+ */
+export async function renewLeases(leadIds: string[]) {
+  const user = await requireAuth();
+  // Kön är ett block på 25; taket finns bara för att en trasig klient inte ska
+  // kunna skicka in tusen id:n och spränga SQLites parametergräns.
+  const ids = [...new Set(leadIds)].slice(0, 200);
+  if (ids.length === 0) return { held: [] as string[], lost: [] as LostLease[] };
+
+  const cfg = await getDialerConfig();
+  const leaseIso = new Date(Date.now() + cfg.leaseMinutes * 60_000).toISOString();
+
+  // $queryRawUnsafe — inte $executeRawUnsafe: den senare kastar bort RETURNING,
+  // och det är just skillnaden mellan behållna och förlorade rader vi är ute
+  // efter. Samma skäl som i `leaseNextLeads`.
+  const rows = await db.$queryRawUnsafe<{ id: string }[]>(
+    `UPDATE "Lead"
+        SET "leasedUntil" = ?
+      WHERE "id" IN (${ids.map(() => "?").join(",")})
+        AND "leasedById" = ?
+      RETURNING "id"`,
+    leaseIso,
+    ...ids,
+    user.id
+  );
+
+  const held = new Set(rows.map((r) => r.id));
+  const lostIds = ids.filter((id) => !held.has(id));
+  if (lostIds.length === 0) return { held: [...held], lost: [] as LostLease[] };
+
+  // Namnet på den som tog över hämtas bara när något faktiskt gått förlorat.
+  // `leasedById` är en naken kolumn utan relation, så användaren slås upp
+  // separat — samma väg som `leaseSpecificLead` går.
+  const takenRows = await db.lead.findMany({
+    where: { id: { in: lostIds } },
+    select: { id: true, leasedById: true },
+  });
+  const holderIds = [...new Set(takenRows.map((r) => r.leasedById).filter(Boolean))] as string[];
+  const holders = holderIds.length
+    ? await db.user.findMany({ where: { id: { in: holderIds } }, select: { id: true, name: true } })
+    : [];
+  const nameById = new Map(holders.map((h) => [h.id, h.name]));
+  const holderByLead = new Map(takenRows.map((r) => [r.id, r.leasedById]));
+
+  return {
+    held: [...held],
+    lost: lostIds.map((id) => {
+      const holderId = holderByLead.get(id);
+      return { id, holder: holderId ? nameById.get(holderId) ?? null : null };
+    }),
+  };
+}
+
 // ── Öppna ett utpekat bolag i cockpiten ────────────────────────────────────
 
 /** En sak säljaren bör veta innan hen slår numret. */

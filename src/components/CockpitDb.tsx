@@ -10,7 +10,7 @@ import {
   Search, Star, Trophy, Tag,
 } from "lucide-react";
 import { startSession, endSession } from "@/app/actions/sessions";
-import { leaseNextLeads, releaseLeases, leaseSpecificLead, type OpenWarning } from "@/app/actions/dialer";
+import { leaseNextLeads, releaseLeases, renewLeases, leaseSpecificLead, type OpenWarning } from "@/app/actions/dialer";
 import type { LeadSearchHit } from "@/app/actions/leads";
 import { heartbeat, goOffline } from "@/app/actions/presence";
 import { saveCockpitNote } from "@/app/actions/activities";
@@ -560,6 +560,11 @@ export function CockpitDb({
   );
   const [showSwitcher, setShowSwitcher] = useState(false);
 
+  // Satt när förnyelsen upptäcker att bolaget på skärmen bytt ägare medan
+  // fliken låg och sov. Bolaget står kvar — men säljaren ska veta det innan
+  // hen slår numret. Se `syncLeases`.
+  const [takenOver, setTakenOver] = useState<{ leadId: string; holder: string | null } | null>(null);
+
   const [flow, setFlow] = useState<FlowState>(INITIAL_FLOW);
   const [gk, setGk] = useState<GatekeeperDraft>(EMPTY_GATEKEEPER);
   const [callback, setCallback] = useState<CallbackDraft>(EMPTY_CALLBACK);
@@ -676,12 +681,66 @@ export function CockpitDb({
     if (remaining <= 5 && !exhausted) void refill();
   }, [remaining, exhausted, refill]);
 
-  // Leasen går ut efter en stund — förnya innan den gör det, annars kan någon
-  // annan ta leads som ligger kvar i kön här.
+  // ── Förnyelse av parkeringen ───────────────────────────────────────────
+  //
+  // Kön räcker längre än leasen: 25 bolag är över en timmes samtal på en
+  // parkering som dör efter en kvart. Utan förnyelse ligger svansen olåst i
+  // databasen medan den fortfarande står på säljarens skärm, och rotationen
+  // serverar den till nästa säljare som startar ett pass. Det hände 2026-08-17
+  // — två säljare på samma bolag.
+  //
+  // Här stod tidigare `refill()` under rubriken "förnya innan leasen går ut".
+  // Den leasar bara NYA bolag och rör aldrig dem som redan ligger i kön, så
+  // förnyelsen har i praktiken aldrig funnits.
+  //
+  // Förnyas gör bara det oringda: `slice(index)`. Bolag bakom index är redan
+  // dispositionerade, och `recordAttempt` släpper låset i samma skrivning som
+  // samtalet — att förlänga dem hade parkerat bolag ingen ska ringa.
+  const syncLeases = useCallback(async () => {
+    const pending = leadsRef.current.slice(indexRef.current).map((l) => l.id);
+    if (pending.length === 0) return;
+
+    const { lost } = await renewLeases(pending);
+    if (lost.length === 0) return;
+
+    // Ett förlorat bolag ska bort ur kön direkt. Alternativet är att säljaren
+    // ringer ett företag som kollegan sitter i just nu — felet vi lagar.
+    const lostIds = new Set(lost.map((l) => l.id));
+    const current = leadsRef.current[indexRef.current];
+
+    setLeads((prev) =>
+      // Det AKTUELLA bolaget yanks aldrig, hur låset än ser ut: säljaren kan ha
+      // kunden på tråden i sekunden det här svaret landar, och att byta skärm
+      // mitt i ett samtal är värre än dubbelringningen som redan pågår. Det
+      // markeras i stället med ett band över bolagsrubriken, och dispositionen
+      // får skrivas klart som vanligt.
+      prev.filter((l, i) => i <= indexRef.current || !lostIds.has(l.id))
+    );
+
+    if (current && lostIds.has(current.id)) {
+      const holder = lost.find((l) => l.id === current.id)?.holder;
+      setTakenOver({ leadId: current.id, holder: holder ?? null });
+    }
+  }, []);
+
   useEffect(() => {
-    const t = setInterval(() => { void refill(); }, Math.max(60_000, (leaseMinutes - 3) * 60_000));
+    // En tredjedel av leasen ger två missade förnyelser innan ett bolag släpps
+    // — ett tappat nätverksanrop ska inte kosta kön.
+    const every = Math.max(60_000, (leaseMinutes / 3) * 60_000);
+    const t = setInterval(() => { void syncLeases(); }, every);
     return () => clearInterval(t);
-  }, [refill, leaseMinutes]);
+  }, [syncLeases, leaseMinutes]);
+
+  // En dator som somnar kör inga intervall. Vaknar fliken kan leasen ha gått ut
+  // och bolag hunnit byta ägare, så synken körs direkt i stället för att vänta
+  // ut nästa tick — annars är första samtalet efter lunch det som krockar.
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState === "visible") void syncLeases();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [syncLeases]);
 
   // ── Navigering ─────────────────────────────────────────────────────────
   const resetFlow = useCallback(() => {
@@ -1114,6 +1173,22 @@ export function CockpitDb({
                 transition={{ duration: 0.09, ease: "easeOut" }}
                 className={`w-full ${DASH_W} py-5`}
               >
+                {/* Bolaget bytte ägare medan fliken låg och sov. Kön rensas
+                    automatiskt, men det aktuella bolaget står kvar — säljaren
+                    kan ha kunden på tråden. Bandet är då enda sättet att veta
+                    att en kollega sitter i samma företag. */}
+                {takenOver && takenOver.leadId === lead.id && (
+                  <div
+                    className="mb-3 flex items-center gap-2 px-3 py-[6px] rounded-md text-[12px] font-medium"
+                    style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--danger)" }}
+                  >
+                    <AlertTriangle size={11} className="shrink-0" />
+                    {takenOver.holder
+                      ? `${takenOver.holder} har tagit över ${lead.companyName} — stäm av innan du ringer.`
+                      : `En kollega har tagit över ${lead.companyName} — stäm av innan du ringer.`}
+                  </div>
+                )}
+
                 {/* Uppslaget bolag. Bandet svarar på frågan säljaren annars
                     ställer sig: varför ligger det HÄR bolaget i kön, och vad är
                     det jag inte vet innan jag slår numret? Rotationens filter
