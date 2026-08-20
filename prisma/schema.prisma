@@ -442,6 +442,11 @@ enum ActivityType {
   LEAD_IMPORTED
   LEAD_CLAIMED
   LEAD_RELEASED
+  /// Bolaget låg i en säljares cockpit-kö när en kollega tog över arbetslåset.
+  /// Skrivs av `renewLeases` och bara när någon ANNAN håller leasen — ett
+  /// släppt eget lås är ingen krock. Mätpunkten för om två säljare fortfarande
+  /// hamnar på samma bolag; se docs/ARBETSLOGG.md 2026-08-17.
+  LEAD_LEASE_LOST
   CONTACT_ADDED
   STATUS_CHANGE
   DEAL_CREATED

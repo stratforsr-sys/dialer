@@ -8,6 +8,63 @@ Nyast först.
 
 ---
 
+## 2026-08-20 — Överlämningen av ett bolag lämnar ett spår
+
+Förnyelsen från 2026-08-17 håller kön, men bara i resonemanget: när ett bolag
+bytte ägare mitt i ett pass rullade det ur kön och försvann. Nästa gång golvet
+rapporterar en dubbelringning fanns ingenting att räkna på — bara samma
+resonemang en gång till. `renewLeases` vet exakt när det sker, så den skriver
+numera en rad: **`ActivityType.LEAD_LEASE_LOST`**, aktör = säljaren som hade
+bolaget i kön, metadata `{ takenById, takenByName }`.
+
+Frågan "händer det fortfarande?" är därmed en SELECT:
+
+```sql
+SELECT date(timestamp) AS dag, count(*)
+  FROM Activity WHERE type = 'LEAD_LEASE_LOST'
+ GROUP BY dag ORDER BY dag DESC;
+```
+
+Tre val värda att veta om:
+
+**Bara bolag som någon annan nu håller loggas.** Ett förlorat id utan
+innehavare är ingen krock — det är säljarens eget lås som `recordAttempt` eller
+`releaseLeases` släppt, med en förnyelse som hann emellan. Hade de räknats med
+hade mätvärdet dominerats av dispositioner och aldrig gått att läsa.
+
+**Dedupe på bolag + övertagare, en timme.** Bolaget säljaren står på just nu
+yanks aldrig ur kön — det står kvar med sitt röda band tills samtalet är
+dispositionerat — och skickas därför in i varje förnyelse resten av passet. Utan
+spärren hade en enda överlämning blivit en rad var femte minut. Nyckeln är
+bolag + övertagare, inte bara bolag: går samma bolag vidare till en tredje
+säljare är det en ny händelse.
+
+**Skrivningen inväntas, till skillnad från loggen i `claimLead`.** En
+`void`-promise som lämnas hängande efter att svaret gått ut är inte garanterad
+att köras klart i en serverless-funktion, och en mätpunkt som ibland tappar
+rader går inte att räkna på. Kostnaden tas bara när något faktiskt gått
+förlorat; allt är inlindat i try/catch, för mätningen är aldrig värd ett trasigt
+pass.
+
+Raden ligger på bolaget och syns i historiken på `/leads/[id]` — där nästa
+säljare som undrar varför kunden fick två samtal samma dag faktiskt tittar.
+
+Ingen migration: `ActivityType` är en Prisma-enum mot SQLite, alltså TEXT utan
+CHECK i databasen. Nya värden kräver `prisma generate`, vilket `postinstall` gör
+i bygget.
+
+### Öppna punkter
+
+- [ ] **Mätvärdet är fortfarande oläst.** Kör frågan ovan om några dagar innan
+      någon rör `leaseBlockSize` eller `leaseMinutes`. Noll rader betyder att
+      förnyelsen räcker; rader varje dag betyder att blocket är för stort eller
+      att någon hamstrar.
+- [ ] **Siffran syns inte i gränssnittet.** Medvetet — en admin-vy för ett tal
+      som förhoppningsvis är noll är fel investering innan datan finns. Om
+      raderna börjar trilla in hör den hemma i coachingvyn, inte i en egen sida.
+
+---
+
 ## 2026-08-17 — Två säljare på samma bolag: parkeringen gick ut mitt i passet
 
 Rapporterat från golvet: två personer ringde i dialern samtidigt och fick upp
@@ -57,10 +114,8 @@ Ingen migration — inga nya kolumner.
 
 ### Öppna punkter
 
-- [ ] **Ingen mätning av hur ofta det händer.** `renewLeases` vet exakt när ett
-      bolag byter ägare under ett pass, men skriver ingenting. En rad i
-      aktivitetsloggen vid förlorad lease hade svarat på om felet är borta i
-      praktiken, inte bara i resonemanget.
+- [x] **Ingen mätning av hur ofta det händer.** Åtgärdad 2026-08-20, se
+      avsnittet överst.
 - [ ] **En säljare som går på lunch med fliken öppen håller kvar 25 bolag.**
       Förnyelsen tickar vidare oavsett om någon ringer. Presence-heartbeaten vet
       redan om säljaren är aktiv (`status: "DIALING"`, var 15:e sekund) — att

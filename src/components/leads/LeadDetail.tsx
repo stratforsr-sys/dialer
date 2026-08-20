@@ -24,6 +24,7 @@ const ACTIVITY_ICONS: Record<string, string> = {
   LEAD_IMPORTED: "📥",
   CONTACT_ADDED: "👥",
   STATUS_CHANGE: "🔁",
+  LEAD_LEASE_LOST: "⚠️",
 };
 
 function formatDate(d: Date | string) {
@@ -397,6 +398,10 @@ export function LeadDetail({
                           {a.type === "LEAD_CREATED" && "Lead skapades"}
                           {a.type === "LEAD_IMPORTED" && "Importerad via CSV"}
                           {a.type === "CONTACT_ADDED" && `${meta.name}${meta.role ? ` (${meta.role})` : ""} lades till`}
+                          {/* Aktören är säljaren som HADE bolaget i kön — raden
+                              läses "X hade det, Y tog över". */}
+                          {a.type === "LEAD_LEASE_LOST" &&
+                            `Hade bolaget i ringkön när ${meta.takenByName ?? "en kollega"} tog över det`}
                         </p>
                       </div>
                     </motion.div>

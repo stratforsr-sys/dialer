@@ -387,6 +387,88 @@ export async function releaseLeases(leadIds: string[]) {
 export type LostLease = { id: string; holder: string | null };
 
 /**
+ * Hur länge en loggad överlämning räknas som samma händelse.
+ *
+ * Bolaget säljaren står på just nu plockas aldrig ur kön — det står kvar med
+ * ett rött band tills samtalet är dispositionerat — och skickas därför in i
+ * varje förnyelse så länge passet pågår. En timme täcker det utan att dölja en
+ * ny krock på samma bolag senare under dagen.
+ */
+const LEASE_LOSS_WINDOW_MS = 60 * 60_000;
+
+/**
+ * Skriver en rad i aktivitetsloggen när ett bolag byter händer mitt i ett pass.
+ *
+ * Förnyelsen vet exakt när det sker men skrev ingenting, så frågan "händer det
+ * fortfarande?" gick bara att svara på med ett resonemang. Nu är den en SELECT
+ * mot loggen — och raden ligger dessutom på bolaget, där nästa säljare som
+ * undrar varför kunden fick två samtal samma dag faktiskt tittar.
+ *
+ * **Bara bolag som en annan säljare nu håller loggas.** Ett förlorat id utan
+ * innehavare är ingen krock: det är mitt eget lås som `recordAttempt` eller
+ * `releaseLeases` släppt, med en förnyelse som hann emellan.
+ *
+ * Loggen får aldrig fälla förnyelsen — kön är viktigare än mätningen — men den
+ * skrivs klart innan svaret går ut. En `void`-promise efter att svaret lämnat
+ * en serverless-funktion är inte garanterad att köras, och en mätpunkt som
+ * ibland tappar rader går inte att räkna på.
+ */
+async function logLeaseLosses(
+  actorId: string,
+  lostIds: string[],
+  holderByLead: Map<string, string | null>,
+  nameById: Map<string, string>
+) {
+  const collisions = lostIds
+    .map((id) => ({ id, holderId: holderByLead.get(id) ?? null }))
+    .filter((c): c is { id: string; holderId: string } => !!c.holderId && c.holderId !== actorId);
+  if (collisions.length === 0) return;
+
+  try {
+    const already = await db.activity.findMany({
+      where: {
+        type: "LEAD_LEASE_LOST",
+        actorId,
+        leadId: { in: collisions.map((c) => c.id) },
+        timestamp: { gte: new Date(Date.now() - LEASE_LOSS_WINDOW_MS) },
+      },
+      select: { leadId: true, metadata: true },
+    });
+
+    // Nyckeln är bolag + övertagare: samma bolag som går till en annan kollega
+    // en stund senare är en ny händelse, inte ett eko av den förra.
+    const seen = new Set(
+      already.map((a) => {
+        let takenById: unknown = null;
+        try {
+          takenById = (JSON.parse(a.metadata ?? "{}") as { takenById?: unknown }).takenById;
+        } catch {
+          /* trasig metadata räknas som "inte loggad" — hellre en rad för mycket */
+        }
+        return `${a.leadId}:${typeof takenById === "string" ? takenById : ""}`;
+      })
+    );
+
+    const fresh = collisions.filter((c) => !seen.has(`${c.id}:${c.holderId}`));
+    if (fresh.length === 0) return;
+
+    await db.activity.createMany({
+      data: fresh.map((c) => ({
+        type: "LEAD_LEASE_LOST" as const,
+        actorId,
+        leadId: c.id,
+        metadata: JSON.stringify({
+          takenById: c.holderId,
+          takenByName: nameById.get(c.holderId) ?? null,
+        }),
+      })),
+    });
+  } catch {
+    /* mätningen är aldrig värd ett trasigt pass */
+  }
+}
+
+/**
  * Förnyar arbetslåset på de bolag som fortfarande ligger oringda i cockpitens kö.
  *
  * Leasen är en parkering med tidsgräns, inte ett evigt lås: `leasedUntil` finns
@@ -454,6 +536,8 @@ export async function renewLeases(leadIds: string[]) {
   const holderByLead = new Map<string, string | null>(
     takenRows.map((r) => [r.id, r.leasedById] as const)
   );
+
+  await logLeaseLosses(user.id, lostIds, holderByLead, nameById);
 
   return {
     held: Array.from(held),
