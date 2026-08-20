@@ -35,6 +35,13 @@ import { formatTime, formatWhen, formatRelative, isSameDay } from "@/lib/time";
  * som redan var förfallet när passet började ligger i klockan med röd siffra —
  * en skärm som möts av fyra notiser vid inloggning lär säljaren att klicka bort
  * dem utan att läsa.
+ *
+ * **Och den går bort när bolaget är ringt, inte när en timer löper ut.** Bandet
+ * låg först kvar i tolv sekunder. Det är fel håll på båda ändarna: en säljare
+ * som sitter i ett samtal medan nedräkningen går missar löftet helt, och när
+ * samtalet väl var ringt satt bandet ändå kvar tills nästa hämtning. Krysset
+ * finns kvar som "inte nu" — det gömmer bandet men raden ligger kvar i klockan,
+ * för ett löfte lämnar klockan på två sätt: det ringdes, eller det avbokades.
  */
 
 /** Minuter före utsatt tid som en återkomst blir aktuell. Samma som sidomenyn. */
@@ -42,9 +49,13 @@ const LEAD_TIME_MIN = 5;
 /** Hur ofta servern frågas. Klockan tickar lokalt däremellan. */
 const POLL_MS = 60_000;
 const TICK_MS = 10_000;
-/** Hur länge en notis ligger kvar innan den försvinner av sig själv. */
-const TOAST_MS = 12_000;
-/** Fler samtidiga notiser än så är en lista, inte ett avbrott. */
+/**
+ * Fler samtidiga notiser än så är en lista, inte ett avbrott.
+ *
+ * Taket väger tyngre nu än när bandet försvann av sig självt: notisen ligger
+ * kvar tills bolaget är ringt, så tre band är tre band tills säljaren gör
+ * något åt dem.
+ */
 const MAX_TOASTS = 3;
 /**
  * Bandets bredd: ungefär halva cockpiten, som beställt.
@@ -63,9 +74,17 @@ function isDue(row: CallbackRow, now: Date): boolean {
 
 export function CallbackBell({
   onOpenLead,
+  calledLead,
 }: {
   /** Öppnar bolaget i passet. Returnerar ett felmeddelande, eller null. */
   onOpenLead: (leadId: string, callbackId: string) => Promise<string | null>;
+  /**
+   * Bolaget som just dispositionerats, med tidsstämpel så att två samtal på
+   * samma bolag räknas som två händelser. Klockan pollar var sextionde
+   * sekund och dispositionen går genom en skriv-bakom-kö — utan den här
+   * signalen låg bandet kvar i upp till en minut efter att samtalet var klart.
+   */
+  calledLead: { leadId: string; at: number } | null;
 }) {
   const [rows, setRows] = useState<CallbackRow[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -81,7 +100,6 @@ export function CallbackBell({
   const alertedRef = useRef<Set<string>>(new Set());
   /** Första hämtningen seedar utan att larma — se rubrikkommentaren. */
   const seededRef = useRef(false);
-  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   // ── Data ────────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
@@ -148,22 +166,29 @@ export function CallbackBell({
     if (fresh.length === 0) return;
     for (const r of fresh) alertedRef.current.add(r.id);
     setToasts((prev) => [...fresh, ...prev].slice(0, MAX_TOASTS));
-
-    // Timern sätts när notisen skapas, inte i en effekt som lyssnar på listan.
-    // Gjorde man det senare skulle varje bortklickad notis nolla nedräkningen
-    // för de som ligger kvar, och två notiser som kom en minut isär skulle
-    // försvinna samtidigt.
-    for (const r of fresh) {
-      const t = setTimeout(
-        () => setToasts((prev) => prev.filter((p) => p.id !== r.id)),
-        TOAST_MS
-      );
-      timersRef.current.push(t);
-    }
   }, [due, loaded]);
 
-  // Städa bort svävande timers när cockpiten lämnas.
-  useEffect(() => () => timersRef.current.forEach(clearTimeout), []);
+  /**
+   * Samtalet är ringt — bandet och raden går bort direkt.
+   *
+   * Här låg tidigare en timer på tolv sekunder. Den var fel av två skäl. Ett
+   * löfte som försvinner för att klockan tickat är exakt hur löften tappas
+   * bort: säljaren satt i ett samtal medan bandet räknade ner. Och när
+   * samtalet väl var ringt låg bandet ändå kvar upp till en minut, eftersom
+   * klockan pollar var sextionde sekund och dispositionen dessutom går genom
+   * en skriv-bakom-kö. Bandet försvann alltså när det inte skulle och satt
+   * kvar när det skulle bort.
+   *
+   * Ingen ny fråga till servern här. Raden tas bort lokalt, och nästa
+   * ordinarie hämtning bär sanningen: gick skrivningen igenom kommer den inte
+   * tillbaka, och gick den INTE igenom kommer den tillbaka och larmar om —
+   * vilket är rätt, för då är löftet fortfarande ohållet.
+   */
+  useEffect(() => {
+    if (!calledLead) return;
+    setRows((prev) => prev.filter((r) => r.leadId !== calledLead.leadId));
+    setToasts((prev) => prev.filter((t) => t.leadId !== calledLead.leadId));
+  }, [calledLead]);
 
   // ── Öppnad panel kvitterar ──────────────────────────────────────────────
   // Löftet står kvar — säljaren har sett notisen, inte ringt samtalet.
@@ -319,6 +344,7 @@ export function CallbackBell({
                 size={14}
                 className="shrink-0"
                 style={{ opacity: 0.7 }}
+                aria-label="Inte nu — bandet göms, återkomsten ligger kvar i klockan"
                 onClick={(e) => {
                   e.stopPropagation();
                   setToasts((prev) => prev.filter((p) => p.id !== t.id));

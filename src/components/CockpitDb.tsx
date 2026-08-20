@@ -570,6 +570,12 @@ export function CockpitDb({
    *  en rad som ligger kvar hade stängt fel löfte nästa gång bolaget ringdes. */
   const answeredCallbackRef = useRef<Record<string, string>>({});
 
+  /** Senast dispositionerade bolaget. Notisklockan lyssnar: utan den låg
+   *  bandet kvar tills nästa hämtning, alltså upp till en minut efter att
+   *  samtalet var klart. Tidsstämpeln finns för att två samtal på samma bolag
+   *  ska räknas som två händelser och inte som samma. */
+  const [calledLead, setCalledLead] = useState<{ leadId: string; at: number } | null>(null);
+
   const [flow, setFlow] = useState<FlowState>(INITIAL_FLOW);
   const [gk, setGk] = useState<GatekeeperDraft>(EMPTY_GATEKEEPER);
   const [callback, setCallback] = useState<CallbackDraft>(EMPTY_CALLBACK);
@@ -949,6 +955,7 @@ export function CockpitDb({
       });
 
       delete answeredCallbackRef.current[target.id];
+      setCalledLead({ leadId: target.id, at: Date.now() });
 
       // Navigeringen sker synkront — hela poängen med skriv-bakom-kön.
       advance();
@@ -1091,7 +1098,7 @@ export function CockpitDb({
       <div className="relative flex flex-col items-center justify-center h-screen gap-4" style={{ background: "var(--bg)" }}>
         {/* Kön är slut — då är återkomsterna det som är kvar att göra. */}
         <div className="absolute top-4 right-5">
-          <CallbackBell onOpenLead={openCallback} />
+          <CallbackBell onOpenLead={openCallback} calledLead={calledLead} />
         </div>
         <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: "var(--success-bg)", border: "1px solid var(--success-border)" }}>
           {refilling ? <Loader2 size={28} className="animate-spin" style={{ color: "var(--success)" }} /> : <Zap size={28} style={{ color: "var(--success)" }} />}
@@ -1163,7 +1170,7 @@ export function CockpitDb({
         </div>
 
         <div className="flex items-center gap-4">
-          <CallbackBell onOpenLead={openCallback} />
+          <CallbackBell onOpenLead={openCallback} calledLead={calledLead} />
           <button
             onClick={() => setShowSwitcher(true)}
             title="Sök upp ett bolag (⌘K)"

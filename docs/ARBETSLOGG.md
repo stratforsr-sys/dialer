@@ -99,6 +99,33 @@ En glaseffekt som degraderar till oläslighet är värre än ingen glaseffekt.
 en delad laptopskärm är 300 pixlar och kapar bolagsnamnet, halva bredden på en
 34-tumsskärm är ett band på nästan tusen pixlar som läser som ett layoutfel.
 
+### Timern var fel åt båda hållen
+
+Efter andra passet: bandet försvann inte när det skulle och försvann när det
+inte skulle. Tolvsekunderstimern var fel på två sätt samtidigt.
+
+**Den försvann för tidigt.** En säljare som sitter i ett samtal när bandet
+kommer hinner inte läsa det innan nedräkningen är slut. Ett löfte som
+försvinner för att en klocka tickat är precis hur löften tappas bort — samma
+fel som klockan var byggd för att laga.
+
+**Och den försvann för sent.** När samtalet väl var ringt låg bandet ändå kvar
+i upp till en minut: klockan pollar var sextionde sekund och dispositionen går
+dessutom genom skriv-bakom-kön. Ingen signal gick från cockpiten till klockan.
+
+Regeln är nu **bandet går bort när bolaget är ringt, inte annars.** `commit`
+sätter `calledLead` och klockan plockar bort raden lokalt i samma ögonblick.
+Ingen ny fråga till servern skickas: nästa ordinarie hämtning bär sanningen.
+Gick skrivningen igenom kommer raden inte tillbaka; gick den inte igenom kommer
+den tillbaka och larmar om — vilket är rätt, för då är löftet fortfarande
+ohållet. Felet läker alltså synligt i stället för att gömmas.
+
+Krysset finns kvar som "inte nu". Det gömmer bandet men raden ligger kvar i
+klockan — ett löfte lämnar klockan på två sätt, det ringdes eller det avbokades,
+och en säljare som inte kan få undan tre band från toppen av skärmen har fått
+ett problem i stället för en påminnelse. Samma undantag gäller när man klickar
+på bandet: det gömmer sig, för annars täcker det bolaget det just öppnade.
+
 Bandet stannar **under** toppfältet i stället för att täcka det. En notis som
 lägger sig över "Avsluta" och över klockan den själv kom ur döljer vägen vidare
 i samma sekund som den ber om uppmärksamhet. Centreringen sker med
