@@ -114,15 +114,24 @@ Tre saker, en enda kontakt räcker:
 
 ## P2 — funktioner som saknas
 
-### 8. Ingen överlämning när en säljare slutar
+### 8. Ingen överlämning när en säljare slutar — utom via papperskorgen
 
 Reservationen bakom en öppen återkomst är permanent. Slutar någon går bolagen
 tillbaka till golvet bara om en admin avbokar raderna **en och en** i klockans
 golvvy. Josef och Kristoffer har 38 öppna tillsammans; med tjugo säljare är det
 en funktion som saknas, inte ett kvartsjobb.
 
-Bygg "flytta alla återkomster från A till B". `requireCallbackAccess` släpper
-redan igenom admin på vems rad som helst — vägen finns, knappen saknas.
+**Delvis löst 2026-08-20:** raderar man kontot flyttas alla öppna återkomster
+till den admin som raderar, claim-låsen släpps och bolagen går tillbaka i
+rotationen (se `ARBETSLOGG.md` samma dag). Men det kräver att man raderar
+personen, och överlämning är inte samma sak som radering — en säljare som är
+sjukskriven, byter distrikt eller går på föräldraledighet ska inte behöva
+raderas för att någon annan ska kunna ringa hens löften.
+
+Kvar att bygga: "flytta alla återkomster från A till B" som en egen knapp, med
+valfri mottagare i stället för den som råkar klicka. `requireCallbackAccess`
+släpper redan igenom admin på vems rad som helst — vägen finns, knappen saknas.
+Flyttlogiken finns nu också, i `deleteUser`.
 
 ### 9. Återkomster längre bort än 7 dagar syns ingenstans
 
@@ -254,6 +263,14 @@ rader ska stå kvar: loggen är oföränderlig.
   och leaddetaljen är sedda i kod, inte i drift.
 - **Listor importerade före migration 010** tar inte med sig sina leads vid
   radering (`createdByImport` defaultar till `false`).
+- **`deleteProduct` har samma brist som `deleteUser` hade.** Knappen i
+  `AdminView` kör den utan `try/catch` och utan bekräftelse, så ett fel blir
+  kraschsidan i stället för en rad text. `Product` har inga RESTRICT-relationer
+  idag, men får `DealProduct` en ingång (se ovan) blir det samma fel som med
+  användarna — och en produkt raderas fortfarande på en felklick.
+- **Ingen `Activity`-rad skrivs när ett konto raderas.** Vem som raderade vem,
+  och när, finns bara i minnet av den som klickade. Historiken flyttas till
+  gravstenskontot utan att någonstans säga varifrån den kom.
 
 ---
 
@@ -267,3 +284,7 @@ Stryks härmed ur listan — verifierat 2026-08-20:
 - **Omimporten är gjord** — se punkt 18.
 - **Lynes skickar en sluthändelse** — se punkt 7.
 - **`SERPER_KEY` är satt och verifierad**, rankspåret har körts skarpt.
+- **Papperskorgen i admin fungerar.** Den kraschade på `ON DELETE RESTRICT` för
+  varje konto som hade ett enda samtal eller pass bakom sig — alltså alla nio.
+  Historiken flyttas nu till ett gravstenskonto och raden raderas på riktigt.
+  Se `ARBETSLOGG.md` 2026-08-20.
