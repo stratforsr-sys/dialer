@@ -36,24 +36,37 @@ Beslutet är produktens: bygg vyn eller ta bort raden. Att låta den ligga kvar 
 det enda alternativ som är fel. Anrikningsdatan finns (`LeadClaim`: 56 067 rader,
 `seo.rank` på 5 711 leads) — det finns alltså något att visa den dagen vyn byggs.
 
-### 3. 38 förfallna återkomster ligger osedda
+### 3. 51 förfallna återkomster ligger osedda
 
-| Säljare | Öppna | Förfallna | Äldsta |
-|---|---|---|---|
-| Josef | 28 | 11 | 2026-08-13 |
-| Kristoffer | 10 | 9 | 2026-08-13 |
-| Fredrik Pernehed | 37 | 7 | 2026-08-19 |
-| Diar Makin | 13 | 7 | 2026-08-13 |
-| Zen Alsabti | 6 | 3 | 2026-08-10 |
-| Vlado | 28 | 1 | 2026-08-18 |
+Nollmätning tagen 2026-08-20 kl 18, strax innan cockpit-klockan gick i drift.
+**Det här är siffrorna att jämföra mot.**
 
-121 öppna totalt. En missad återkomst är `PENDING` med en tid som passerat och
+| Säljare | Öppna | Förfallna | Kommande 7 d | Äldsta |
+|---|---|---|---|---|
+| Fredrik Pernehed | 40 | 16 | 13 | 2026-08-19 |
+| Josef | 28 | 13 | 12 | 2026-08-13 |
+| Kristoffer | 10 | 9 | 1 | 2026-08-13 |
+| Diar Makin | 13 | 8 | 3 | 2026-08-13 |
+| Zen Alsabti | 6 | 3 | 1 | 2026-08-10 |
+| Vlado | 33 | 2 | 20 | 2026-08-18 |
+
+130 öppna totalt. Notera riktningen: förfallna gick från 38 till 51 på två
+dagar. Högen växer, den krymper inte av sig själv.
+
+En missad återkomst är `PENDING` med en tid som passerat och
 ligger kvar hur länge som helst — med flit, klockan har tak men inget golv. Men
 ingen vy räknar dem per säljare, så tio dagar gamla löften syns bara för den som
 redan har dåligt samvete. **Statistiken mäter samtal, inte hållna löften.**
 
 Enklaste ingreppet: en kolumn i coachingvyn. Den är byggd för precis den här
 sortens fråga och admin tittar redan där.
+
+**Delvis angripet 2026-08-20:** cockpit har nu en egen återkomstklocka, så en
+förfallen återkomst syns med röd siffra utan att säljaren lämnar passet (se
+`ARBETSLOGG.md` samma dag). Det tar bort ursäkten men inte mätningen — ingen vy
+räknar fortfarande hållna löften per säljare, och admin kan inte se om de 51
+krympte. **Mät om siffrorna ovan efter någon vecka i drift.** Går de inte ner
+är problemet inte synlighet, och då är kolumnen i coachingvyn nästa steg.
 
 ---
 
@@ -72,6 +85,17 @@ SELECT date(timestamp) AS dag, count(*)
 
 Noll rader = förnyelsen räcker, rör ingenting. Rader varje dag = blocket är för
 stort, eller så hamstrar någon — och då är punkt 5 nästa steg.
+
+### 4b. Läs om återkomstklockan i cockpit används
+
+Deployad 2026-08-20. Ett samtal som kom ur klockan skickar `answeredCallbackId`
+in i `recordAttempt` — det är exakt spåret som skiljer "ringde för att klockan
+sa till" från "ringde för att bolaget kom upp i däcket". Men ingenting räknar
+det: `completedOnAttemptId` sätts i båda fallen och kan inte skilja dem åt.
+
+Vill man kunna svara på om klockan bär sin plats i toppfältet behöver spåret
+sparas. Enklast: en `Activity`-rad, som `LEAD_LEASE_LOST`. Gör det innan någon
+föreslår att ta bort klockan för att "ingen använder den".
 
 ### 5. Lunchhamstringen är fortfarande omätt och olöst
 
@@ -271,6 +295,15 @@ rader ska stå kvar: loggen är oföränderlig.
 - **Ingen `Activity`-rad skrivs när ett konto raderas.** Vem som raderade vem,
   och när, finns bara i minnet av den som klickade. Historiken flyttas till
   gravstenskontot utan att någonstans säga varifrån den kom.
+- **Cockpitens tangentbordsgenvägar läcker genom varje lager utan textfält.**
+  `onKey` ligger på `window` och har som enda grind att `e.target` är en input
+  eller textarea. Återkomstklockan löser det för sin egen panel genom att fånga
+  i capture-fasen, men samma läcka finns kvar i drawern, affärsrutan och varje
+  framtida lager utan fält: ett tryck på "1" bokför ett samtal på bolaget under.
+  Rätt fix är en gemensam grind i cockpiten, inte en capture-lyssnare per panel.
+- **Återkomstklockan pollar var 60:e sekund per öppen cockpit.** Med tjugo
+  säljare är det tjugo frågor i minuten efter data som ändras några gånger om
+  dagen. Ofarligt nu, men samma sorts kostnad som presence-heartbeaten.
 
 ---
 
