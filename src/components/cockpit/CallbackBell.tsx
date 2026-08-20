@@ -190,6 +190,27 @@ export function CallbackBell({
     setToasts((prev) => prev.filter((t) => t.leadId !== calledLead.leadId));
   }, [calledLead]);
 
+  /**
+   * Bandet överlever inte sin egen återkomst.
+   *
+   * Samtalet är den vanliga vägen ut, men inte den enda: raden kan ha avbokats
+   * eller flyttats i sidomenyns klocka, i en annan flik, eller av en admin. Nu
+   * när bandet inte har någon timer hade det annars kunnat ligga kvar över ett
+   * löfte som inte finns längre — och det är precis den sortens rad man ringer
+   * ett bolag i onödan på.
+   *
+   * `every` före `filter`: utan den skulle en ny array skapas vid varje
+   * hämtning och rendera om notisen sextio gånger i timmen utan att något
+   * ändrats.
+   */
+  useEffect(() => {
+    if (!loaded) return;
+    const stillOpen = new Set(rows.map((r) => r.id));
+    setToasts((prev) =>
+      prev.every((t) => stillOpen.has(t.id)) ? prev : prev.filter((t) => stillOpen.has(t.id))
+    );
+  }, [rows, loaded]);
+
   // ── Öppnad panel kvitterar ──────────────────────────────────────────────
   // Löftet står kvar — säljaren har sett notisen, inte ringt samtalet.
   useEffect(() => {
