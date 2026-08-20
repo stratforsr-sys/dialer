@@ -46,6 +46,15 @@ const TICK_MS = 10_000;
 const TOAST_MS = 12_000;
 /** Fler samtidiga notiser än så är en lista, inte ett avbrott. */
 const MAX_TOASTS = 3;
+/**
+ * Bandets bredd: ungefär halva cockpiten, som beställt.
+ *
+ * `clamp` och inte rena `50%`, för procent ensamt går sönder i båda ändarna —
+ * på en laptop i delad skärm blir halva bredden 300 pixlar och bolagsnamnet
+ * kapas, på en 34-tums ultrabred blir det ett band på nästan tusen pixlar som
+ * läser som ett fel i layouten. Höjden sätts av innehållet.
+ */
+const TOAST_WIDTH = "clamp(360px, 50vw, 760px)";
 
 /** Är återkomsten aktuell nu? Förfallna räknas alltid som aktuella. */
 function isDue(row: CallbackRow, now: Date): boolean {
@@ -256,42 +265,60 @@ export function CallbackBell({
         )}
       </button>
 
-      {/* Notiser. Fixerade under toppfältet, i linje med klockan de kom ur. */}
-      <div className="fixed z-[70] flex flex-col gap-2 items-end" style={{ top: 62, right: 20 }}>
+      {/* Notisbandet.
+       *
+       * Centrerat och brett i stället för en liten ruta i hörnet: en säljare
+       * som läser manuset har blicken i mitten av skärmen, och ett hörn är
+       * precis där ingenting syns under timme åtta.
+       *
+       * Bandet kommer in ovanifrån med en fjäder, som en iPhone-notis. Det
+       * stannar UNDER toppfältet i stället för att täcka det — en notis som
+       * lägger sig över "Avsluta" och klockan den själv kom ur döljer vägen
+       * vidare i samma sekund som den ber om uppmärksamhet.
+       *
+       * Centreringen sker med `left: 0; right: 0; margin-inline: auto`, inte
+       * med `translateX(-50%)`: framer-motions `layout` mäter mot viewporten,
+       * och en transformerad förälder ger den fel svar när två band byter
+       * plats. Containern släpper igenom pekaren — bara banden tar emot klick,
+       * annars hade en osynlig ruta legat över manuset. */}
+      <div
+        className="fixed z-[70] flex flex-col gap-2 items-center pointer-events-none"
+        style={{ top: 62, left: 0, right: 0, marginInline: "auto", width: TOAST_WIDTH }}
+      >
         <AnimatePresence initial={false}>
           {toasts.map((t) => (
             <motion.button
               key={t.id}
               layout
-              initial={{ opacity: 0, x: 24 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 24 }}
-              transition={{ duration: 0.18 }}
+              initial={{ opacity: 0, y: -28, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -20, scale: 0.98 }}
+              transition={{ type: "spring", stiffness: 420, damping: 32, mass: 0.7 }}
               onClick={() => void goTo(t)}
-              className="flex items-start gap-2.5 px-3.5 py-2.5 rounded-lg text-left max-w-[340px]"
-              style={{
-                background: "var(--surface)",
-                border: "1px solid var(--accent-border)",
-                boxShadow: "var(--shadow-3)",
-              }}
+              className="notice-glass pointer-events-auto w-full flex items-center gap-3 pl-4 pr-3 py-2.5 text-left"
             >
-              <AlarmClock size={14} style={{ color: "var(--accent)", marginTop: 1 }} className="shrink-0" />
-              <span className="min-w-0">
-                <span className="block text-[12px] font-semibold truncate" style={{ color: "var(--text)" }}>
-                  {t.companyName}
-                </span>
-                <span className="block text-[11px] mt-[1px]" style={{ color: "var(--text-muted)" }}>
+              <AlarmClock size={17} className="shrink-0" style={{ opacity: 0.9 }} />
+
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] font-semibold truncate">{t.companyName}</span>
+                <span className="block text-[11px] truncate" style={{ opacity: 0.82 }}>
                   Återkomst {formatTime(t.scheduledAt)}
                   {t.contactName ? ` · ${t.contactName}` : ""}
-                </span>
-                <span className="block text-[10px] mt-[3px]" style={{ color: "var(--accent)" }}>
-                  Klicka för att ta bolaget
+                  {t.note ? ` · ${t.note}` : ""}
                 </span>
               </span>
+
+              <span
+                className="shrink-0 text-[11px] font-medium px-2.5 py-[3px] rounded-sm hidden sm:block"
+                style={{ background: "var(--danger-glass-edge)" }}
+              >
+                Ta bolaget
+              </span>
+
               <X
-                size={12}
-                style={{ color: "var(--text-faint)", marginTop: 2 }}
+                size={14}
                 className="shrink-0"
+                style={{ opacity: 0.7 }}
                 onClick={(e) => {
                   e.stopPropagation();
                   setToasts((prev) => prev.filter((p) => p.id !== t.id));
@@ -302,12 +329,7 @@ export function CallbackBell({
         </AnimatePresence>
 
         {error && (
-          <div
-            className="px-3.5 py-2.5 rounded-lg text-[12px] max-w-[340px]"
-            style={{ background: "var(--danger-bg)", border: "1px solid var(--danger-border)", color: "var(--danger)" }}
-          >
-            {error}
-          </div>
+          <div className="notice-glass pointer-events-auto w-full px-4 py-2.5 text-[12px]">{error}</div>
         )}
       </div>
 

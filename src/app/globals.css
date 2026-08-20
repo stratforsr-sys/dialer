@@ -75,6 +75,11 @@
   --danger-bg:      rgba(180, 35, 24, 0.08);
   --danger-border:  rgba(180, 35, 24, 0.18);
   --on-danger:      #FFFFFF;
+  /* Glasytan under notisbandet. --danger-bg är 8 % och kan inte bära
+     --on-danger; den här är stark nog att läsa text på och ändå släppa
+     igenom det som ligger under. Vit text på resultatet ger 5,6:1. */
+  --danger-glass:      rgba(180, 35, 24, 0.82);
+  --danger-glass-edge: rgba(255, 255, 255, 0.30);
   --warning:        #B54708;
   --warning-bg:     rgba(181, 71, 8, 0.08);
   --warning-border: rgba(181, 71, 8, 0.18);
@@ -158,6 +163,10 @@
   /* Vit text på ljusröd yta ger 2,6:1 i mörkt läge. Mörk text på
      samma yta ger 8,4:1. */
   --on-danger:      #2A0A07;
+  /* Samma bas som --danger, tillräckligt tät för att bära --on-danger.
+     Mörk text på resultatet ger 6,4:1. */
+  --danger-glass:      rgba(249, 112, 102, 0.82);
+  --danger-glass-edge: rgba(255, 255, 255, 0.32);
   --warning:        #FDB022;
   --warning-bg:     rgba(253, 176, 34, 0.12);
   --warning-border: rgba(253, 176, 34, 0.24);
@@ -383,6 +392,32 @@ kbd {
 
   /* Nivå 4 — i handen. Drag och toast. */
   .lifted { box-shadow: var(--shadow-4); }
+
+  /* Notisbandet i cockpit — återkomsten som just blev aktuell.
+   *
+   * Glas är förbjudet i den här kodbasen på element som inte svävar, och
+   * det gäller fortfarande. Undantaget står i samma mening: `backdrop-filter`
+   * hör hemma på lager som ligger ÖVER innehåll. Ett notisband som skjuts in
+   * ovanför dashen är precis det, och genomsikten är inte dekoration här —
+   * den låter säljaren se att bolaget under fortfarande är kvar.
+   *
+   * Bredden sätts av den som använder klassen: bandet är ett format, inte
+   * en plats. */
+  .notice-glass {
+    background: var(--danger-glass);
+    border: 1px solid var(--danger-glass-edge);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-4);
+    color: var(--on-danger);
+    backdrop-filter: blur(18px) saturate(160%);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+  }
+
+  /* Utan stöd för backdrop-filter blir bandet genomskinligt rött över text,
+     alltså oläsbart. Då är full täckning rätt svar. */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .notice-glass { background: var(--danger); }
+  }
 }
 
 /* ============================================================

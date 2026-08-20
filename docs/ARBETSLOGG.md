@@ -70,6 +70,43 @@ löfte, och att läsa sitt eget namn i en varningsruta läser man som ett fel.
 Inget ljud. Säljaren sitter med headset och kan ha en kund på tråden; ett pling
 i lurarna mitt i en invändning hörs även av kunden om mikrofonen är öppen.
 
+### Notisen blev ett band, och glaset är ett undantag med täckning
+
+Efter första skarpa passet: klockan fungerade, men notisen var en liten ruta i
+övre högra hörnet. Beställningen blev ett brett rött band med glas, som en
+iPhone-notis. Fyra saker det tvingade fram:
+
+**Glaset är tillåtet här, och det är inte en genväg.** `CLAUDE.md` listar
+"glassmorphism på element som inte svävar" bland det som inte får komma
+tillbaka — men undantaget står i samma mening: `backdrop-filter` hör hemma på
+lager som ligger *över* innehåll. Ett notisband är precis det. Genomsikten bär
+dessutom något: säljaren ser att bolaget under fortfarande är kvar, alltså att
+bandet är ett tillägg och inte ett skärmbyte.
+
+**`--danger-bg` gick inte att använda.** Den är 8 % och kan inte bära
+`--on-danger` — vit text på den är oläsbar. Två nya tokens i `globals.css`:
+`--danger-glass` (samma bas, 82 %) och `--danger-glass-edge` (den ljusa kanten
+som får glas att läsa som glas). Kontrasten är räknad i båda temana: 5,6:1 i
+ljust, 6,4:1 i mörkt. Färgen ligger i tokenet och inte i komponenten, för det
+var precis så de tretton hårdkodade värdena uppstod förra gången.
+
+**`@supports not (backdrop-filter)` behövs.** Utan stöd blir bandet
+genomskinligt rött *över* text, alltså oläsbart. Fallbacken är full täckning.
+En glaseffekt som degraderar till oläslighet är värre än ingen glaseffekt.
+
+**Bredden är `clamp(360px, 50vw, 760px)`, inte `50%`.** Beställningen var "ca
+50 % av cockpiten", och ren procent går sönder i båda ändarna: halva bredden på
+en delad laptopskärm är 300 pixlar och kapar bolagsnamnet, halva bredden på en
+34-tumsskärm är ett band på nästan tusen pixlar som läser som ett layoutfel.
+
+Bandet stannar **under** toppfältet i stället för att täcka det. En notis som
+lägger sig över "Avsluta" och över klockan den själv kom ur döljer vägen vidare
+i samma sekund som den ber om uppmärksamhet. Centreringen sker med
+`left/right: 0` och `margin-inline: auto`, inte `translateX(-50%)` — framer-
+motions `layout` mäter mot viewporten och får fel svar under en transformerad
+förälder. Containern är `pointer-events: none` och bara banden tar emot klick,
+annars hade en osynlig ruta legat över manuset i tolv sekunder.
+
 Ingen migration, ingen ny server action — `listCallbacks("mine")` och
 `markCallbacksSeen` fanns redan och räckte.
 
