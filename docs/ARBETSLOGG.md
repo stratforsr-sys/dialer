@@ -120,6 +120,13 @@ Gick skrivningen igenom kommer raden inte tillbaka; gick den inte igenom kommer
 den tillbaka och larmar om — vilket är rätt, för då är löftet fortfarande
 ohållet. Felet läker alltså synligt i stället för att gömmas.
 
+Utan timern behövdes en spärr till: **bandet får inte överleva sin egen
+återkomst.** Samtalet är den vanliga vägen ut men inte den enda — raden kan
+avbokas eller flyttas i sidomenyns klocka, i en annan flik eller av en admin.
+Varje hämtning rensar därför bort band vars rad inte längre är öppen. Ett band
+över ett löfte som inte finns är precis den sortens rad man ringer ett bolag i
+onödan på.
+
 Krysset finns kvar som "inte nu". Det gömmer bandet men raden ligger kvar i
 klockan — ett löfte lämnar klockan på två sätt, det ringdes eller det avbokades,
 och en säljare som inte kan få undan tre band från toppen av skärmen har fått
