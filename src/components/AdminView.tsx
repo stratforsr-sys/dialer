@@ -3,10 +3,53 @@
 import { useState, useTransition } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Users, Plus, Trash2, Package, ToggleLeft, ToggleRight } from "lucide-react";
-import { createUser, deleteUser, updateUserRole } from "@/app/actions/users";
+import { createUser, deleteUser, updateUserRole, getUserDeletionImpact, type UserDeletionImpact } from "@/app/actions/users";
 import { createProduct, updateProduct, deleteProduct } from "@/app/actions/products";
 
 type UserRow = { id: string; name: string; email: string; role: string; createdAt: Date };
+
+const nf = (n: number) => n.toLocaleString("sv-SE");
+
+/** Varför kontot inte går att ta bort — eller null om det går. */
+function blockedReason(i: UserDeletionImpact): string | null {
+  if (i.isSelf) return "Du kan inte ta bort dig själv.";
+  if (i.isSystem) return "Det här kontot bär historiken efter redan raderade användare.";
+  if (i.isLastAdmin) return "Det måste finnas minst en admin kvar. Gör någon annan till admin först.";
+  return null;
+}
+
+/** Vad raderingen faktiskt gör, i klartext. En knapp som river 629 samtal ska
+ *  säga att den gör det innan den gör det. */
+function impactLines(i: UserDeletionImpact): string[] {
+  const lines: string[] = [];
+
+  const history: string[] = [];
+  if (i.calls) history.push(`${nf(i.calls)} samtal`);
+  if (i.sessions) history.push(`${nf(i.sessions)} pass`);
+  if (i.callbacksTotal - i.callbacksOpen) history.push(`${nf(i.callbacksTotal - i.callbacksOpen)} avslutade återkomster`);
+  if (i.deals) history.push(`${nf(i.deals)} affärer`);
+  if (i.activities) history.push(`${nf(i.activities)} aktiviteter`);
+  if (i.lists) history.push(`${nf(i.lists)} listor`);
+  if (i.scripts) history.push(`${nf(i.scripts)} manus`);
+  if (history.length) {
+    lines.push(`${history.join(", ")} ligger kvar i statistiken, men skrivs om till "Borttagen användare".`);
+  }
+
+  if (i.callbacksOpen) {
+    lines.push(`${nf(i.callbacksOpen)} öppna återkomster flyttas till dig — de är löften till kunder och får inte tappas bort.`);
+  }
+  if (i.leads) {
+    lines.push(
+      i.claims
+        ? `${nf(i.leads)} bolag rörs inte, men ${nf(i.claims)} av dem släpps tillbaka i rotationen.`
+        : `${nf(i.leads)} bolag rörs inte — de tillhör databasen, inte säljaren.`
+    );
+  }
+  if (i.leases) lines.push(`${nf(i.leases)} parkeringar i dialern släpps direkt.`);
+
+  if (!lines.length) lines.push("Kontot har ingen historik. Det försvinner utan spår.");
+  return lines;
+}
 type Product = { id: string; name: string; description: string | null; basePrice: number | null; isRecurring: boolean; unit: string | null; active: boolean };
 
 function Section({ title, icon: Icon, children }: { title: string; icon: React.ElementType; children: React.ReactNode }) {
@@ -29,6 +72,44 @@ export function AdminView({ users, products }: { users: UserRow[]; products: Pro
   const [showNewProduct, setShowNewProduct] = useState(false);
   const [newProduct, setNewProduct] = useState({ name: "", description: "", basePrice: "", isRecurring: false, unit: "" });
   const [error, setError] = useState("");
+  const [confirm, setConfirm] = useState<UserDeletionImpact | null>(null);
+  const [userError, setUserError] = useState("");
+
+  function askDelete(id: string) {
+    setUserError("");
+    setConfirm(null);
+    startTransition(async () => {
+      try {
+        setConfirm(await getUserDeletionImpact(id));
+      } catch (err) {
+        setUserError(err instanceof Error ? err.message : "Kunde inte läsa kontot");
+      }
+    });
+  }
+
+  function doDelete(id: string) {
+    setUserError("");
+    startTransition(async () => {
+      try {
+        await deleteUser(id);
+        setConfirm(null);
+      } catch (err) {
+        setUserError(err instanceof Error ? err.message : "Kunde inte ta bort kontot");
+        setConfirm(null);
+      }
+    });
+  }
+
+  function changeRole(id: string, role: "ADMIN" | "SELLER") {
+    setUserError("");
+    startTransition(async () => {
+      try {
+        await updateUserRole(id, role);
+      } catch (err) {
+        setUserError(err instanceof Error ? err.message : "Kunde inte ändra rollen");
+      }
+    });
+  }
 
   function handleCreateUser(e: React.FormEvent) {
     e.preventDefault();
@@ -92,34 +173,86 @@ export function AdminView({ users, products }: { users: UserRow[]; products: Pro
                 <Section title={`Användare (${users.length})`} icon={Users}>
                   <div className="flex flex-col gap-2 mb-4">
                     {users.map((u) => (
-                      <div key={u.id} className="flex items-center gap-3 px-3 py-2 rounded-md"
-                        style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-bold shrink-0"
-                          style={{ background: "var(--accent)", color: "var(--on-accent)" }}>
-                          {u.name.charAt(0).toUpperCase()}
+                      <div key={u.id} className="flex flex-col rounded-md overflow-hidden"
+                        style={{ background: "var(--surface-inset)", border: `1px solid ${confirm?.id === u.id ? "var(--danger)" : "var(--border)"}` }}>
+                        <div className="flex items-center gap-3 px-3 py-2">
+                          <div className="w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-bold shrink-0"
+                            style={{ background: "var(--accent)", color: "var(--on-accent)" }}>
+                            {u.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[13px] font-medium truncate" style={{ color: "var(--text)" }}>{u.name}</p>
+                            <p className="text-[11px] truncate" style={{ color: "var(--text-muted)" }}>{u.email}</p>
+                          </div>
+                          <select
+                            value={u.role}
+                            onChange={(e) => changeRole(u.id, e.target.value as "ADMIN" | "SELLER")}
+                            className="text-[11px] outline-none px-2 py-1 rounded-sm"
+                            style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text-muted)" }}>
+                            <option value="SELLER">Säljare</option>
+                            <option value="ADMIN">Admin</option>
+                          </select>
+                          <button onClick={() => (confirm?.id === u.id ? setConfirm(null) : askDelete(u.id))}
+                            title="Ta bort konto"
+                            className="w-7 h-7 flex items-center justify-center rounded-full transition-colors"
+                            style={{ color: confirm?.id === u.id ? "var(--danger)" : "var(--text-dim)" }}
+                            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--danger)")}
+                            onMouseLeave={(e) => (e.currentTarget.style.color = confirm?.id === u.id ? "var(--danger)" : "var(--text-dim)")}>
+                            <Trash2 size={13} />
+                          </button>
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[13px] font-medium truncate" style={{ color: "var(--text)" }}>{u.name}</p>
-                          <p className="text-[11px] truncate" style={{ color: "var(--text-muted)" }}>{u.email}</p>
-                        </div>
-                        <select
-                          value={u.role}
-                          onChange={(e) => startTransition(() => updateUserRole(u.id, e.target.value as "ADMIN" | "SELLER"))}
-                          className="text-[11px] outline-none px-2 py-1 rounded-sm"
-                          style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text-muted)" }}>
-                          <option value="SELLER">Säljare</option>
-                          <option value="ADMIN">Admin</option>
-                        </select>
-                        <button onClick={() => startTransition(() => deleteUser(u.id))}
-                          className="w-7 h-7 flex items-center justify-center rounded-full transition-colors"
-                          style={{ color: "var(--text-dim)" }}
-                          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--danger)")}
-                          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-dim)")}>
-                          <Trash2 size={13} />
-                        </button>
+
+                        <AnimatePresence initial={false}>
+                          {confirm && confirm.id === u.id && (
+                            <motion.div key="confirm" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+                              className="overflow-hidden">
+                              <div className="px-3 pb-3 pt-1 flex flex-col gap-2 border-t" style={{ borderColor: "var(--border)" }}>
+                                {blockedReason(confirm) ? (
+                                  <p className="text-[12px] px-3 py-2 rounded-md"
+                                    style={{ background: "var(--danger-bg)", color: "var(--danger)" }}>
+                                    {blockedReason(confirm)}
+                                  </p>
+                                ) : (
+                                  <>
+                                    <p className="text-[12px] font-medium" style={{ color: "var(--text)" }}>
+                                      Ta bort {confirm.name}? Kontot raderas ur databasen och går inte att återskapa.
+                                    </p>
+                                    <ul className="flex flex-col gap-1">
+                                      {impactLines(confirm).map((line, n) => (
+                                        <li key={n} className="text-[11px] leading-[1.5] pl-3 relative" style={{ color: "var(--text-muted)" }}>
+                                          <span className="absolute left-0" style={{ color: "var(--text-dim)" }}>·</span>
+                                          {line}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </>
+                                )}
+                                <div className="flex gap-2 pt-1">
+                                  <button onClick={() => setConfirm(null)} className="flex-1 py-[6px] text-[12px] rounded-md"
+                                    style={{ background: "var(--surface)", color: "var(--text-muted)", border: "1px solid var(--border)" }}>
+                                    Avbryt
+                                  </button>
+                                  {!blockedReason(confirm) && (
+                                    <button onClick={() => doDelete(confirm.id)} disabled={isPending}
+                                      className="flex-1 py-[6px] text-[12px] font-medium rounded-md"
+                                      style={{ background: "var(--danger)", color: "var(--on-accent)", opacity: isPending ? 0.6 : 1 }}>
+                                      {isPending ? "Tar bort…" : "Ta bort"}
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
                       </div>
                     ))}
                   </div>
+
+                  {userError && (
+                    <p className="text-[12px] px-3 py-2 rounded-md mb-4" style={{ background: "var(--danger-bg)", color: "var(--danger)" }}>
+                      {userError}
+                    </p>
+                  )}
 
                   {!showNewUser ? (
                     <button onClick={() => setShowNewUser(true)}

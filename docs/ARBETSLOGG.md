@@ -70,6 +70,85 @@ i bygget.
 
 ---
 
+## 2026-08-20 — Radera konto: gravstenen i stället för kaskaden
+
+Papperskorgen i admin gav `Application error … Digest: 1346789363`. Orsaken var
+inte subtil: `deleteUser` gjorde ett rakt `db.user.delete`, och nio tabeller
+pekar på `User` med **`ON DELETE RESTRICT`** — verifierat i tabelldefinitionerna
+i Turso, inte bara i schemat, och `PRAGMA foreign_keys` är `1`. Ett enda samtal,
+pass eller lista räckte för att databasen skulle vägra. I praktiken gick alltså
+*inget* konto att ta bort: även Simon med noll samtal hade fem pass bakom sig.
+
+**Klienten gjorde vägran värre.** Knappen körde `startTransition(() =>
+deleteUser(u.id))` helt utan `try/catch`, så varje fel blev den generiska
+kraschsidan — inklusive den vänliga texten "Du kan inte ta bort dig själv", som
+alltså aldrig har visats för någon. Ett kastat fel i en server action är inte en
+felhantering förrän någon fångar det.
+
+### Valet
+
+Tre vägar fanns, och de ger synligt olika statistik:
+
+1. Kaskadradera historiken med personen.
+2. Peka om historiken på den admin som trycker på knappen.
+3. Flytta historiken till ett gravstenskonto.
+
+Ettan raderar företagets samtalshistorik — 629 samtal hade följt med Vlado ut.
+Tvåan skriver de 629 samtalen på fel namn, vilket är värre än att förlora dem:
+felaktig statistik ser riktig ut. **Trean valdes.** `lib/system-user.ts` håller
+kontot "Borttagen användare" på `borttagen@system.invalid` — `.invalid` är
+reserverat av RFC 2606 och kan aldrig bli en riktig domän, så e-posten är en
+nyckel och inte en adress. Kontot skapas först den dag någon faktiskt raderas.
+
+Priset är medvetet och bör sägas rakt ut: **raderar du två säljare hamnar båda i
+samma hink.** Vem av dem som ringde ett visst samtal går inte längre att se.
+Det är avvägningen mot att inte förlora samtalet alls.
+
+Lösenordshashen är en riktig bcrypt-hash av ett slumpat UUID ingen har sett.
+Poängen är inte att den är hemlig utan att den är *välformad*: en inloggning mot
+gravstenen ska svara "fel lösenord", inte kastas mot en trasig sträng.
+
+### Det som inte är historik
+
+- **Bolagen raderas aldrig.** `ownerId` betyder "senast bearbetad av", inte
+  ägarskap — bolagen tillhör databasen, inte säljaren. De pekas om till
+  gravstenen, och **claim-låset släpps**: ett bolag ska inte stå reserverat i
+  sextio dagar åt någon som inte finns.
+- **Parkeringarna släpps.** `leasedById` är en naken kolumn utan främmande
+  nyckel, så databasen städar inte åt oss. Utan det steget hade låset pekat på
+  ett id som inte fanns och bolaget legat otillgängligt tills leasen gick ut.
+- **Öppna återkomster går till den som raderar**, inte till gravstenen. De är
+  löften till kunder, inte historik — på gravstenen hade ingen sett dem igen.
+  Avslutade återkomster följer med resten.
+
+Ordningen i transaktionen är därför inte kosmetisk: claims letas upp på
+`ownerId` och måste släppas *innan* `ownerId` byter hand, och de öppna
+återkomsterna måste plockas ut innan svepet tar resten.
+
+### Spärrar som saknades
+
+`requireAdmin` fanns, självraderingsspärren fanns. Nytt: **sista adminen kan
+inte tas bort** (annars låser du ut hela företaget), gravstenskontot kan varken
+raderas eller få en roll, och adressen går inte att registrera via `createUser`.
+Gravstenen döljs i admin-listan och i `getAssignableUsers` — men **inte i
+statistiken**, för det är där historiken den bär ska synas.
+
+Papperskorgen fäller numera ut en bekräftelse som räknar upp exakt vad som
+händer innan den gör det. En knapp som river 629 samtal ska säga det först.
+
+Ingen migration — inga nya kolumner. Kontrollerat i produktion före ändringen:
+noll dinglande `leasedById`, noll dinglande `ownerId`, nio konton. Inget att
+städa i efterhand, av det enkla skälet att ingen radering någonsin lyckats.
+
+### Öppna punkter
+
+- [ ] **Ingen aktivitetsrad skrivs när ett konto raderas.** Vem som raderade
+      vem, och när, finns bara i minnet av den som klickade.
+- [ ] **Produktknappen har samma brist som användarknappen hade.**
+      `deleteProduct` körs också utan `try/catch` och utan bekräftelse.
+
+---
+
 ## 2026-08-17 — Två säljare på samma bolag: parkeringen gick ut mitt i passet
 
 Rapporterat från golvet: två personer ringde i dialern samtidigt och fick upp

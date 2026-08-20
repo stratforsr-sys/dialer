@@ -10,6 +10,7 @@ import {
   isAdminUser,
   visibleLeadWhere,
 } from "@/lib/lists";
+import { SYSTEM_USER_EMAIL } from "@/lib/system-user";
 
 export type ListSummary = Awaited<ReturnType<typeof getLists>>[number];
 export type ListDetail = NonNullable<Awaited<ReturnType<typeof getList>>>;
@@ -133,10 +134,13 @@ export async function getList(listId: string) {
   };
 }
 
-/** Säljare att välja bland när admin delar ut en mapp. */
+/** Säljare att välja bland när admin delar ut en mapp. Gravstenskontot för
+ *  raderade användare är inte en av dem — det finns bara för att bära
+ *  historik och kan inte logga in. */
 export async function getAssignableUsers() {
   await requireAdmin();
   return db.user.findMany({
+    where: { email: { not: SYSTEM_USER_EMAIL } },
     orderBy: [{ role: "asc" }, { name: "asc" }],
     select: { id: true, name: true, email: true, role: true },
   });
