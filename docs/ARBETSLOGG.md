@@ -6,6 +6,11 @@ Commit-meddelandena bär detaljerna — den här filen bär sammanhanget och det
 
 Nyast först.
 
+> **`ATT_GORA.md`** bredvid den här filen samlar alla öppna punkter från hela
+> loggen i en prioriterad lista, avstämd mot koden och produktionsdatan
+> 2026-08-20. Den här filen är fortfarande källan till *varför* — den andra
+> svarar snabbast på *vad som är kvar*.
+
 ---
 
 ## 2026-08-20 — Överlämningen av ett bolag lämnar ett spår
