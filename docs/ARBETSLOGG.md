@@ -13,6 +13,78 @@ Nyast först.
 
 ---
 
+## 2026-08-20 (senare) — Återkomstklockan flyttar in i cockpit
+
+Notisklockan fanns redan och var genomarbetad. Problemet var var den satt:
+`cockpit/layout.tsx` säger `// Cockpit is fullscreen — no sidebar`, och klockan
+bor i `AppSidebar`. Enda vägen till sina egna löften var alltså att lämna
+ringpasset — vilket ingen gör mitt i ett samtal, och därför gjorde ingen det
+alls. Rapporterat från golvet som "vi måste gå ut hela tiden för att kolla".
+
+`CallbackBell` i `components/cockpit/` är en andra klocka, inte en flyttad.
+Sidomenyns klocka är kvar oförändrad, och skillnaderna är alla avsiktliga:
+
+**Bara det som är dags visas.** Sidomenyns klocka listar också "senare idag"
+och "kommande" — den är en planeringsvy. Den här är ett avbrott i ett pass, och
+allt som inte kräver ett samtal inom fem minuter är brus. Brus i cockpit kostar
+samtal.
+
+**Fem minuters förvarning, samma gräns som sidomenyn.** Beställningen var
+egentligen "exakt på utsatt tid", men femman vann efter att avvägningen lagts
+fram: en notis som kommer på slaget når en säljare som redan sitter i ett annat
+samtal. Två klockor med olika larmtid hade dessutom varit svårare att förklara
+än regeln "fem minuter innan" på båda.
+
+**Raden är knappen.** Inga snooza-, avboka- eller mejlknappar — de finns kvar i
+sidomenyns klocka, där det finns plats att fundera. Här gör man en sak: trycker
+på bolaget och hamnar i det. Vägen dit är `openLeadById`, samma som
+⌘K-sökningen redan använde; bolaget reserveras och läggs först i kön utan att
+ringsessionen bryts.
+
+**Notisen kommer när tiden går in, inte när säljaren loggar in.** Bara rader som
+passerar femminutersgränsen medan cockpiten står öppen ger en notis. Det som
+redan var förfallet vid passets start ligger i klockan med röd siffra. En skärm
+som möts av fyra notiser vid inloggning lär säljaren att klicka bort dem utan
+att läsa, och då är hela mekanismen värdelös.
+
+### Två fällor som hade bitit
+
+**`answeredCallbackId` måste följa med.** `recordAttempt` stänger annars bara
+återkomster vars tid *redan passerat* (`scheduledAt <= now`). Eftersom klockan
+larmar fem minuter för tidigt hade ett samtal ringt 13:57 på ett löfte klockan
+14:00 lämnat löftet öppet i klockan efteråt. Cockpiten minns därför vilken rad
+som ledde till bolaget, i en ref per lead, och tömmer den i `commit`.
+
+**Tangentbordet läcker.** Cockpitens dispositionsgenvägar ligger på `window`
+och har som enda grind att markören står i ett fält. Panelen har inga fält, så
+ett tryck på "1" medan säljaren läste en återkomst hade bokfört ett samtal på
+bolaget hen råkade stå på. Panelen fångar därför tangenttryck i capture-fasen,
+alltså före `window`, och släpper igenom meta/ctrl så att ⌘K fortfarande når
+fram. *Samma läcka finns kvar överallt annars där ett lager saknar textfält —
+värd en genomgång, inte en punktinsats.*
+
+Varningen "X lovade återkomma" i `leaseSpecificLead` säger nu "Du lovade
+återkomma" när det är ens eget löfte. Vägen in går numera ofta genom sitt eget
+löfte, och att läsa sitt eget namn i en varningsruta läser man som ett fel.
+
+Inget ljud. Säljaren sitter med headset och kan ha en kund på tråden; ett pling
+i lurarna mitt i en invändning hörs även av kunden om mikrofonen är öppen.
+
+Ingen migration, ingen ny server action — `listCallbacks("mine")` och
+`markCallbacksSeen` fanns redan och räckte.
+
+### Öppna punkter
+
+- [ ] **Ingen mätning av om klockan används.** Att en återkomst stängdes med
+      `answeredCallbackId` satt är exakt spåret som säger "det här samtalet kom
+      ur klockan". Ingen räknar det.
+- [ ] **Klockan pollar var 60:e sekund per öppen cockpit.** Med tjugo säljare är
+      det tjugo frågor i minuten för data som ändras några gånger om dagen.
+      Ofarligt nu, men det är samma sorts kostnad som växtvärken i
+      presence-heartbeaten.
+
+---
+
 ## 2026-08-20 — Överlämningen av ett bolag lämnar ett spår
 
 Förnyelsen från 2026-08-17 håller kön, men bara i resonemanget: när ett bolag

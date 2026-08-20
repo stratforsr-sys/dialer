@@ -1,0 +1,419 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Bell, X, Check, AlarmClock } from "lucide-react";
+import { listCallbacks, markCallbacksSeen, type CallbackRow } from "@/app/actions/callbacks";
+import { formatTime, formatWhen, formatRelative, isSameDay } from "@/lib/time";
+
+/**
+ * Återkomstklockan i cockpit.
+ *
+ * Klockan i sidomenyn kunde säljaren inte se: `cockpit/layout.tsx` ritar ingen
+ * sidomeny, för passet ska vara helskärm. Enda vägen till sina löften var att
+ * lämna ringpasset, vilket ingen gör mitt i ett samtal — och därför gjorde
+ * ingen det alls.
+ *
+ * Fyra skillnader mot klockan i sidomenyn, alla avsiktliga:
+ *
+ * **Bara det som är dags visas.** Sidomenyns klocka listar även "senare idag"
+ * och "kommande", för den är en planeringsvy. Här är den ett avbrott i ett
+ * pass: allt som inte kräver ett samtal inom fem minuter är brus, och brus i
+ * cockpit kostar samtal.
+ *
+ * **Fem minuters förvarning, samma som sidomenyn.** En notis som kommer på
+ * slaget är för sen — säljaren sitter i ett annat samtal och hinner inte runda
+ * av. Gränsen räknas mot en lokal klocka, inte i en fråga mot servern, annars
+ * hade den krävt polling varje sekund för att inte hoppa över minuten.
+ *
+ * **Raden är knappen.** Inga snooza-, avboka- eller mejlknappar. De finns kvar
+ * i sidomenyns klocka, där det finns plats att fundera. Här gör man en sak:
+ * trycker på bolaget och hamnar i det.
+ *
+ * **Notisen kommer när tiden går in, inte när säljaren loggar in.** Bara rader
+ * som passerar femminutersgränsen medan cockpiten står öppen ger en notis. Det
+ * som redan var förfallet när passet började ligger i klockan med röd siffra —
+ * en skärm som möts av fyra notiser vid inloggning lär säljaren att klicka bort
+ * dem utan att läsa.
+ */
+
+/** Minuter före utsatt tid som en återkomst blir aktuell. Samma som sidomenyn. */
+const LEAD_TIME_MIN = 5;
+/** Hur ofta servern frågas. Klockan tickar lokalt däremellan. */
+const POLL_MS = 60_000;
+const TICK_MS = 10_000;
+/** Hur länge en notis ligger kvar innan den försvinner av sig själv. */
+const TOAST_MS = 12_000;
+/** Fler samtidiga notiser än så är en lista, inte ett avbrott. */
+const MAX_TOASTS = 3;
+
+/** Är återkomsten aktuell nu? Förfallna räknas alltid som aktuella. */
+function isDue(row: CallbackRow, now: Date): boolean {
+  return (row.scheduledAt.getTime() - now.getTime()) / 60_000 <= LEAD_TIME_MIN;
+}
+
+export function CallbackBell({
+  onOpenLead,
+}: {
+  /** Öppnar bolaget i passet. Returnerar ett felmeddelande, eller null. */
+  onOpenLead: (leadId: string, callbackId: string) => Promise<string | null>;
+}) {
+  const [rows, setRows] = useState<CallbackRow[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [now, setNow] = useState(() => new Date());
+  const [open, setOpen] = useState(false);
+  const [toasts, setToasts] = useState<CallbackRow[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  /** Rader som redan gett en notis. Töms när raden slutar vara aktuell, så en
+   *  återkomst som snoozats femton minuter larmar igen när den kommer åter. */
+  const alertedRef = useRef<Set<string>>(new Set());
+  /** Första hämtningen seedar utan att larma — se rubrikkommentaren. */
+  const seededRef = useRef(false);
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // ── Data ────────────────────────────────────────────────────────────────
+  const load = useCallback(async () => {
+    try {
+      const res = await listCallbacks("mine");
+      setRows(res.rows);
+      setLoaded(true);
+    } catch {
+      // En misslyckad hämtning ska inte tömma klockan som redan visas.
+      // Säljaren är mitt i ett samtal och en klocka som blinkar tom är värre
+      // än en som är en minut gammal.
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, POLL_MS);
+
+    function onVisible() {
+      if (document.visibilityState === "visible") {
+        void load();
+        setNow(new Date());
+      }
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [load]);
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), TICK_MS);
+    return () => clearInterval(t);
+  }, []);
+
+  const due = useMemo(() => rows.filter((r) => isDue(r, now)), [rows, now]);
+  const overdue = due.some((r) => r.scheduledAt.getTime() < now.getTime());
+
+  // ── Notisen: raden som just passerade gränsen ───────────────────────────
+  useEffect(() => {
+    // Innan servern svarat en första gång är `due` tom av okunskap, inte för
+    // att inget är dags. Att seeda på den tomheten hade gjort att allt som
+    // fanns när passet började larmade en gång — precis tvärtom mot avsikten.
+    if (!loaded) return;
+
+    const dueIds = new Set(due.map((r) => r.id));
+
+    // Rader som inte längre är aktuella får larma igen nästa gång de blir det.
+    for (const id of Array.from(alertedRef.current)) {
+      if (!dueIds.has(id)) alertedRef.current.delete(id);
+    }
+
+    if (!seededRef.current) {
+      // Första varvet: notera vad som redan var dags utan att avbryta passet.
+      dueIds.forEach((id) => alertedRef.current.add(id));
+      seededRef.current = true;
+      return;
+    }
+
+    const fresh = due.filter((r) => !alertedRef.current.has(r.id));
+    if (fresh.length === 0) return;
+    for (const r of fresh) alertedRef.current.add(r.id);
+    setToasts((prev) => [...fresh, ...prev].slice(0, MAX_TOASTS));
+
+    // Timern sätts när notisen skapas, inte i en effekt som lyssnar på listan.
+    // Gjorde man det senare skulle varje bortklickad notis nolla nedräkningen
+    // för de som ligger kvar, och två notiser som kom en minut isär skulle
+    // försvinna samtidigt.
+    for (const r of fresh) {
+      const t = setTimeout(
+        () => setToasts((prev) => prev.filter((p) => p.id !== r.id)),
+        TOAST_MS
+      );
+      timersRef.current.push(t);
+    }
+  }, [due, loaded]);
+
+  // Städa bort svävande timers när cockpiten lämnas.
+  useEffect(() => () => timersRef.current.forEach(clearTimeout), []);
+
+  // ── Öppnad panel kvitterar ──────────────────────────────────────────────
+  // Löftet står kvar — säljaren har sett notisen, inte ringt samtalet.
+  useEffect(() => {
+    if (!open) return;
+    const unseen = due.filter((r) => !r.seen).map((r) => r.id);
+    if (unseen.length === 0) return;
+    void markCallbacksSeen(unseen).then(() => {
+      setRows((prev) => prev.map((r) => (unseen.includes(r.id) ? { ...r, seen: true } : r)));
+    });
+  }, [open, due]);
+
+  // ── Stäng vid klick utanför och Escape ──────────────────────────────────
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      const t = e.target as Node;
+      if (panelRef.current?.contains(t) || buttonRef.current?.contains(t)) return;
+      setOpen(false);
+    }
+    // Cockpitens dispositionsgenvägar ligger på `window` och bryr sig inte om
+    // att en panel är öppen — den enda grinden där är att markören står i ett
+    // fält, och den här panelen har inga fält. Utan det här hade ett tryck på
+    // "1" medan säljaren läser en återkomst bokfört ett samtal på bolaget hen
+    // råkar stå på. Lyssnaren fångar i capture-fasen, alltså före window, och
+    // släpper igenom kortkommandon med meta/ctrl så att ⌘K fortfarande når fram.
+    function onKeyCapture(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setOpen(false);
+        e.stopPropagation();
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      e.stopPropagation();
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKeyCapture, true);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKeyCapture, true);
+    };
+  }, [open]);
+
+  // ── Panelens position ───────────────────────────────────────────────────
+  // Fixerad, inte absolut: cockpitens toppfält är `shrink-0` i en flexkolumn
+  // med `overflow-hidden`, så ett absolut lager hade klippts vid 52 pixlar.
+  const [anchor, setAnchor] = useState<{ right: number; top: number } | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    function place() {
+      const r = buttonRef.current?.getBoundingClientRect();
+      if (!r) return;
+      setAnchor({ right: Math.max(12, window.innerWidth - r.right), top: r.bottom + 8 });
+    }
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [open]);
+
+  // ── Gå till bolaget ─────────────────────────────────────────────────────
+  const goTo = useCallback(
+    async (row: CallbackRow) => {
+      setOpen(false);
+      setToasts((prev) => prev.filter((p) => p.id !== row.id));
+      const message = await onOpenLead(row.leadId, row.id);
+      if (message) {
+        setError(message);
+        setTimeout(() => setError(null), 6000);
+      }
+    },
+    [onOpenLead]
+  );
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        onClick={() => setOpen((o) => !o)}
+        title={due.length > 0 ? `${due.length} återkomster är dags` : "Inga återkomster är dags"}
+        className="relative flex items-center justify-center w-[26px] h-[26px] rounded-sm shrink-0"
+        style={{
+          background: open ? "var(--surface-inset)" : "transparent",
+          color: overdue ? "var(--danger)" : due.length > 0 ? "var(--accent)" : "var(--text-dim)",
+          transition: "background-color 0.12s ease, color 0.12s ease",
+        }}
+      >
+        <Bell size={15} strokeWidth={due.length > 0 ? 2.2 : 1.8} />
+        {due.length > 0 && (
+          <span
+            className="absolute -top-[3px] -right-[3px] min-w-[14px] h-[14px] px-[3px] flex items-center justify-center rounded-full text-[9px] font-bold mono-nums"
+            style={{
+              background: overdue ? "var(--danger)" : "var(--accent)",
+              color: overdue ? "var(--on-danger)" : "var(--on-accent)",
+              boxShadow: "0 0 0 2px var(--surface)",
+            }}
+          >
+            {due.length}
+          </span>
+        )}
+      </button>
+
+      {/* Notiser. Fixerade under toppfältet, i linje med klockan de kom ur. */}
+      <div className="fixed z-[70] flex flex-col gap-2 items-end" style={{ top: 62, right: 20 }}>
+        <AnimatePresence initial={false}>
+          {toasts.map((t) => (
+            <motion.button
+              key={t.id}
+              layout
+              initial={{ opacity: 0, x: 24 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 24 }}
+              transition={{ duration: 0.18 }}
+              onClick={() => void goTo(t)}
+              className="flex items-start gap-2.5 px-3.5 py-2.5 rounded-lg text-left max-w-[340px]"
+              style={{
+                background: "var(--surface)",
+                border: "1px solid var(--accent-border)",
+                boxShadow: "var(--shadow-3)",
+              }}
+            >
+              <AlarmClock size={14} style={{ color: "var(--accent)", marginTop: 1 }} className="shrink-0" />
+              <span className="min-w-0">
+                <span className="block text-[12px] font-semibold truncate" style={{ color: "var(--text)" }}>
+                  {t.companyName}
+                </span>
+                <span className="block text-[11px] mt-[1px]" style={{ color: "var(--text-muted)" }}>
+                  Återkomst {formatTime(t.scheduledAt)}
+                  {t.contactName ? ` · ${t.contactName}` : ""}
+                </span>
+                <span className="block text-[10px] mt-[3px]" style={{ color: "var(--accent)" }}>
+                  Klicka för att ta bolaget
+                </span>
+              </span>
+              <X
+                size={12}
+                style={{ color: "var(--text-faint)", marginTop: 2 }}
+                className="shrink-0"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setToasts((prev) => prev.filter((p) => p.id !== t.id));
+                }}
+              />
+            </motion.button>
+          ))}
+        </AnimatePresence>
+
+        {error && (
+          <div
+            className="px-3.5 py-2.5 rounded-lg text-[12px] max-w-[340px]"
+            style={{ background: "var(--danger-bg)", border: "1px solid var(--danger-border)", color: "var(--danger)" }}
+          >
+            {error}
+          </div>
+        )}
+      </div>
+
+      {/* Panelen */}
+      {open && anchor && (
+        <div
+          ref={panelRef}
+          className="fixed z-[70] flex flex-col"
+          style={{
+            right: anchor.right,
+            top: anchor.top,
+            width: 340,
+            maxHeight: "min(60vh, 480px)",
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r-lg)",
+            boxShadow: "var(--shadow-3)",
+          }}
+        >
+          <div
+            className="flex items-center gap-2 px-4 py-2.5 shrink-0"
+            style={{ borderBottom: "1px solid var(--border-subtle)" }}
+          >
+            <span
+              className="text-[12px] font-semibold"
+              style={{ color: "var(--text)", fontFamily: "var(--font-display)" }}
+            >
+              Dags att ringa
+            </span>
+            <button
+              onClick={() => setOpen(false)}
+              className="ml-auto p-1 rounded-sm"
+              style={{ color: "var(--text-dim)" }}
+              title="Stäng (Esc)"
+            >
+              <X size={13} />
+            </button>
+          </div>
+
+          <div className="overflow-y-auto flex-1">
+            {due.length === 0 ? (
+              <div className="px-4 py-8 text-center">
+                <Check size={18} style={{ color: "var(--text-faint)" }} className="mx-auto mb-2" />
+                <p className="text-[12px]" style={{ color: "var(--text-dim)" }}>
+                  Inga återkomster är dags just nu.
+                </p>
+                <p className="text-[11px] mt-1" style={{ color: "var(--text-faint)" }}>
+                  Kommande syns här {LEAD_TIME_MIN} minuter innan utsatt tid.
+                </p>
+              </div>
+            ) : (
+              due.map((r) => <Row key={r.id} row={r} now={now} onPick={() => void goTo(r)} />)
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── Rad ───────────────────────────────────────────────────────────────────
+// Hela raden är knappen. Att skjuta upp, avboka eller ändra mejlpåminnelsen
+// gör man i sidomenyns klocka — i ett pass ska raden svara på en enda fråga:
+// vilket bolag ringer jag nu?
+
+function Row({ row, now, onPick }: { row: CallbackRow; now: Date; onPick: () => void }) {
+  const late = row.scheduledAt.getTime() < now.getTime();
+  const accent = late ? "var(--danger)" : "var(--accent)";
+
+  return (
+    <button
+      onClick={onPick}
+      className="w-full text-left px-4 py-[10px] block"
+      style={{ borderTop: "1px solid var(--border-subtle)" }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-inset)")}
+      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+    >
+      {/* Spans, inte div och p: allt här ligger inne i en button, och en
+          button får bara innehålla phrasing content. */}
+      <span className="flex items-baseline gap-2">
+        <span className="text-[12px] font-semibold mono-nums shrink-0" style={{ color: accent }}>
+          {isSameDay(row.scheduledAt, now) ? formatTime(row.scheduledAt) : formatWhen(row.scheduledAt, now)}
+        </span>
+        <span className="text-[10px] shrink-0" style={{ color: "var(--text-dim)" }}>
+          {formatRelative(row.scheduledAt, now)}
+        </span>
+        <span
+          className="ml-auto text-[13px] font-medium truncate text-right"
+          style={{ color: "var(--text)" }}
+          title={row.companyName}
+        >
+          {row.companyName}
+        </span>
+      </span>
+
+      {row.contactName && (
+        <span className="block text-[11px] mt-[2px] truncate" style={{ color: "var(--text-muted)" }}>
+          {row.contactName}
+        </span>
+      )}
+
+      {row.note && (
+        <span className="block text-[11px] mt-[4px] whitespace-pre-wrap" style={{ color: "var(--text-secondary)" }}>
+          {row.note}
+        </span>
+      )}
+    </button>
+  );
+}

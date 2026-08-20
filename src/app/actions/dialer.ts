@@ -595,7 +595,7 @@ export async function leaseSpecificLead(leadId: string) {
         where: { status: "PENDING" },
         orderBy: { scheduledAt: "asc" },
         take: 1,
-        select: { scheduledAt: true, seller: { select: { name: true } } },
+        select: { scheduledAt: true, sellerId: true, seller: { select: { name: true } } },
       },
       dnc: { select: { expiresAt: true, reason: true } },
       _count: { select: { contacts: true } },
@@ -664,9 +664,15 @@ export async function leaseSpecificLead(leadId: string) {
   }
   const promise = info.callbacks[0];
   if (promise) {
+    // Vägen hit går numera ofta genom notisklockan, alltså genom sitt eget
+    // löfte. "Zen lovade återkomma" om sig själv läser man som en varning om
+    // någon annan; första person säger samma sak utan att låta som ett fel.
     warnings.push({
       tone: "warn",
-      text: `${promise.seller.name} lovade återkomma ${formatWhen(promise.scheduledAt, now)}`,
+      text:
+        promise.sellerId === user.id
+          ? `Du lovade återkomma ${formatWhen(promise.scheduledAt, now)}`
+          : `${promise.seller.name} lovade återkomma ${formatWhen(promise.scheduledAt, now)}`,
     });
   }
   if (info.hasActiveDeal) {

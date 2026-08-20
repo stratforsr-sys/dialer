@@ -22,6 +22,7 @@ import { ScriptPanel } from "@/components/cockpit/ScriptPanel";
 import { CallbackForm, EMPTY_CALLBACK, type CallbackDraft } from "@/components/cockpit/CallbackForm";
 import { LeadHistory, type HistoryActivity } from "@/components/cockpit/LeadHistory";
 import { LeadSwitcher } from "@/components/cockpit/LeadSwitcher";
+import { CallbackBell } from "@/components/cockpit/CallbackBell";
 import { useDispositionQueue } from "@/hooks/useDispositionQueue";
 import { formatSwedish } from "@/lib/phone";
 import { formatWhen } from "@/lib/time";
@@ -565,6 +566,10 @@ export function CockpitDb({
   // hen slår numret. Se `syncLeases`.
   const [takenOver, setTakenOver] = useState<{ leadId: string; holder: string | null } | null>(null);
 
+  /** Återkomsten som ledde hit, per bolag. Läses av `commit` och töms där —
+   *  en rad som ligger kvar hade stängt fel löfte nästa gång bolaget ringdes. */
+  const answeredCallbackRef = useRef<Record<string, string>>({});
+
   const [flow, setFlow] = useState<FlowState>(INITIAL_FLOW);
   const [gk, setGk] = useState<GatekeeperDraft>(EMPTY_GATEKEEPER);
   const [callback, setCallback] = useState<CallbackDraft>(EMPTY_CALLBACK);
@@ -783,8 +788,8 @@ export function CockpitDb({
    * ringsessionen och startat en ny, vilket delar säljarens pass i två i
    * statistiken varje gång någon slår upp ett bolag.
    */
-  const openSearched = useCallback(async (hit: LeadSearchHit): Promise<string | null> => {
-    const res = await leaseSpecificLead(hit.id);
+  const openLeadById = useCallback(async (leadId: string): Promise<string | null> => {
+    const res = await leaseSpecificLead(leadId);
     if (!res.ok) return res.message;
 
     const cur = indexRef.current;
@@ -808,6 +813,29 @@ export function CockpitDb({
     }
     return null;
   }, [advance, resetFlow]);
+
+  const openSearched = useCallback(
+    (hit: LeadSearchHit) => openLeadById(hit.id),
+    [openLeadById]
+  );
+
+  /**
+   * Ta bolaget bakom en återkomst utan att lämna passet.
+   *
+   * Samma väg som ⌘K-sökningen: bolaget reserveras och läggs först i kön.
+   * Skillnaden är att raden pekas ut. `recordAttempt` stänger annars bara
+   * återkomster vars tid redan passerat, och klockan larmar fem minuter för
+   * tidigt — utan `answeredCallbackId` hade ett samtal ringt 13:57 på ett
+   * löfte klockan 14:00 lämnat löftet öppet i klockan efteråt.
+   */
+  const openCallback = useCallback(
+    async (leadId: string, callbackId: string): Promise<string | null> => {
+      const message = await openLeadById(leadId);
+      if (!message) answeredCallbackRef.current[leadId] = callbackId;
+      return message;
+    },
+    [openLeadById]
+  );
 
   // ── Anteckning: Enter sparar ───────────────────────────────────────────
   //
@@ -898,6 +926,9 @@ export function CockpitDb({
         callbackAt: callback.at ? new Date(callback.at).toISOString() : null,
         callbackNote: callback.note.trim() || null,
         callbackEmailReminder: callback.emailReminder,
+        // Kom säljaren hit via klockan svarar samtalet på just den raden, även
+        // om den utsatta tiden inte hunnit passera.
+        answeredCallbackId: answeredCallbackRef.current[target.id] ?? null,
         gatekeeper: opts.withGatekeeper
           ? {
               name: gk.name.trim() || null,
@@ -916,6 +947,8 @@ export function CockpitDb({
             }
           : null,
       });
+
+      delete answeredCallbackRef.current[target.id];
 
       // Navigeringen sker synkront — hela poängen med skriv-bakom-kön.
       advance();
@@ -1055,7 +1088,11 @@ export function CockpitDb({
   // ── Tomt läge ──────────────────────────────────────────────────────────
   if (!lead) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen gap-4" style={{ background: "var(--bg)" }}>
+      <div className="relative flex flex-col items-center justify-center h-screen gap-4" style={{ background: "var(--bg)" }}>
+        {/* Kön är slut — då är återkomsterna det som är kvar att göra. */}
+        <div className="absolute top-4 right-5">
+          <CallbackBell onOpenLead={openCallback} />
+        </div>
         <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: "var(--success-bg)", border: "1px solid var(--success-border)" }}>
           {refilling ? <Loader2 size={28} className="animate-spin" style={{ color: "var(--success)" }} /> : <Zap size={28} style={{ color: "var(--success)" }} />}
         </div>
@@ -1126,6 +1163,7 @@ export function CockpitDb({
         </div>
 
         <div className="flex items-center gap-4">
+          <CallbackBell onOpenLead={openCallback} />
           <button
             onClick={() => setShowSwitcher(true)}
             title="Sök upp ett bolag (⌘K)"
