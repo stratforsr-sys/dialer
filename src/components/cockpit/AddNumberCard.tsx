@@ -26,12 +26,17 @@ export type NewContact = {
  * cockpiten kallade "slut" trots tusen obearbetade bolag. Bolagen delas nu ut,
  * och då måste det gå att göra något med dem på skärmen där de dyker upp.
  *
- * Rutan gör exakt två saker: slår upp numret och sparar det. Uppslagningen är
- * länkar till Hitta.se och Google med bolagsnamn och ort ifyllt — de öppnas i
- * en egen flik, aldrig i cockpiten, eftersom en navigering här hade delat
- * ringsessionen i två. Sparandet skapar en kontakt med `createContact`, som
- * normaliserar numret till E164; utan det syns numret i kortet men går inte
- * att ringa.
+ * Rutan gör exakt två saker: slår upp numret och sparar det.
+ *
+ * Uppslagningen går till Merinfo, Allabolag och Google. De två första slås upp
+ * på org-numret när det finns — då blir det en träff i stället för en lista —
+ * och Google söker på enbart bolagsnamnet, eftersom numret oftast ligger i
+ * bolagsrutan eller en katalogträff och varje extra ord i frågan är ett ord som
+ * kan sålla bort just den träffen. Alla tre öppnas i en egen flik, aldrig i
+ * cockpiten: en navigering här hade delat ringsessionen i två.
+ *
+ * Sparandet skapar en kontakt med `createContact`, som normaliserar numret till
+ * E164; utan det syns numret i kortet men går inte att ringa.
  *
  * Förvalt namn är "Växeln". Det vanliga fyndet på ett litet bolag är
  * företagsnumret, inte en namngiven beslutsfattare, och ett tomt namnfält hade
@@ -41,11 +46,13 @@ export function AddNumberCard({
   leadId,
   companyName,
   city,
+  orgNumber,
   onAdded,
 }: {
   leadId: string;
   companyName: string;
   city?: string | null;
+  orgNumber?: string | null;
   onAdded: (contact: NewContact) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -54,10 +61,33 @@ export function AddNumberCard({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const query = encodeURIComponent([companyName, city].filter(Boolean).join(" "));
+  // Org-numret utan bindestreck är den exakta nyckeln hos båda registren och
+  // ger en träff i stället för en lista. Saknas det faller båda tillbaka på
+  // namnet — sämre, men aldrig en död länk.
+  const digits = orgNumber?.replace(/\D/g, "") || null;
+  const nameQuery = encodeURIComponent([companyName, city].filter(Boolean).join(" "));
+
   const lookups = [
-    { label: "Hitta.se", href: `https://www.hitta.se/sok?vad=${query}` },
-    { label: "Google", href: `https://www.google.com/search?q=${query}+telefon` },
+    {
+      label: "Merinfo",
+      href: digits
+        ? `https://www.merinfo.se/search?who=${digits}`
+        : `https://www.merinfo.se/search?who=${nameQuery}`,
+    },
+    {
+      // Org-numret går rakt in på bolagssidan; utan det är /what/ en sökning.
+      label: "Allabolag",
+      href: digits
+        ? `https://www.allabolag.se/${digits}`
+        : `https://www.allabolag.se/what/${encodeURIComponent(companyName)}`,
+    },
+    {
+      // Bara bolagsnamnet, utan ort och utan ordet "telefon". Numret ligger
+      // ofta i Googles egen bolagsruta eller i en katalogträff, och varje
+      // extra ord i frågan är ett ord som kan sålla bort just den träffen.
+      label: "Google",
+      href: `https://www.google.com/search?q=${encodeURIComponent(companyName)}`,
+    },
   ];
 
   async function save() {

@@ -47,9 +47,16 @@ ORDER BY-gren som lägger dem **sist**: ett pass ska börja med samtal, och
 uppslagningarna blir det man gör när det ringbara är slut i stället för ett
 avbrott mitt i rytmen.
 
-Cockpiten har fått `AddNumberCard` för de bolagen — Hitta.se och Google med
-bolagsnamn och ort ifyllt (i egen flik; en navigering hade delat ringsessionen
-i två), och ett fält som sparar numret på leadet direkt. Förvalt kontaktnamn är
+Cockpiten har fått `AddNumberCard` för de bolagen — Merinfo, Allabolag och
+Google, alla i egen flik (en navigering hade delat ringsessionen i två), och ett
+fält som sparar numret på leadet direkt. De två registren slås upp på
+**org-numret utan bindestreck** när det finns: `merinfo.se/search?who=5594490830`
+ger en träff i stället för en lista, och `allabolag.se/5594490830` går rakt in på
+bolagssidan. Utan org-nummer faller de tillbaka på namnet. Google söker på
+enbart bolagsnamnet — numret ligger oftast i bolagsrutan eller en katalogträff,
+och varje extra ord i frågan kan sålla bort just den träffen. Formaten är
+provade i webbläsaren; båda sajterna svarar 403 på curl, så de går inte att
+kontrollera från terminalen. Förvalt kontaktnamn är
 "Växeln": det vanliga fyndet på ett litet bolag är företagsnumret, inte en
 namngiven beslutsfattare, och ett tomt namnfält hade tvingat säljaren att hitta
 på något innan numret gick att spara. Numret läggs på leadet i kön också, inte

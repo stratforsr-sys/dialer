@@ -1452,6 +1452,7 @@ export function CockpitDb({
                     leadId={lead.id}
                     companyName={lead.companyName}
                     city={lead.city}
+                    orgNumber={lead.orgNumber}
                     onAdded={(added) => addContactToLead(lead.id, lead.contacts.length, added)}
                   />
                 )}
