@@ -142,9 +142,31 @@ Tre saker det för med sig:
   för att ingen hittade ett nytt nummer i dag. Sällsynt i praktiken: bolagen
   knappen finns för har aldrig haft ett nummer.
 
-**Öppen risk:** ett feltryck på 5 raderar ett bolag utan fråga, i ett flöde där
-säljaren trycker siffror 150 gånger om dagen. En ångra-toast med några sekunders
-fördröjning innan raderingen går iväg vore billig försäkring — inte byggd.
+**Ångerfrist, byggd samma dag.** Ett feltryck på 5 raderar ett bolag utan fråga,
+i ett flöde där säljaren trycker siffror 150 gånger om dagen — och raderingen
+har ingen väg tillbaka. Skrivningen skickas därför efter fem sekunder, med en
+toast som säger vilket bolag som är på väg bort och en ångerknapp.
+
+Fyra detaljer som avgör om en sådan frist håller:
+
+- **Kön går vidare direkt.** Fristen är en ångermöjlighet, inte en väntan.
+  Säljaren är redan på nästa bolag när toasten ligger kvar — därför står
+  bolagsnamnet i den, hen ser inte längre bolaget hen tryckte på.
+- **Ångra tar en tillbaka till bolaget**, inte bara avbryter skrivningen.
+  Leadet ligger kvar leasat och dyker inte upp igen av sig självt under passet,
+  så ett avbrutet anrop utan hopp hade lämnat bolaget obearbetat bakom ryggen
+  på säljaren.
+- **Väntande radering ligger i en ref.** Cleanupen som körs när fliken stängs
+  ser bara refs, och där skickas skrivningen i stället för att dö med timern:
+  säljaren tryckte och ångrade sig inte. En ny radering skickar dessutom den
+  förra direkt, så två i rad aldrig kvittar ut varandra.
+- **Toasten renderas på två ställen**, cockpiten och tomläget. Raderar säljaren
+  sitt sista bolag byter skärmen i samma ögonblick, och i den ena vyn hade
+  fristen försvunnit osedd i precis det läge där felet är dyrast.
+
+Känd kant: det raderade leadet ligger kvar i klientens kö, så pil vänster kan ta
+säljaren till ett bolag som inte längre finns. Kräver två avsiktliga tryck bakåt
+och ger ett serverfel, inte tyst fel data.
 
 Knappen är bortfiltrerad i `CallbackDisposition` — och tangent 5 grindad där —
 eftersom en återkomst per definition är ett löfte om att ringa ett nummer någon
@@ -204,9 +226,12 @@ registrerat" ska hellre bli bolagsnamn av misstag än att bolagsnamnet — det e
 obligatoriska fältet — kapas av en datumregel. Reglerna är explicita och inte
 `includes("reg")`, som hade svalt "Region" och "Regnr".
 
-**Öppet:** datumet lagras och visas i importens förhandsgranskning, men syns
-ännu ingenstans i cockpiten eller på `/leads/[id]`. Det är en uppgift säljaren
-skulle ha nytta av i öppningen — värd en rad i bolagsrutan när någon bestämt var.
+**Uppföljning samma dag:** året står nu i cockpitens bolagsrad, mellan
+omsättning och org-nummer — "Registrerat 2023". Bara året, inte datumet: det är
+vad man säger i ett samtal, och för de leads där filen bara bar ett årtal är
+dagen ändå påhittad. `registeredAt` fick läggas till i `hydrateLeads` select
+för att komma dit; kolumnen fanns i databasen men inte i det cockpiten hämtar.
+Kvar: `/leads/[id]` visar det fortfarande inte.
 
 ---
 

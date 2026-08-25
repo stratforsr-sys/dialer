@@ -500,6 +500,9 @@ async function hydrateLeads(ids: string[], user: { name: string }) {
       industrySource: true,
       employees: true,
       revenue: true,
+      /// Bolagets ålder. Öppningen "ni startade ju 2023" kräver att året står
+      /// på skärmen — hämtas det inte här finns kolumnen bara i databasen.
+      registeredAt: true,
       attemptCount: true,
       lastAttemptAt: true,
       lastResult: true,

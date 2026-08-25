@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Phone, Globe, Linkedin, ChevronLeft, ChevronRight, ExternalLink, Mail,
   ArrowLeft, SkipForward, Clock, Building2, Zap, X, AlertTriangle, Copy,
-  Check, Loader2, CalendarClock, MapPin, Users, Banknote,
+  Check, Loader2, CalendarClock, Calendar, MapPin, Users, Banknote, Undo2,
   Search, Star, Trophy, Tag,
 } from "lucide-react";
 import { startSession, endSession } from "@/app/actions/sessions";
@@ -39,6 +39,13 @@ import type {
 type LeasedLead = Awaited<ReturnType<typeof leaseNextLeads>>[number];
 type Slot = { id: string; name: string; startMinute: number; endMinute: number };
 type DrawerTab = "website" | "linkedin" | null;
+
+/**
+ * En radering som ligger i ångerfristen. `atIndex` är platsen i kön, så att
+ * ångra kan ta säljaren tillbaka till exakt det bolaget i stället för att bara
+ * avbryta skrivningen någonstans bakom hen.
+ */
+type PendingDelete = { leadId: string; companyName: string; atIndex: number };
 
 /**
  * Skälen till att ett bolag inte delas ut, i klartext. Meningarna börjar med
@@ -555,6 +562,8 @@ export function CockpitDb({
   const [exhausted, setExhausted] = useState(false);
   /** Varför det inte kom fler leads. Hämtas först när kön faktiskt tagit slut. */
   const [deck, setDeck] = useState<DeckStatus | null>(null);
+  /** Bolaget som håller på att raderas, under ångerfristen. Null = inget väntar. */
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [totalCalls, setTotalCalls] = useState(0);
@@ -658,6 +667,16 @@ export function CockpitDb({
       const id = sessionIdRef.current;
       if (id) void endSession(id, totalCallsRef.current, totalIdleRef.current);
       void goOffline();
+      // En radering mitt i ångerfristen när fliken stängs: säljaren tryckte på
+      // knappen och ångrade sig inte. Skicka den i stället för att låta den dö
+      // med timern — annars kommer bolaget tillbaka i nästa pass som om
+      // ingenting hänt.
+      const pending = pendingDeleteRef.current;
+      if (pending) {
+        clearTimeout(pending.timer);
+        pendingDeleteRef.current = null;
+        void markNoPhoneFound(pending.leadId).catch(() => {});
+      }
       // Leads vi inte hann med lämnas tillbaka direkt i stället för att ligga
       // låsta tills leasen går ut.
       const rest = leadsRef.current.slice(indexRef.current).map((l) => l.id);
@@ -820,6 +839,56 @@ export function CockpitDb({
     setIndex((i) => i + 1);
     setContactIndex(0);
     setIdleSeconds(0);
+    resetFlow();
+  }, [resetFlow]);
+
+  // ── Ångerfristen på "Inget telefonnummer" ──────────────────────────────
+  //
+  // Raderingen ligger och väntar i en ref, inte i state: den måste gå att
+  // skjuta iväg från en cleanup som körs när fliken stängs, och en cleanup ser
+  // bara refs. Toasten renderas från state — den ska ritas om.
+  const pendingDeleteRef = useRef<(PendingDelete & { timer: ReturnType<typeof setTimeout> }) | null>(null);
+
+  /** Skickar en väntande radering nu. Anropas vid ny radering och när passet tar slut. */
+  const flushDelete = useCallback(() => {
+    const pending = pendingDeleteRef.current;
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    pendingDeleteRef.current = null;
+    setPendingDelete(null);
+    void markNoPhoneFound(pending.leadId).catch(() => {});
+  }, []);
+
+  const scheduleDelete = useCallback((leadId: string, companyName: string, atIndex: number) => {
+    // Två raderingar i rad ska inte kunna kvitta ut varandra: den förra går
+    // iväg direkt när nästa läggs på kö.
+    flushDelete();
+
+    const timer = setTimeout(() => {
+      pendingDeleteRef.current = null;
+      setPendingDelete(null);
+      void markNoPhoneFound(leadId).catch(() => {});
+    }, 5000);
+
+    pendingDeleteRef.current = { leadId, companyName, atIndex, timer };
+    setPendingDelete({ leadId, companyName, atIndex });
+  }, [flushDelete]);
+
+  /**
+   * Ångra: raderingen ställs in och kön hoppar tillbaka till bolaget.
+   *
+   * Att bara avbryta timern hade lämnat säljaren på nästa bolag med det
+   * ångrade en okänd sträcka bakåt i kön — och leadet ligger kvar leasat, så
+   * det dyker inte upp igen av sig självt under passet.
+   */
+  const undoDelete = useCallback(() => {
+    const pending = pendingDeleteRef.current;
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    pendingDeleteRef.current = null;
+    setPendingDelete(null);
+    setIndex(pending.atIndex);
+    setContactIndex(0);
     resetFlow();
   }, [resetFlow]);
 
@@ -1013,18 +1082,24 @@ export function CockpitDb({
   const pickResult = useCallback((result: ResultChoice) => {
     // "Inget telefonnummer" är inget samtal och går inte genom skriv-bakom-kön:
     // den skriver CallAttempt-rader, och det här ska aldrig bli ett samtal i
-    // statistiken. Bolaget pensioneras i stället och kön går vidare direkt —
-    // säljaren ska inte vänta på ett serversvar för att komma till nästa.
+    // statistiken.
+    //
+    // Raderingen skickas inte direkt utan efter fem sekunder, med en
+    // ångra-knapp under tiden. Tangenten är en femma i ett flöde där säljaren
+    // trycker siffror hundrafemtio gånger om dagen, och raderingen har ingen
+    // väg tillbaka — ett feltryck skulle annars kosta bolaget för alltid.
+    // Kön går vidare direkt ändå: fördröjningen är en ångerfrist, inte en
+    // väntan säljaren ska stå i.
     if (result === NO_PHONE_FOUND) {
       const target = leads[index];
-      if (target) void markNoPhoneFound(target.id).catch(() => {});
+      if (target) scheduleDelete(target.id, target.companyName, index);
       advance();
       return;
     }
     const next = stageAfterResult(result);
     if (!next) { commit({ result }); return; }
     setFlow({ stage: next, result, outcome: null, noReason: null });
-  }, [advance, commit, index, leads]);
+  }, [advance, commit, index, leads, scheduleDelete]);
 
   const pickOutcome = useCallback((outcome: ConversationOutcome) => {
     const result = flow.result;
@@ -1212,6 +1287,10 @@ export function CockpitDb({
         {showSwitcher && (
           <LeadSwitcher onClose={() => setShowSwitcher(false)} onPick={openSearched} />
         )}
+
+        {/* Raderade säljaren sitt sista bolag hamnar hen här direkt — och då
+            måste ångerknappen finnas i den här vyn också. */}
+        <UndoDeleteToast pending={pendingDelete} onUndo={undoDelete} />
       </div>
     );
   }
@@ -1423,7 +1502,7 @@ export function CockpitDb({
                 {/* Bolagsfakta från importen. Ligger direkt under rubriken och
                     före manuset: det är underlaget säljaren kvalificerar på, och
                     det får inte kräva att man lämnar cockpiten för att se det. */}
-                {(lead.city || lead.address || lead.employees !== null || lead.revenue !== null) && (
+                {(lead.city || lead.address || lead.employees !== null || lead.revenue !== null || lead.registeredAt) && (
                   <div className="flex items-center flex-wrap gap-x-4 gap-y-1 mb-3 px-1">
                     {(lead.city || lead.address) && (
                       <span className="flex items-center gap-1.5 text-[12px]" style={{ color: "var(--text-muted)" }}>
@@ -1444,6 +1523,17 @@ export function CockpitDb({
                         title="Omsättning, som den stod i importfilen">
                         <Banknote size={11} style={{ color: "var(--text-dim)" }} />
                         {lead.revenue.toLocaleString("sv-SE")}
+                      </span>
+                    )}
+                    {/* Bara året. Registreringsdatumet lagras på dagen när filen
+                        har den precisionen, men "registrerat 2023" är vad man
+                        säger i ett samtal — och för de leads där filen bara bar
+                        ett årtal är dagen ändå påhittad (1 januari). */}
+                    {lead.registeredAt && (
+                      <span className="flex items-center gap-1.5 text-[12px]" style={{ color: "var(--text-muted)" }}
+                        title="Registreringsår enligt importfilen">
+                        <Calendar size={11} style={{ color: "var(--text-dim)" }} />
+                        Registrerat {new Date(lead.registeredAt).getUTCFullYear()}
                       </span>
                     )}
                     {lead.orgNumber && (
@@ -1785,6 +1875,64 @@ export function CockpitDb({
       {showSwitcher && (
         <LeadSwitcher onClose={() => setShowSwitcher(false)} onPick={openSearched} />
       )}
+
+      <UndoDeleteToast pending={pendingDelete} onUndo={undoDelete} />
     </div>
+  );
+}
+
+/**
+ * Ångerfristen på "Inget telefonnummer".
+ *
+ * Egen komponent för att den måste renderas på TVÅ ställen: i cockpiten och i
+ * tomläget. Raderar säljaren sitt sista bolag i kön byter skärmen till "kön är
+ * slut" i samma ögonblick — och låg toasten bara i den ena vyn hade
+ * ångerfristen försvunnit osedd i exakt det läget där felet är dyrast.
+ *
+ * Toast är enda platsen designsystemet tillåter skuggnivå 4: den ligger i
+ * handen, över allt annat, och försvinner av sig själv. Bolagsnamnet står med
+ * eftersom säljaren redan hunnit vidare och måste kunna se VILKET bolag som är
+ * på väg bort innan hen bestämmer sig.
+ */
+function UndoDeleteToast({
+  pending,
+  onUndo,
+}: {
+  pending: PendingDelete | null;
+  onUndo: () => void;
+}) {
+  return (
+    <AnimatePresence>
+      {pending && (
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 12 }}
+          transition={{ duration: 0.15 }}
+          className="fixed bottom-6 left-1/2 z-50 flex items-center gap-3 px-4 py-3 rounded-lg"
+          style={{
+            transform: "translateX(-50%)",
+            background: "var(--surface)",
+            border: "1px solid var(--border-strong)",
+            boxShadow: "var(--shadow-4)",
+          }}
+        >
+          <span className="text-[13px]" style={{ color: "var(--text)" }}>
+            <span className="font-semibold">{pending.companyName}</span> raderas
+          </span>
+          <button
+            onClick={onUndo}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-semibold"
+            style={{
+              background: "var(--surface-inset)",
+              border: "1px solid var(--border-strong)",
+              color: "var(--text-secondary)",
+            }}
+          >
+            <Undo2 size={12} /> Ångra
+          </button>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
