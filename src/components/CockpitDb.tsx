@@ -10,7 +10,7 @@ import {
   Search, Star, Trophy, Tag,
 } from "lucide-react";
 import { startSession, endSession } from "@/app/actions/sessions";
-import { leaseNextLeads, releaseLeases, renewLeases, leaseSpecificLead, type OpenWarning } from "@/app/actions/dialer";
+import { leaseNextLeads, releaseLeases, renewLeases, leaseSpecificLead, deckStatus, type OpenWarning, type DeckStatus } from "@/app/actions/dialer";
 import type { LeadSearchHit } from "@/app/actions/leads";
 import { heartbeat, goOffline } from "@/app/actions/presence";
 import { saveCockpitNote } from "@/app/actions/activities";
@@ -38,6 +38,24 @@ import type {
 type LeasedLead = Awaited<ReturnType<typeof leaseNextLeads>>[number];
 type Slot = { id: string; name: string; startMinute: number; endMinute: number };
 type DrawerTab = "website" | "linkedin" | null;
+
+/**
+ * Skälen till att ett bolag inte delas ut, i klartext. Meningarna börjar med
+ * en siffra i gränssnittet ("986 saknar telefonnummer"), så de är skrivna som
+ * fortsättningar och inte som egna meningar.
+ */
+const DECK_REASON_LABELS: Record<DeckStatus["blockers"][number]["reason"], string> = {
+  no_phone: "saknar telefonnummer",
+  dnc: "står på spärrlistan",
+  callback: "har en öppen återkomst — ligger i klockan, inte i däcket",
+  claimed: "är låsta av en kollega",
+  leased_by_other: "ringer någon annan just nu",
+  leased_by_me: "har du redan hämtat i det här passet",
+  max_attempts: "har nått taket för antal försök",
+  resting: "vilar mellan försök",
+  retired: "är avslutade",
+  active_deal: "har en aktiv affär",
+};
 
 // ─── Iframe med fallback ──────────────────────────────────────────────────────
 function IframePanel({ src, label, fallbackHref }: { src: string; label: string; fallbackHref: string }) {
@@ -535,6 +553,8 @@ export function CockpitDb({
   const [contactIndex, setContactIndex] = useState(0);
   const [refilling, setRefilling] = useState(false);
   const [exhausted, setExhausted] = useState(false);
+  /** Varför det inte kom fler leads. Hämtas först när kön faktiskt tagit slut. */
+  const [deck, setDeck] = useState<DeckStatus | null>(null);
 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [totalCalls, setTotalCalls] = useState(0);
@@ -677,6 +697,10 @@ export function CockpitDb({
       const more = await leaseNextLeads(listId);
       if (more.length === 0) {
         setExhausted(true);
+        // Frågan "varför kom det inget?" ställs bara när svaret behövs. Den
+        // kostar en scan över mappen och skulle vara ren belastning att köra
+        // vid varje påfyllning som ändå lyckas.
+        void deckStatus(listId).then(setDeck).catch(() => setDeck(null));
       } else {
         setLeads((prev) => {
           const seen = new Set(prev.map((l) => l.id));
@@ -1108,8 +1132,49 @@ export function CockpitDb({
         </h2>
         <p className="text-[14px] text-center max-w-[380px]" style={{ color: "var(--text-muted)" }}>
           {totalCalls} samtal denna session.
-          {exhausted && " Inga fler leads är ringbara just nu — resten väntar på sin tur i uppföljningen."}
+          {exhausted && !deck && " Inga fler leads är ringbara just nu."}
         </p>
+
+        {/* Varför kön är slut, med siffror ur mappen.
+            Stod här förut: "resten väntar på sin tur i uppföljningen" — en
+            mening som skrevs oavsett vad som faktiskt hände. En mapp där varje
+            bolag saknar telefonnummer säger inte åt någon att vänta, den säger
+            åt någon att skaffa nummer. */}
+        {exhausted && deck && deck.blockers.length > 0 && (
+          <div
+            className="rounded-lg px-5 py-4 max-w-[420px] w-full"
+            style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+          >
+            <p className="text-[12px] mb-3" style={{ color: "var(--text-dim)" }}>
+              {deck.total.toLocaleString("sv-SE")} bolag i {listName ? "mappen" : "ditt däck"} — inget av dem kan serveras just nu:
+            </p>
+            <div className="flex flex-col gap-1.5">
+              {deck.blockers.map((b) => (
+                <div key={b.reason} className="flex items-baseline gap-2 text-[13px]">
+                  <span className="tabular-nums font-semibold" style={{ color: "var(--text)", fontFamily: "var(--font-mono)" }}>
+                    {b.count.toLocaleString("sv-SE")}
+                  </span>
+                  <span style={{ color: "var(--text-muted)" }}>{DECK_REASON_LABELS[b.reason]}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Det enda skälet som varken tid eller en kollega löser. */}
+            {deck.blockers[0]?.reason === "no_phone" && (
+              <p className="text-[12px] mt-3 pt-3" style={{ color: "var(--text-muted)", borderTop: "1px solid var(--border-subtle)" }}>
+                Bolag utan nummer delas aldrig ut — det finns inget att ringa.
+                Importfilen behöver en telefonkolumn, eller så behöver leadsen
+                berikas innan mappen är värd ett pass.
+              </p>
+            )}
+
+            {deck.nextAvailableAt && (
+              <p className="text-[12px] mt-3 pt-3" style={{ color: "var(--text-muted)", borderTop: "1px solid var(--border-subtle)" }}>
+                Nästa bolag blir ringbart {formatWhen(new Date(deck.nextAvailableAt))}.
+              </p>
+            )}
+          </div>
+        )}
         <div className="flex items-center gap-2 mt-2">
           <button onClick={() => router.push(listId ? `/lists/${listId}` : "/lists")} className="px-5 py-2 text-[13px] font-medium rounded-md" style={{ background: "var(--accent)", color: "var(--on-accent)" }}>
             {listId ? "Tillbaka till listan" : "Till ringlistorna"}

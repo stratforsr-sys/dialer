@@ -216,6 +216,169 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
   return hydrateLeads(ids, user);
 }
 
+// ── Varför är däcket tomt? ─────────────────────────────────────────────────
+
+export type DeckBlocker = {
+  /** Nyckel för texten i klienten — inte en mening, så språket bor på ett ställe. */
+  reason:
+    | "no_phone"
+    | "dnc"
+    | "callback"
+    | "claimed"
+    | "leased_by_other"
+    | "leased_by_me"
+    | "max_attempts"
+    | "resting"
+    | "retired"
+    | "active_deal";
+  count: number;
+};
+
+export type DeckStatus = {
+  /** Antal leads i mappen (eller i säljarens synfält när ingen mapp är vald). */
+  total: number;
+  blockers: DeckBlocker[];
+  /** Tidigaste tidpunkt då ett vilande lead blir ringbart igen. */
+  nextAvailableAt: string | null;
+};
+
+/**
+ * Räknar upp varför inga fler leads delas ut.
+ *
+ * Skriven för att en enda mening i cockpitens tomläge ljög: den sa att resten
+ * "väntar på sin tur i uppföljningen" oavsett vad som faktiskt hände. Den 25
+ * augusti 2026 stod en säljare med `leads_bygg_hantverk` — 1 000 bolag, varav
+ * 986 utan ett enda telefonnummer, eftersom källfilens `Telefon`-kolumn var
+ * tom rakt igenom. Ingenting väntade på sin tur; ingenting kunde någonsin
+ * ringas. Skillnaden mellan "kom tillbaka om en timme" och "den här filen
+ * behöver nummer innan den är värd något" är hela skillnaden mellan att vänta
+ * och att åtgärda.
+ *
+ * **Villkoren speglar `leaseNextLeads` rad för rad.** Ändras ett filter där
+ * måste det ändras här, annars förklarar skärmen ett däck som inte finns.
+ * Varje lead räknas EN gång, på sitt första skäl i ordningen nedan — annars
+ * summerar delarna till mer än helheten och siffrorna slutar gå att lita på.
+ * Ordningen går från det mest permanenta till det mest tillfälliga: ett bolag
+ * utan nummer är inte "vilande", det är omöjligt.
+ */
+/**
+ * SQLite-datum till ISO.
+ *
+ * Prisma lagrar DateTime i SQLite som texten `2026-08-26 09:15:00` — utan
+ * tidszon, men alltid i UTC. `new Date("2026-08-26 09:15:00")` i webbläsaren
+ * läser den som *lokal* tid och skulle visa klockan två timmar fel på sommaren.
+ * Raka SQL-skrivningar i den här filen lägger i stället in fullständig ISO, så
+ * båda formaten förekommer i samma kolumn och funktionen måste tåla det.
+ */
+function toIso(raw: string | null): string | null {
+  if (!raw) return null;
+  if (raw.includes("T")) return raw;
+  return `${raw.replace(" ", "T")}Z`;
+}
+
+export async function deckStatus(listId: string | null): Promise<DeckStatus> {
+  const user = await requireAuth();
+
+  if (listId) {
+    const ok = await canAccessList(user, listId);
+    if (!ok) throw new Error("Forbidden: list");
+  }
+
+  const cfg = await getDialerConfig();
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const cutoffIso = claimCutoff(now).toISOString();
+
+  const scope: string[] = [];
+  const scopeArgs: unknown[] = [];
+  let join = "";
+
+  if (listId) {
+    join = `JOIN "LeadOnList" lol ON lol."leadId" = l."id"`;
+    scope.push(`lol."listId" = ?`);
+    scopeArgs.push(listId);
+  } else if (user.role !== "ADMIN") {
+    scope.push(`(l."ownerId" = ? OR EXISTS (
+        SELECT 1 FROM "LeadOnList" lol2
+        JOIN "ListAccess" la ON la."listId" = lol2."listId"
+        WHERE lol2."leadId" = l."id" AND la."userId" = ?
+      ))`);
+    scopeArgs.push(user.id, user.id);
+  }
+
+  const where = scope.length > 0 ? `WHERE ${scope.join(" AND ")}` : "";
+
+  // Ett CASE med fallande prioritet: första sanna grenen är leadets skäl.
+  // "no_phone" mäts som "ingen kontakt med ett nummer", inte som "ingen
+  // kontakt alls" — en kontaktrad med bara en e-postadress går inte att ringa
+  // heller, och att kalla den ringbar hade varit samma sorts halvsanning som
+  // meningen den här funktionen ersätter.
+  const sql = `
+    SELECT reason, COUNT(*) AS n, MIN("nextActionAt") AS next_at
+    FROM (
+      SELECT
+        CASE
+          WHEN l."retired" = 1 THEN 'retired'
+          WHEN l."hasActiveDeal" = 1 THEN 'active_deal'
+          WHEN NOT EXISTS (
+            SELECT 1 FROM "Contact" c
+            WHERE c."leadId" = l."id"
+              AND (c."directPhoneE164" IS NOT NULL OR c."switchboardE164" IS NOT NULL
+                   OR c."directPhone" IS NOT NULL OR c."switchboard" IS NOT NULL)
+          ) THEN 'no_phone'
+          WHEN EXISTS (
+            SELECT 1 FROM "DoNotCall" d
+            WHERE d."leadId" = l."id" AND (d."expiresAt" IS NULL OR d."expiresAt" > ?)
+          ) THEN 'dnc'
+          WHEN EXISTS (
+            SELECT 1 FROM "Callback" cb WHERE cb."leadId" = l."id" AND cb."status" = 'PENDING'
+          ) THEN 'callback'
+          WHEN l."claimedAt" IS NOT NULL AND l."claimedAt" >= ? AND l."ownerId" <> ? THEN 'claimed'
+          WHEN l."leasedUntil" IS NOT NULL AND l."leasedUntil" >= ? AND l."leasedById" <> ? THEN 'leased_by_other'
+          WHEN l."leasedUntil" IS NOT NULL AND l."leasedUntil" >= ? THEN 'leased_by_me'
+          WHEN l."attemptCount" >= ?
+               AND NOT (l."callbackAt" IS NOT NULL AND l."callbackAt" <= ?) THEN 'max_attempts'
+          WHEN l."nextActionAt" IS NOT NULL AND l."nextActionAt" > ? THEN 'resting'
+          ELSE 'available'
+        END AS reason,
+        l."nextActionAt" AS "nextActionAt"
+      FROM "Lead" l
+      ${join}
+      ${where}
+    )
+    GROUP BY reason
+  `;
+
+  const rows = await db.$queryRawUnsafe<{ reason: string; n: bigint | number; next_at: string | null }[]>(
+    sql,
+    nowIso,
+    cutoffIso,
+    user.id,
+    nowIso,
+    user.id,
+    nowIso,
+    cfg.maxAttempts,
+    nowIso,
+    nowIso,
+    ...scopeArgs
+  );
+
+  let total = 0;
+  const blockers: DeckBlocker[] = [];
+  let nextAvailableAt: string | null = null;
+
+  for (const row of rows) {
+    const count = Number(row.n);
+    total += count;
+    if (row.reason === "available") continue;
+    if (row.reason === "resting") nextAvailableAt = toIso(row.next_at);
+    blockers.push({ reason: row.reason as DeckBlocker["reason"], count });
+  }
+
+  blockers.sort((a, b) => b.count - a.count);
+  return { total, blockers, nextAvailableAt };
+}
+
 /**
  * Hämtar allt cockpiten behöver om ett redan leasat block: fakta, kontakter,
  * historik, växelminne, dossier och färdigupplösta manus.

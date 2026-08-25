@@ -229,6 +229,11 @@ function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
   return [...Array.from(byOrg.values()), ...withoutOrg];
 }
 
+/** Finns det något att ringa alls? Råtexten räcker — E164 sätts vid skrivningen. */
+function hasPhone(contacts: { directPhone: string | null; switchboard: string | null }[]): boolean {
+  return contacts.some((c) => c.directPhone || c.switchboard);
+}
+
 /** Samma person två gånger i filen ska inte bli två kontakter. */
 function hasContact(list: ContactDraft[], c: ContactDraft): boolean {
   return list.some(
@@ -287,6 +292,13 @@ export async function POST(req: NextRequest) {
         // fungerat.
         let seoClaims = 0;
         let seoKept = 0;
+        // Leads som saknar ett enda telefonnummer efter importen. De skapas,
+        // hamnar i mappen, räknas som lyckade — och delas sedan aldrig ut av
+        // rotationen, eftersom det inte finns något att ringa. En import av
+        // 1 000 bolag ur en fil med tom telefonkolumn såg fram till 2026-08-25
+        // ut som en fullträff hela vägen till cockpiten, där mappen bara var
+        // "slut". Räkna dem här och säg det innan någon startar ett pass.
+        let withoutPhone = 0;
         const errors: string[] = [];
 
         enqueue({ total, created: 0, updated: 0, skipped, merged, done: 0 });
@@ -498,6 +510,8 @@ export async function POST(req: NextRequest) {
                 }
               });
 
+              withoutPhone += newGroups.filter((g) => !hasPhone(g.contacts)).length;
+
               created += newGroups.length;
             }
 
@@ -621,6 +635,13 @@ export async function POST(req: NextRequest) {
                 }
               }
 
+              // Filen behöver inte bära numret för ett bolag som redan har ett
+              // sedan tidigare — det är först när ingendera har det som leadet
+              // är oringbart.
+              withoutPhone += existingGroups.filter(
+                ({ group, lead }) => !hasPhone(group.contacts) && !hasPhone(lead.contacts)
+              ).length;
+
               updated += existingGroups.length;
             }
 
@@ -644,7 +665,7 @@ export async function POST(req: NextRequest) {
 
         enqueue({
           complete: true, total, created, updated, skipped, merged, errors,
-          seoClaims, seoKept,
+          seoClaims, seoKept, withoutPhone,
           listId: list.id, listName: list.name,
         });
       } catch (err) {

@@ -13,6 +13,71 @@ Nyast först.
 
 ---
 
+## 2026-08-25 (senare) — "Mappen är slut" var sant, förklaringen var det inte
+
+Rapporterat från golvet: `leads_bygg_hantverk` möttes av *"0 samtal denna
+session. Inga fler leads är ringbara just nu — resten väntar på sin tur i
+uppföljningen."* Mappen har 1 000 bolag och var importerad samma dag.
+
+Räknat i produktionsdatan i stället för läst i koden:
+
+| | |
+|---|---|
+| Bolag i mappen | 1 000 |
+| **Utan ett enda telefonnummer** | **986** |
+| Med kontakt, utlånade till säljaren själv | 14 |
+| Vilande, låsta, spärrade, med öppen återkomst | 0 |
+
+Källfilen `leads_bygg_hantverk.csv` har en `Telefon`-kolumn, och den är tom på
+alla 1 000 raderna. De 14 som gick att ringa hade nummer sedan tidigare, från
+en annan import som matchade på org-nummer. **Ingenting väntade på sin tur.**
+Ingenting kunde någonsin ringas.
+
+### Meningen var skriven en gång och gällde alltid
+
+`exhausted && " …resten väntar på sin tur i uppföljningen."` — en sträng utan
+villkor, som påstod en orsak skärmen inte hade frågat efter. Skillnaden mellan
+"kom tillbaka om en timme" och "den här filen behöver nummer innan den är värd
+ett pass" är hela skillnaden mellan att vänta och att åtgärda, och säljaren fick
+den förra när det var den senare som gällde.
+
+`deckStatus(listId)` i `actions/dialer.ts` räknar nu upp skälen, och tomläget
+listar dem med siffror. **Villkoren speglar `leaseNextLeads` rad för rad** —
+ändras ett filter där måste det ändras här, annars förklarar skärmen ett däck
+som inte finns. Varje lead räknas en gång, på sitt första skäl i en ordning
+som går från permanent till tillfälligt: ett bolag utan nummer är inte
+"vilande", det är omöjligt.
+
+En skillnad mot däcket är avsiktlig: `no_phone` mäts som *ingen kontakt med ett
+nummer*, inte som däckets *ingen kontakt alls*. En kontaktrad med bara en
+e-postadress går inte att ringa heller, och att kalla den ringbar hade varit
+samma sorts halvsanning som meningen den ersätter. (16 leads i basen har
+råtelefonnummer som `toE164` inte kunde tolka — de serveras fortfarande, med
+oklickbara nummer. Egen punkt.)
+
+### Importen visste det här och sa ingenting
+
+En import där 986 av 1 000 leads saknar nummer räknades som 986 skapade och såg
+ut som en fullträff hela vägen till cockpiten. Slutsteget varnar nu:
+`withoutPhone` räknas i `/api/import-stream` — ett lead utan nummer i **både**
+filen och det som redan står i systemet — och visas i en gul ruta med vad man
+gör åt det. Felet fanns inte i importen; den gjorde precis vad den skulle. Felet
+var att ingen fick veta förrän ett pass startade.
+
+### Hittat på vägen: `nextActionAt` jämförs mot fel strängformat
+
+Prisma lagrar DateTime i SQLite som `2026-08-26 09:15:00` — utan tidszon, alltid
+i UTC. `leaseNextLeads` binder i stället full ISO (`2026-08-26T09:15:00.000Z`)
+och jämför **som text**. På position 10 står blanksteg (0x20) mot `T` (0x54), så
+ett Prisma-skrivet datum är alltid mindre än ett ISO-datum samma dygn:
+`nextActionAt <= now` blir sant för allt som vilar senare *idag*. **Vilan
+släpper alltså upp till ett dygn för tidigt**, systematiskt, bara inom samma
+datum. Inte rört här — det ändrar vad rotationen delar ut och förtjänar ett eget
+pass med en normalisering av kolumnen. `deckStatus` jämför likadant med flit, så
+att förklaringen matchar det däcket faktiskt gör.
+
+---
+
 ## 2026-08-25 — Registreringsdatum följer med importen (migration 018)
 
 Ny kolumn i importen: **Registrerat / Grundat** → `Lead.registeredAt`. Den finns

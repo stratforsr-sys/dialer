@@ -20,6 +20,8 @@ type ProgressState = {
   skipped: number;
   /** Rader som slogs ihop med en tidigare rad för samma org-nummer */
   merged?: number;
+  /** Leads utan ett enda telefonnummer — de kommer aldrig att delas ut i cockpit */
+  withoutPhone?: number;
   errors: string[];
   listId?: string | null;
   listName?: string;
@@ -608,6 +610,25 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                   </div>
                 ))}
               </div>
+
+              {/* Leads utan nummer är inte ett fel — importen gjorde precis
+                  vad den skulle. Men de delas aldrig ut av rotationen, och
+                  utan den här rutan syns det först när en säljare startar ett
+                  pass och möts av "mappen är slut". Det hände med 986 av
+                  1 000 bolag den 25 augusti 2026. */}
+              {(progress.withoutPhone ?? 0) > 0 && (
+                <div className="text-left p-4 rounded-lg mb-6" style={{ background: "var(--warning-bg)", border: "1px solid var(--warning-border)" }}>
+                  <p className="text-[12px] font-semibold mb-1 flex items-center gap-1" style={{ color: "var(--warning)" }}>
+                    <AlertCircle size={13} />
+                    {progress.withoutPhone!.toLocaleString("sv-SE")} av {(progress.created + progress.updated).toLocaleString("sv-SE")} leads saknar telefonnummer
+                  </p>
+                  <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>
+                    De ligger i mappen men delas aldrig ut i cockpit — det finns
+                    inget att ringa. Kolla att telefonkolumnen är mappad, eller
+                    berika leadsen med nummer innan mappen används för ett pass.
+                  </p>
+                </div>
+              )}
 
               {progress.errors.length > 0 && (
                 <div className="text-left p-4 rounded-lg mb-6" style={{ background: "var(--danger-bg)", border: "1px solid var(--danger-border)" }}>
