@@ -115,7 +115,22 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
     // ringer folk i onödan, inte för att hindra oss från att ringa när någon
     // bett oss göra det.
     `(l."attemptCount" < ? OR (l."callbackAt" IS NOT NULL AND l."callbackAt" <= ?))`,
-    `EXISTS (SELECT 1 FROM "Contact" c WHERE c."leadId" = l."id")`,
+    // Inget krav på kontakt eller nummer. Fram till 2026-08-25 stod här
+    // `EXISTS (SELECT 1 FROM "Contact" …)`, och en mapp där bolagen saknade
+    // telefonnummer var därför osynlig: 986 av 1 000 leads i
+    // `leads_bygg_hantverk` delades aldrig ut, och cockpiten sa "mappen är
+    // slut" till en säljare som hade tusen bolag framför sig.
+    //
+    // Ett bolag utan nummer är inte färdigbehandlat, det är obearbetat. Numret
+    // finns på bolagets sajt, i Hitta.se eller hos växeln — det är ett par
+    // minuters arbete, inte ett hinder, och säljaren har bolaget framför sig
+    // med ort, org-nummer och bransch. Cockpiten har en ruta för att slå upp
+    // och spara numret på plats. Det som saknas är en uppgift att hämta, och
+    // den hämtas i passet.
+    //
+    // Ordningen håller ändå isär de två sorternas arbete: ringbara bolag
+    // först (se ORDER BY), så att ett pass börjar med samtal och inte med
+    // uppslagning.
     `NOT EXISTS (SELECT 1 FROM "DoNotCall" d WHERE d."leadId" = l."id"
         AND (d."expiresAt" IS NULL OR d."expiresAt" > ?))`,
     // Ett bolag med en öppen återkomst ligger UTANFÖR däcket. Inte "sist i
@@ -187,6 +202,16 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
       WHERE ${conds.join(" AND ")}
       ORDER BY
         CASE WHEN l."callbackAt" IS NOT NULL AND l."callbackAt" <= ? THEN 0 ELSE 1 END,
+        -- Bolag med ett nummer först. Ett pass ska börja med samtal; de som
+        -- kräver en uppslagning innan de går att ringa ligger i svansen, där
+        -- de blir det man gör när det ringbara är slut i stället för ett
+        -- avbrott mitt i rytmen.
+        CASE WHEN EXISTS (
+          SELECT 1 FROM "Contact" c
+          WHERE c."leadId" = l."id"
+            AND (c."directPhoneE164" IS NOT NULL OR c."switchboardE164" IS NOT NULL
+                 OR c."directPhone" IS NOT NULL OR c."switchboard" IS NOT NULL)
+        ) THEN 0 ELSE 1 END,
         ${slotRank}
         l."nextActionAt" ASC,
         l."attemptCount" ASC,
@@ -221,7 +246,6 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
 export type DeckBlocker = {
   /** Nyckel för texten i klienten — inte en mening, så språket bor på ett ställe. */
   reason:
-    | "no_phone"
     | "dnc"
     | "callback"
     | "claimed"
@@ -243,25 +267,6 @@ export type DeckStatus = {
 };
 
 /**
- * Räknar upp varför inga fler leads delas ut.
- *
- * Skriven för att en enda mening i cockpitens tomläge ljög: den sa att resten
- * "väntar på sin tur i uppföljningen" oavsett vad som faktiskt hände. Den 25
- * augusti 2026 stod en säljare med `leads_bygg_hantverk` — 1 000 bolag, varav
- * 986 utan ett enda telefonnummer, eftersom källfilens `Telefon`-kolumn var
- * tom rakt igenom. Ingenting väntade på sin tur; ingenting kunde någonsin
- * ringas. Skillnaden mellan "kom tillbaka om en timme" och "den här filen
- * behöver nummer innan den är värd något" är hela skillnaden mellan att vänta
- * och att åtgärda.
- *
- * **Villkoren speglar `leaseNextLeads` rad för rad.** Ändras ett filter där
- * måste det ändras här, annars förklarar skärmen ett däck som inte finns.
- * Varje lead räknas EN gång, på sitt första skäl i ordningen nedan — annars
- * summerar delarna till mer än helheten och siffrorna slutar gå att lita på.
- * Ordningen går från det mest permanenta till det mest tillfälliga: ett bolag
- * utan nummer är inte "vilande", det är omöjligt.
- */
-/**
  * SQLite-datum till ISO.
  *
  * Prisma lagrar DateTime i SQLite som texten `2026-08-26 09:15:00` — utan
@@ -276,6 +281,23 @@ function toIso(raw: string | null): string | null {
   return `${raw.replace(" ", "T")}Z`;
 }
 
+/**
+ * Räknar upp varför inga fler leads delas ut.
+ *
+ * Skriven för att en enda mening i cockpitens tomläge ljög: den sa att resten
+ * "väntar på sin tur i uppföljningen" oavsett vad som faktiskt hände. Den 25
+ * augusti 2026 mötte den en säljare med 1 000 bolag i mappen, varav 986 utan
+ * telefonnummer — de filtrerades bort av utdelningen och skärmen hittade på en
+ * förklaring. Numren är nu ett arbetsmoment i stället för ett filter (se
+ * `leaseNextLeads`), men skärmen ska aldrig mer gissa: står det att däcket är
+ * slut ska det stå varför, räknat.
+ *
+ * **Villkoren speglar `leaseNextLeads` rad för rad.** Ändras ett filter där
+ * måste det ändras här, annars förklarar skärmen ett däck som inte finns.
+ * Varje lead räknas EN gång, på sitt första skäl i ordningen nedan — annars
+ * summerar delarna till mer än helheten och siffrorna slutar gå att lita på.
+ * Ordningen går från det mest permanenta till det mest tillfälliga.
+ */
 export async function deckStatus(listId: string | null): Promise<DeckStatus> {
   const user = await requireAuth();
 
@@ -320,12 +342,6 @@ export async function deckStatus(listId: string | null): Promise<DeckStatus> {
         CASE
           WHEN l."retired" = 1 THEN 'retired'
           WHEN l."hasActiveDeal" = 1 THEN 'active_deal'
-          WHEN NOT EXISTS (
-            SELECT 1 FROM "Contact" c
-            WHERE c."leadId" = l."id"
-              AND (c."directPhoneE164" IS NOT NULL OR c."switchboardE164" IS NOT NULL
-                   OR c."directPhone" IS NOT NULL OR c."switchboard" IS NOT NULL)
-          ) THEN 'no_phone'
           WHEN EXISTS (
             SELECT 1 FROM "DoNotCall" d
             WHERE d."leadId" = l."id" AND (d."expiresAt" IS NULL OR d."expiresAt" > ?)

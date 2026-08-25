@@ -33,6 +33,35 @@ alla 1 000 raderna. De 14 som gick att ringa hade nummer sedan tidigare, från
 en annan import som matchade på org-nummer. **Ingenting väntade på sin tur.**
 Ingenting kunde någonsin ringas.
 
+### Filtret var felet, inte filen
+
+Första ansatsen var att göra tomlägets text sann. Den räckte inte: **ett bolag
+utan nummer är inte färdigbehandlat, det är obearbetat.** Numret finns på
+bolagets sajt, i Hitta.se eller hos växeln — ett par minuters arbete, inte ett
+hinder. Att filtrera bort bolaget gör att ingen kan göra det arbetet, och 986
+bolag ligger osynliga i en mapp som ser tom ut.
+
+`EXISTS (SELECT 1 FROM "Contact" …)` är därför borta ur `leaseNextLeads`.
+Bolag utan nummer delas ut som vilket bolag som helst, med en tillagd
+ORDER BY-gren som lägger dem **sist**: ett pass ska börja med samtal, och
+uppslagningarna blir det man gör när det ringbara är slut i stället för ett
+avbrott mitt i rytmen.
+
+Cockpiten har fått `AddNumberCard` för de bolagen — Hitta.se och Google med
+bolagsnamn och ort ifyllt (i egen flik; en navigering hade delat ringsessionen
+i två), och ett fält som sparar numret på leadet direkt. Förvalt kontaktnamn är
+"Växeln": det vanliga fyndet på ett litet bolag är företagsnumret, inte en
+namngiven beslutsfattare, och ett tomt namnfält hade tvingat säljaren att hitta
+på något innan numret gick att spara. Numret läggs på leadet i kön också, inte
+bara i databasen — annars hade kortet sagt "inget nummer" tills bolaget
+hämtades om.
+
+`createContact` normaliserar nu till E164. Den gjorde det inte: cockpiten ringer
+på E164-fälten, så ett handskrivet nummer hade synts i kortet utan att gå att
+ringa — precis den återvändsgränd rutan finns för att ta bort. (Samma sak
+förklarar de 16 leads i basen som har råtelefonnummer utan E164; de kom in via
+importen där `toE164` inte kunde tolka texten.)
+
 ### Meningen var skriven en gång och gällde alltid
 
 `exhausted && " …resten väntar på sin tur i uppföljningen."` — en sträng utan
@@ -42,27 +71,25 @@ ett pass" är hela skillnaden mellan att vänta och att åtgärda, och säljaren
 den förra när det var den senare som gällde.
 
 `deckStatus(listId)` i `actions/dialer.ts` räknar nu upp skälen, och tomläget
-listar dem med siffror. **Villkoren speglar `leaseNextLeads` rad för rad** —
-ändras ett filter där måste det ändras här, annars förklarar skärmen ett däck
-som inte finns. Varje lead räknas en gång, på sitt första skäl i en ordning
-som går från permanent till tillfälligt: ett bolag utan nummer är inte
-"vilande", det är omöjligt.
+listar dem med siffror: spärrlista, öppen återkomst, låst av kollega, maxade
+försök, vilande — med klockslag för när nästa bolag blir ringbart.
+**Villkoren speglar `leaseNextLeads` rad för rad** — ändras ett filter där måste
+det ändras här, annars förklarar skärmen ett däck som inte finns. Varje lead
+räknas en gång, på sitt första skäl, annars summerar delarna till mer än
+helheten och siffrorna slutar gå att lita på.
 
-En skillnad mot däcket är avsiktlig: `no_phone` mäts som *ingen kontakt med ett
-nummer*, inte som däckets *ingen kontakt alls*. En kontaktrad med bara en
-e-postadress går inte att ringa heller, och att kalla den ringbar hade varit
-samma sorts halvsanning som meningen den ersätter. (16 leads i basen har
-råtelefonnummer som `toE164` inte kunde tolka — de serveras fortfarande, med
-oklickbara nummer. Egen punkt.)
+Kravet på nummer finns inte längre bland skälen, av den enkla anledningen att
+det inte längre hindrar något.
 
 ### Importen visste det här och sa ingenting
 
 En import där 986 av 1 000 leads saknar nummer räknades som 986 skapade och såg
-ut som en fullträff hela vägen till cockpiten. Slutsteget varnar nu:
-`withoutPhone` räknas i `/api/import-stream` — ett lead utan nummer i **både**
-filen och det som redan står i systemet — och visas i en gul ruta med vad man
-gör åt det. Felet fanns inte i importen; den gjorde precis vad den skulle. Felet
-var att ingen fick veta förrän ett pass startade.
+ut som en fullträff. Slutsteget varnar nu: `withoutPhone` räknas i
+`/api/import-stream` — ett lead utan nummer i **både** filen och det som redan
+står i systemet — och visas i en gul ruta. Bolagen går att bearbeta, men de
+kostar en uppslagning var, och det är ett helt annat pass än en fil med nummer.
+Den som laddar upp ska veta det när den laddas upp, inte när säljaren sitter
+där.
 
 ### Hittat på vägen: `nextActionAt` jämförs mot fel strängformat
 

@@ -23,6 +23,7 @@ import { CallbackForm, EMPTY_CALLBACK, type CallbackDraft } from "@/components/c
 import { LeadHistory, type HistoryActivity } from "@/components/cockpit/LeadHistory";
 import { LeadSwitcher } from "@/components/cockpit/LeadSwitcher";
 import { CallbackBell } from "@/components/cockpit/CallbackBell";
+import { AddNumberCard, type NewContact } from "@/components/cockpit/AddNumberCard";
 import { useDispositionQueue } from "@/hooks/useDispositionQueue";
 import { formatSwedish } from "@/lib/phone";
 import { formatWhen } from "@/lib/time";
@@ -45,7 +46,6 @@ type DrawerTab = "website" | "linkedin" | null;
  * fortsättningar och inte som egna meningar.
  */
 const DECK_REASON_LABELS: Record<DeckStatus["blockers"][number]["reason"], string> = {
-  no_phone: "saknar telefonnummer",
   dnc: "står på spärrlistan",
   callback: "har en öppen återkomst — ligger i klockan, inte i däcket",
   claimed: "är låsta av en kollega",
@@ -608,6 +608,28 @@ export function CockpitDb({
   const contact = lead?.contacts[contactIndex] ?? null;
   const remaining = leads.length - index;
 
+  /**
+   * Går bolaget att ringa alls? Inte "har det en kontaktrad" — en kontakt med
+   * bara en e-postadress är lika oringbar som ingen kontakt, och sedan
+   * 2026-08-25 delas båda sorterna ut i stället för att filtreras bort.
+   */
+  const hasNumber = !!lead?.contacts.some(
+    (c) => c.directPhoneE164 || c.switchboardE164 || c.directPhone || c.switchboard
+  );
+
+  /**
+   * Numret säljaren just slog upp läggs på leadet i kön, inte bara i databasen.
+   * Utan det hade kortet fortsatt säga "inget nummer" tills bolaget hämtades om
+   * — och säljaren hade fått leta upp samma nummer en gång till.
+   */
+  const addContactToLead = useCallback((leadId: string, atIndex: number, added: NewContact) => {
+    setLeads((prev) =>
+      prev.map((l) => (l.id === leadId ? { ...l, contacts: [...l.contacts, added] } : l))
+    );
+    // Den nyss tillagda är den man ska titta på: det var den man letade upp.
+    setContactIndex(atIndex);
+  }, []);
+
   // ── Refs för värden som cleanup och tangentbord behöver färska ──────────
   const sessionIdRef = useRef<string | null>(null);
   const sessionStartRef = useRef(Date.now());
@@ -1159,15 +1181,6 @@ export function CockpitDb({
               ))}
             </div>
 
-            {/* Det enda skälet som varken tid eller en kollega löser. */}
-            {deck.blockers[0]?.reason === "no_phone" && (
-              <p className="text-[12px] mt-3 pt-3" style={{ color: "var(--text-muted)", borderTop: "1px solid var(--border-subtle)" }}>
-                Bolag utan nummer delas aldrig ut — det finns inget att ringa.
-                Importfilen behöver en telefonkolumn, eller så behöver leadsen
-                berikas innan mappen är värd ett pass.
-              </p>
-            )}
-
             {deck.nextAvailableAt && (
               <p className="text-[12px] mt-3 pt-3" style={{ color: "var(--text-muted)", borderTop: "1px solid var(--border-subtle)" }}>
                 Nästa bolag blir ringbart {formatWhen(new Date(deck.nextAvailableAt))}.
@@ -1429,6 +1442,18 @@ export function CockpitDb({
                       </span>
                     )}
                   </div>
+                )}
+
+                {/* Bolaget kom in utan nummer. Det delas ut ändå — se
+                    leaseNextLeads — och då ska skärmen erbjuda arbetet i
+                    stället för att bara konstatera att telefonfältet är tomt. */}
+                {!hasNumber && (
+                  <AddNumberCard
+                    leadId={lead.id}
+                    companyName={lead.companyName}
+                    city={lead.city}
+                    onAdded={(added) => addContactToLead(lead.id, lead.contacts.length, added)}
+                  />
                 )}
 
                 {/* Kontaktkort */}

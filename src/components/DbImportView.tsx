@@ -611,11 +611,12 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                 ))}
               </div>
 
-              {/* Leads utan nummer är inte ett fel — importen gjorde precis
-                  vad den skulle. Men de delas aldrig ut av rotationen, och
-                  utan den här rutan syns det först när en säljare startar ett
-                  pass och möts av "mappen är slut". Det hände med 986 av
-                  1 000 bolag den 25 augusti 2026. */}
+              {/* Leads utan nummer är inte ett fel — importen gjorde precis vad
+                  den skulle, och de delas ut i cockpit som vilket bolag som
+                  helst. Men de kostar en uppslagning var innan de går att
+                  ringa, och det är en helt annan sorts pass. Den som laddar upp
+                  filen ska veta det när den laddas upp, inte när säljaren
+                  sitter där. */}
               {(progress.withoutPhone ?? 0) > 0 && (
                 <div className="text-left p-4 rounded-lg mb-6" style={{ background: "var(--warning-bg)", border: "1px solid var(--warning-border)" }}>
                   <p className="text-[12px] font-semibold mb-1 flex items-center gap-1" style={{ color: "var(--warning)" }}>
@@ -623,9 +624,10 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                     {progress.withoutPhone!.toLocaleString("sv-SE")} av {(progress.created + progress.updated).toLocaleString("sv-SE")} leads saknar telefonnummer
                   </p>
                   <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>
-                    De ligger i mappen men delas aldrig ut i cockpit — det finns
-                    inget att ringa. Kolla att telefonkolumnen är mappad, eller
-                    berika leadsen med nummer innan mappen används för ett pass.
+                    De delas ut i cockpit ändå — säljaren kan slå upp numret och
+                    spara det på plats — men de ligger sist i kön och kostar ett
+                    par minuter var. Kolla att telefonkolumnen är mappad innan du
+                    lägger passet på dem.
                   </p>
                 </div>
               )}
