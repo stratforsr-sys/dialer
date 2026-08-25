@@ -13,6 +13,52 @@ Nyast först.
 
 ---
 
+## 2026-08-25 — Registreringsdatum följer med importen (migration 018)
+
+Ny kolumn i importen: **Registrerat / Grundat** → `Lead.registeredAt`. Den finns
+i praktiskt taget varje företagsregisterexport och säger något om bolaget utan
+att någon behöver ringa det — ett bolag registrerat i mars i år är ett annat
+samtal än ett som funnits sedan 1994.
+
+Fyra val värda att veta om:
+
+**Filen skickar råtext, servern tolkar.** Samma ordning som SEO-placeringen
+redan använder. Klienten skickar cellen som den står och
+`/api/import-stream` avgör vad som är ett datum. Endpointen tar emot JSON
+utifrån och får ändå inte lita på klienten, så tolkningen måste finnas där —
+och då ska den inte finnas på två ställen med två resultat.
+
+**Tolken bor i `src/lib/import-date.ts`, inte i `csv-parser.ts`.** Enda skälet:
+csv-parser importerar `xlsx`. Att dra in ett kalkylbladsbibliotek i en
+serverless-funktion för en datumsträngs skull är inte värt det. Filen är rena
+funktioner och körs på båda sidor — förhandsgranskningen använder samma tolk som
+skrivningen, så en feltolkad kolumn syns i tabellen *innan* 3 000 rader skrivits.
+
+**Dag före månad när det är tvetydigt.** `03/04/2019` blir 3 april. Filerna
+kommer från svenska register; den amerikanska ordningen hade varit en gissning
+på det ovanligare fallet. Går dag-först-läsningen inte ihop (`03/25/2019`) läses
+filen amerikanskt i stället för att svara tomt. Excels serienummer hanteras
+också — ett datumformaterat Excel-fält kommer ut ur `sheet_to_json` som talet
+43538, och utan omräkningen hade varje xlsx-fil gett en tom kolumn.
+
+**Ett årtal ensamt landar på 1 januari.** Påhittad precision på dagen, men
+frågan kolumnen finns för är hur gammalt bolaget är, och det svaret blir rätt.
+Alternativet var att slänga uppgiften. Utanför 1800–nästa år sparas ingenting:
+ett registreringsdatum 2087 är en feltolkning, inte en uppgift.
+
+Automappningen känner igen `registreringsdatum`, `registrerad`, `grundat`,
+`bildat`, `startdatum`, `etablerad` och de engelska motsvarigheterna. Regeln
+ligger **efter** bolagsnamnsregeln med flit: en kolumn som heter "Företaget
+registrerat" ska hellre bli bolagsnamn av misstag än att bolagsnamnet — det enda
+obligatoriska fältet — kapas av en datumregel. Reglerna är explicita och inte
+`includes("reg")`, som hade svalt "Region" och "Regnr".
+
+**Öppet:** datumet lagras och visas i importens förhandsgranskning, men syns
+ännu ingenstans i cockpiten eller på `/leads/[id]`. Det är en uppgift säljaren
+skulle ha nytta av i öppningen — värd en rad i bolagsrutan när någon bestämt var.
+
+---
+
 ## 2026-08-20 (senare) — Återkomstklockan flyttar in i cockpit
 
 Notisklockan fanns redan och var genomarbetad. Problemet var var den satt:

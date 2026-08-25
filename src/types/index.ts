@@ -51,6 +51,7 @@ export type SystemFieldKey =
   | "industry_code"
   | "employees"
   | "revenue"
+  | "registered_at"
   | "direct_phone"
   | "switchboard"
   | "email"

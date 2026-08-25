@@ -5,6 +5,7 @@ import { requireAuth } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import { toE164 } from "@/lib/phone";
 import { resolveIndustry } from "@/lib/sni";
+import { parseImportDate } from "@/lib/import-date";
 
 type ImportRow = {
   companyName: string;
@@ -16,6 +17,8 @@ type ImportRow = {
   industryCode?: string;
   employees?: number;
   revenue?: number;
+  /** Råtext ur filen — tolkas här, som i /api/import-stream. */
+  registeredAt?: string;
   contactName?: string;
   contactFirstName?: string;
   contactLastName?: string;
@@ -82,6 +85,7 @@ export async function importLeads(rows: ImportRow[]): Promise<ImportResult> {
             industryCode: row.industryCode?.trim() || existing.industryCode,
             employees: int(row.employees) ?? existing.employees,
             revenue: num(row.revenue) ?? existing.revenue,
+            registeredAt: parseImportDate(row.registeredAt) ?? existing.registeredAt,
           },
         });
 
@@ -139,6 +143,7 @@ export async function importLeads(rows: ImportRow[]): Promise<ImportResult> {
             industryCode: row.industryCode?.trim() || null,
             employees: int(row.employees),
             revenue: num(row.revenue),
+            registeredAt: parseImportDate(row.registeredAt),
             ownerId: user.id,
             contacts: contactName
               ? {

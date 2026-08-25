@@ -139,6 +139,23 @@ export function autoGuessMapping(headers: string[]): FieldMapping {
       // missas det måste hela filen mappas för hand.
     } else if (hl.includes("company") || hl.includes("företag") || hl.includes("foretag") || hl === "company name" || hl === "bolagsnamn") {
       mapping[h] = "company";
+      // Registreringsdatumet. Ligger EFTER bolagsnamnsregeln med flit: en
+      // kolumn som heter "Företaget registrerat" ska hellre bli bolagsnamn av
+      // misstag än att bolagsnamnet — det enda obligatoriska fältet — kapas av
+      // en datumregel. Reglerna är explicita och inte `includes("reg")`, som
+      // hade svalt "Region" och "Regnr".
+    } else if (
+      hl.includes("registrerings") || hl.includes("registrerad") || hl.includes("registrerat") ||
+      hl === "regdatum" || hl === "reg.datum" || hl === "reg datum" || hl === "reg_datum" ||
+      hl.includes("grundad") || hl.includes("grundat") || hl.includes("grundades") ||
+      hl.includes("bildad") || hl.includes("bildat") || hl.includes("startdatum") ||
+      hl.includes("etablerad") || hl.includes("etablering") ||
+      hl === "registered" || hl === "registration date" || hl === "registration_date" ||
+      hl === "date registered" || hl === "date_registered" || hl === "reg date" ||
+      hl.includes("founded") || hl.includes("founding") || hl.includes("incorporat") ||
+      hl === "established" || hl === "start date" || hl === "start_date"
+    ) {
+      mapping[h] = "registered_at";
     } else if (hl === "roll" || hl === "title" || hl === "titel" || hl === "befattning" || hl === "position") {
       mapping[h] = "role";
     } else if (hl === "phones" || hl === "phone" || hl === "telefon" || hl === "mobil" || hl === "mobilnummer" || hl.includes("direct") || hl.includes("direkt")) {

@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth-options";
 import { db } from "@/lib/db";
 import { toE164 } from "@/lib/phone";
 import { resolveIndustry } from "@/lib/sni";
+import { parseImportDate } from "@/lib/import-date";
 import {
   hasSeoData,
   signalsFromImport,
@@ -27,6 +28,8 @@ type ImportRow = {
   industryCode?: string;
   employees?: number;
   revenue?: number;
+  /** Råtext ur filen — tolkas här, inte i webbläsaren. */
+  registeredAt?: string;
   contactName?: string;
   contactFirstName?: string;
   contactLastName?: string;
@@ -64,6 +67,7 @@ type CompanyGroup = {
   industryCode: string | null;
   employees: number | null;
   revenue: number | null;
+  registeredAt: Date | null;
   contacts: ContactDraft[];
   /**
    * SEO-uppgifterna från filen, obearbetade. Tolkas först vid skrivningen —
@@ -180,6 +184,7 @@ function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
         industryCode: clean(row.industryCode),
         employees: int(row.employees),
         revenue: num(row.revenue),
+        registeredAt: parseImportDate(row.registeredAt),
         contacts: contact ? [contact] : [],
         seo: seoOf(row),
       });
@@ -196,6 +201,7 @@ function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
       existing.industryCode ??= clean(row.industryCode);
       existing.employees ??= int(row.employees);
       existing.revenue ??= num(row.revenue);
+      existing.registeredAt ??= parseImportDate(row.registeredAt);
       mergeSeo(existing.seo, seoOf(row));
       if (contact && !hasContact(existing.contacts, contact)) {
         existing.contacts.push(contact);
@@ -211,6 +217,7 @@ function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
         industryCode: clean(row.industryCode),
         employees: int(row.employees),
         revenue: num(row.revenue),
+        registeredAt: parseImportDate(row.registeredAt),
         contacts: contact ? [contact] : [],
         seo: seoOf(row),
       });
@@ -350,6 +357,7 @@ export async function POST(req: NextRequest) {
                   industryCode: true,
                   employees: true,
                   revenue: true,
+                  registeredAt: true,
                   contacts: {
                     select: {
                       id: true, name: true, firstName: true, lastName: true, role: true,
@@ -402,6 +410,7 @@ export async function POST(req: NextRequest) {
                 industrySource: g.industry ? "import" : null,
                 employees: g.employees,
                 revenue: g.revenue,
+                registeredAt: g.registeredAt,
                 ownerId: userId,
                 createdAt: now,
                 updatedAt: now,
@@ -462,6 +471,7 @@ export async function POST(req: NextRequest) {
                   industryCode: g.industryCode,
                   employees: g.employees,
                   revenue: g.revenue,
+                  registeredAt: g.registeredAt,
                   contacts: g.contacts.map((c) => ({
                     // id är tomt: raden skapades med createMany, som inte ger
                     // tillbaka id:n. Cachen används bara för dubblettkontroll
@@ -509,6 +519,11 @@ export async function POST(req: NextRequest) {
                       industrySource: lead.industry ? undefined : (group.industry ? "import" : undefined),
                       employees: group.employees ?? lead.employees,
                       revenue: group.revenue ?? lead.revenue,
+                      // Samma regel som raderna ovanför: filens uppgift vinner
+                      // när den finns, annars står det som redan finns kvar.
+                      // En tom cell ska aldrig radera ett datum som en tidigare
+                      // import hämtade in.
+                      registeredAt: group.registeredAt ?? lead.registeredAt,
                     },
                   })
                 )

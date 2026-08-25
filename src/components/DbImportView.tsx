@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Upload, ChevronRight, Check, AlertCircle, X, ArrowLeft, Users, Play, FolderOpen } from "lucide-react";
 import { parseCSV, parseXLSX, autoGuessMapping, parseNumeric } from "@/lib/csv-parser";
+import { parseImportDate, formatImportDate } from "@/lib/import-date";
 import type { CSVData, FieldMapping } from "@/types";
 
 type Step = "upload" | "mapping" | "preview" | "importing" | "done";
@@ -35,6 +36,7 @@ const SYSTEM_FIELDS = [
   { value: "industry_code", label: "SNI-kod" },
   { value: "employees",    label: "Anställda" },
   { value: "revenue",      label: "Omsättning" },
+  { value: "registered_at", label: "Registrerat / Grundat" },
   { value: "name",         label: "Kontaktnamn (helt)" },
   { value: "first_name",   label: "Förnamn" },
   { value: "last_name",    label: "Efternamn" },
@@ -159,6 +161,11 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
         industryCode: mapped.industry_code || undefined,
         employees: parseNumeric(mapped.employees) ?? undefined,
         revenue: parseNumeric(mapped.revenue) ?? undefined,
+        // Råtexten skickas vidare, precis som SEO-placeringen: filerna skriver
+        // datumet på ett halvdussin sätt och servern ska avgöra vad som är ett
+        // datum. Förhandsgranskningen tolkar samma sträng lokalt, så en
+        // feltolkad kolumn syns innan importen körs.
+        registeredAt: mapped.registered_at || undefined,
         contactName: composeContactName(mapped.name, mapped.first_name, mapped.last_name),
         contactFirstName: mapped.first_name || undefined,
         contactLastName: mapped.last_name || undefined,
@@ -414,7 +421,7 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                 <table className="w-full border-collapse">
                   <thead>
                     <tr style={{ background: "var(--surface-inset)", borderBottom: "1px solid var(--border)" }}>
-                      {["Bolag", "Org-nr", "Ort", "Anst.", "Omsättning", "Kontakt", "Telefon", "Email"].map((h) => (
+                      {["Bolag", "Org-nr", "Ort", "Reg.", "Anst.", "Omsättning", "Kontakt", "Telefon", "Email"].map((h) => (
                         <th key={h} className="text-left px-4 py-2" style={{ color: "var(--text-dim)" }}>{h}</th>
                       ))}
                     </tr>
@@ -425,6 +432,11 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                         <td className="px-4 py-2 text-[12px] font-medium" style={{ color: "var(--text)" }}>{row.companyName}</td>
                         <td className="px-4 py-2 text-[11px]" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>{row.orgNumber || "—"}</td>
                         <td className="px-4 py-2 text-[12px]" style={{ color: "var(--text-muted)" }}>{row.city || "—"}</td>
+                        {/* Det tolkade datumet, inte cellens råtext. En kolumn
+                            som filen skriver "14/03/2019" ska visa 2019-03-14
+                            här — och en som inte gick att tolka ska visa "—"
+                            innan 3 000 rader skrivits med tomt fält. */}
+                        <td className="px-4 py-2 text-[11px]" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>{formatImportDate(parseImportDate(row.registeredAt))}</td>
                         <td className="px-4 py-2 text-[11px] text-right" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>{formatNum(row.employees)}</td>
                         <td className="px-4 py-2 text-[11px] text-right" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>{formatNum(row.revenue)}</td>
                         <td className="px-4 py-2 text-[12px]" style={{ color: "var(--text-muted)" }}>{row.contactName || "—"}</td>

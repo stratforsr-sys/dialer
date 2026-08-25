@@ -76,6 +76,12 @@ model Lead {
   /// Lagras exakt som talet stod i filen — ingen enhetsomräkning. Exporterna
   /// blandar kronor och tkr och det går inte att gissa vilket utan att fråga.
   revenue       Float?
+  /// När bolaget registrerades, enligt importfilen. Lagras som datum utan tid
+  /// i UTC — registreringsdatum har ingen klockslagsprecision, och en tid hade
+  /// gjort "samma dag" beroende av var läsaren sitter. Ett år utan månad och
+  /// dag landar på 1 januari; frågan kolumnen ska svara på är hur gammalt
+  /// bolaget är.
+  registeredAt  DateTime?
   hasActiveDeal Boolean  @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
