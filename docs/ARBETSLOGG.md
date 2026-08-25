@@ -119,10 +119,32 @@ ringdes, och `db.callAttempt.count()` är vad statistiken kallar "samtal" — en
 rad där hade blivit ett samtal i dagsmålet, i coachingvyn och i
 svarsfrekvensens nämnare. Värdet ligger därför utanför `CallResult`
 (`NO_PHONE_FOUND` i `cockpit-flow.ts`, `as const` så att typen inte kollapsar
-till `string`) och `markNoPhoneFound` pensionerar leadet med
-`retiredReason = "inget_nummer"` plus en `Activity`. Samma mekanism som "Fel
-nummer", alltså samma väg tillbaka: bolaget ligger kvar i mappen med sin
-historik och en admin kan nolla flaggan den dagen ett nummer dyker upp.
+till `string`).
+
+**Leadet raderas** — beställt samma dag, efter att första versionen bara
+pensionerade det: ett bolag ingen kan ringa ska inte ligga kvar och se ut som
+ett lead. Raderingen kaskaderar bort kontakter, aktiviteter och kopplingen till
+mappen, så bolaget lämnar ringlistan helt.
+
+Tre saker det för med sig:
+
+- **Inget spår och ingen väg tillbaka.** `Activity.leadId` är obligatorisk och
+  kaskaderar, så en logg-rad om raderingen hade raderats med leadet. Bolaget
+  måste importeras på nytt. Spärrlistan överlever dock — `DoNotCall` är nycklad
+  på numret och sätter bara `leadId` till null.
+- **Säljare får radera här.** `deleteLead` i `actions/leads.ts` är admin-bara,
+  med motiveringen att aktivitetsloggen är oföränderlig och att vägen inte får
+  stå öppen för säljare. Den står öppen här, med flit och bara för den här
+  knappen: det är säljaren som gör uppslagningen och det är i cockpiten
+  beslutet fattas.
+- **Historik skyddas.** Har bolaget ringts förut, eller finns en affär på det,
+  pensioneras det i stället — statistiken för de samtalen ska inte försvinna
+  för att ingen hittade ett nytt nummer i dag. Sällsynt i praktiken: bolagen
+  knappen finns för har aldrig haft ett nummer.
+
+**Öppen risk:** ett feltryck på 5 raderar ett bolag utan fråga, i ett flöde där
+säljaren trycker siffror 150 gånger om dagen. En ångra-toast med några sekunders
+fördröjning innan raderingen går iväg vore billig försäkring — inte byggd.
 
 Knappen är bortfiltrerad i `CallbackDisposition` — och tangent 5 grindad där —
 eftersom en återkomst per definition är ett löfte om att ringa ett nummer någon

@@ -256,39 +256,69 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
  * `CallAttempt` som samtal, så en `CallAttempt` här hade blivit ett samtal i
  * dagsmålet, i coachingvyn och i svarsfrekvensens nämnare. Det är precis den
  * sortens hopblandning som `result`/`outcome` finns till för att undvika.
- * Spåret blir en `Activity` i stället: loggen är oföränderlig, och där syns det
- * vem som gav upp på bolaget och när.
  *
- * `retired` är samma mekanism som "Fel nummer" använder, alltså samma väg
- * tillbaka: en admin som får tag på ett nummer kan nolla flaggan, och bolaget
- * ligger kvar i mappen med sin historik. Det försvinner ur rotationen, inte ur
- * databasen.
+ * **Leadet raderas**, på beställning 2026-08-25: ett bolag som ingen kan ringa
+ * ska inte ligga kvar och se ut som ett lead. Raderingen kaskaderar bort
+ * kontakter, aktiviteter och kopplingen till mappen, så bolaget lämnar
+ * ringlistan helt i stället för att bli en pensionerad rad i den.
+ *
+ * Två saker att veta om det:
+ *
+ * 1. **Det finns ingen väg tillbaka och inget spår.** `Activity.leadId` är
+ *    obligatorisk och kaskaderar, så en logg-rad om raderingen hade raderats
+ *    med leadet. Bolaget måste importeras på nytt för att komma tillbaka.
+ *    Spärrlistan överlever däremot — `DoNotCall` är nycklad på numret och
+ *    sätter bara `leadId` till null.
+ * 2. **`requireLeadAccess`, inte `requireAdmin`.** `deleteLead` i
+ *    `actions/leads.ts` är admin-bara med motiveringen att aktivitetsloggen är
+ *    oföränderlig och att den vägen inte får stå öppen för säljare. Här står
+ *    den öppen, med flit: det är säljaren som gör uppslagningen och det är i
+ *    cockpiten beslutet fattas. Undantaget gäller den här knappen och ingen
+ *    annan väg.
+ *
+ * Undantaget från undantaget är historiken. Har bolaget ringts förut, eller
+ * finns det en affär på det, pensioneras det i stället för att raderas —
+ * statistiken för de samtalen ska inte försvinna för att någon inte hittade ett
+ * nytt nummer i dag. I praktiken är det ett sällsynt fall: bolagen knappen
+ * finns för har aldrig haft ett nummer att ringa.
  */
 export async function markNoPhoneFound(leadId: string) {
   const user = await requireLeadAccess(leadId);
 
-  await db.lead.update({
-    where: { id: leadId },
-    data: {
-      retired: true,
-      retiredReason: "inget_nummer",
-      // Arbetslåset släpps i samma sats. Ligger det kvar står bolaget kvar som
-      // upptaget i en kvart efter att säljaren redan lämnat det.
-      leasedById: null,
-      leasedUntil: null,
-      nextActionAt: null,
-      nextSlotId: null,
-    },
-  });
+  const [attempts, deals] = await Promise.all([
+    db.callAttempt.count({ where: { leadId } }),
+    db.deal.count({ where: { leadId } }),
+  ]);
 
-  await db.activity.create({
-    data: {
-      type: "STATUS_CHANGE",
-      actorId: user.id,
-      leadId,
-      metadata: JSON.stringify({ status: "retired", reason: "inget_nummer" }),
-    },
-  });
+  if (attempts > 0 || deals > 0) {
+    await db.lead.update({
+      where: { id: leadId },
+      data: {
+        retired: true,
+        retiredReason: "inget_nummer",
+        // Arbetslåset släpps i samma sats. Ligger det kvar står bolaget kvar
+        // som upptaget i en kvart efter att säljaren redan lämnat det.
+        leasedById: null,
+        leasedUntil: null,
+        nextActionAt: null,
+        nextSlotId: null,
+      },
+    });
+
+    await db.activity.create({
+      data: {
+        type: "STATUS_CHANGE",
+        actorId: user.id,
+        leadId,
+        metadata: JSON.stringify({ status: "retired", reason: "inget_nummer" }),
+      },
+    });
+
+    return { deleted: false as const };
+  }
+
+  await db.lead.delete({ where: { id: leadId } });
+  return { deleted: true as const };
 }
 
 // ── Varför är däcket tomt? ─────────────────────────────────────────────────

@@ -146,7 +146,7 @@ export function AddNumberCard({
             <span style={{ color: "var(--text-secondary)" }}>
               disposition 5, «Inget telefonnummer»
             </span>{" "}
-            tar bort bolaget ur kön så att ingen gör om sökningen.
+            raderar bolaget så att ingen gör om samma sökning.
           </p>
 
           <div className="flex flex-wrap items-center gap-2 mt-3">

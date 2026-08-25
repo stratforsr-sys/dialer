@@ -41,7 +41,8 @@ export interface FlowOption<T> {
  * aldrig till `CallAttempt`: statistiken räknar rader i den tabellen som
  * samtal, och en uppslagning som gick i stäv hade blivit ett samtal i varje
  * mätvärde vi har, från dagsmålet till svarsfrekvensens nämnare.
- * `markNoPhoneFound` i `actions/dialer.ts` tar hand om det i stället.
+ * `markNoPhoneFound` i `actions/dialer.ts` tar hand om det i stället, och
+ * raderar leadet: ett bolag ingen kan ringa ska inte ligga kvar i mappen.
  */
 // `as const` är inte kosmetik: utan den blir typen `string`, `ResultChoice`
 // kollapsar till `string` och kompilatorn slutar hålla isär ett samtalsresultat
@@ -65,7 +66,7 @@ export const RESULT_OPTIONS: FlowOption<ResultChoice>[] = [
   { key: "2", label: "Fel nummer", value: "WRONG_NUMBER", color: "#EF4444", hint: "Spärrar leadet" },
   { key: "3", label: "Kom till växeln", value: "CONNECTED_GATEKEEPER", color: "#3B82F6", hint: "Vem svarade?" },
   { key: "4", label: "Nådde beslutsfattaren", value: "CONNECTED_DM", color: "#10B981", hint: "Vad hände?" },
-  { key: "5", label: "Inget telefonnummer", value: NO_PHONE_FOUND, color: "#8B5CF6", hint: "Tar bort ur kön" },
+  { key: "5", label: "Inget telefonnummer", value: NO_PHONE_FOUND, color: "#8B5CF6", hint: "Raderar leadet" },
 ];
 
 /**
