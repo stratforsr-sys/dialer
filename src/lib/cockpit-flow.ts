@@ -33,14 +33,57 @@ export interface FlowOption<T> {
 
 // ── Steg 1: vad hände med samtalet ────────────────────────────────────────
 
-export const RESULT_OPTIONS: FlowOption<CallResult>[] = [
+/**
+ * Bolaget gick inte att få tag på ett nummer till.
+ *
+ * Ligger bland resultaten i gränssnittet men är **inget samtalsresultat** —
+ * inget samtal ringdes. Värdet finns därför inte i `CallResult` och skrivs
+ * aldrig till `CallAttempt`: statistiken räknar rader i den tabellen som
+ * samtal, och en uppslagning som gick i stäv hade blivit ett samtal i varje
+ * mätvärde vi har, från dagsmålet till svarsfrekvensens nämnare.
+ * `markNoPhoneFound` i `actions/dialer.ts` tar hand om det i stället.
+ */
+// `as const` är inte kosmetik: utan den blir typen `string`, `ResultChoice`
+// kollapsar till `string` och kompilatorn slutar hålla isär ett samtalsresultat
+// från pseudot — vilket är hela poängen med att det ligger utanför enumet.
+export const NO_PHONE_FOUND = "NO_PHONE_FOUND" as const;
+
+/** Det säljaren kan trycka på i resultatsteget — samtalsresultat plus pseudot ovan. */
+export type ResultChoice = CallResult | typeof NO_PHONE_FOUND;
+
+/**
+ * Resultatknapparna.
+ *
+ * "Upptaget" och "Röstbrevlåda" togs bort 2026-08-25 på beställning: de
+ * användes inte, och varje knapp i det här steget är ett val säljaren måste
+ * göra 150 gånger om dagen. Enumvärdena `BUSY`, `VOICEMAIL_LEFT` och
+ * `VOICEMAIL_NO_MESSAGE` står kvar i schemat och i `RESULT_LABELS` — gamla
+ * samtal ska fortsätta gå att läsa i historiken, loggen är oföränderlig.
+ */
+export const RESULT_OPTIONS: FlowOption<ResultChoice>[] = [
   { key: "1", label: "Svarar ej", value: "NO_ANSWER", color: "#6B7280" },
-  { key: "2", label: "Upptaget", value: "BUSY", color: "#F59E0B" },
-  { key: "3", label: "Röstbrevlåda", value: "VOICEMAIL_NO_MESSAGE", color: "#8B5CF6" },
-  { key: "4", label: "Fel nummer", value: "WRONG_NUMBER", color: "#EF4444", hint: "Spärrar leadet" },
-  { key: "5", label: "Kom till växeln", value: "CONNECTED_GATEKEEPER", color: "#3B82F6", hint: "Vem svarade?" },
-  { key: "6", label: "Nådde beslutsfattaren", value: "CONNECTED_DM", color: "#10B981", hint: "Vad hände?" },
+  { key: "2", label: "Fel nummer", value: "WRONG_NUMBER", color: "#EF4444", hint: "Spärrar leadet" },
+  { key: "3", label: "Kom till växeln", value: "CONNECTED_GATEKEEPER", color: "#3B82F6", hint: "Vem svarade?" },
+  { key: "4", label: "Nådde beslutsfattaren", value: "CONNECTED_DM", color: "#10B981", hint: "Vad hände?" },
+  { key: "5", label: "Inget telefonnummer", value: NO_PHONE_FOUND, color: "#8B5CF6", hint: "Tar bort ur kön" },
 ];
+
+/**
+ * Etiketter för ALLA samtalsresultat, även de som inte längre går att välja.
+ * `RESULT_OPTIONS` säger vad som erbjuds i dag; den här säger vad som står i
+ * historiken. Utan skillnaden hade ett samtal från i juni renderats som
+ * "VOICEMAIL_NO_MESSAGE" så fort knappen togs bort.
+ */
+export const RESULT_LABELS: Record<CallResult, string> = {
+  NO_ANSWER: "Svarar ej",
+  BUSY: "Upptaget",
+  VOICEMAIL_LEFT: "Röstbrevlåda — meddelande",
+  VOICEMAIL_NO_MESSAGE: "Röstbrevlåda",
+  WRONG_NUMBER: "Fel nummer",
+  INVALID_NUMBER: "Ogiltigt nummer",
+  CONNECTED_GATEKEEPER: "Kom till växeln",
+  CONNECTED_DM: "Nådde beslutsfattaren",
+};
 
 /** Svarade någon? Avgör om nästa steg ska visas — och nämnaren i svarsfrekvensen. */
 export function isConnected(result: CallResult): boolean {

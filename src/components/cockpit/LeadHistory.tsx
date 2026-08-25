@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { ChevronRight, StickyNote, History } from "lucide-react";
-import { RESULT_OPTIONS, OUTCOME_OPTIONS, REASON_OPTIONS } from "@/lib/cockpit-flow";
+import { RESULT_OPTIONS, RESULT_LABELS, OUTCOME_OPTIONS, REASON_OPTIONS } from "@/lib/cockpit-flow";
 import { formatWhen } from "@/lib/time";
 import { mergeCockpitNotes } from "@/lib/history-merge";
 import type { CallResult, ConversationOutcome, NoReason } from "@/generated/prisma/client";
@@ -78,7 +78,12 @@ function labelFor(
   outcome: ConversationOutcome | null,
   noReason: NoReason | null
 ): { label: string; color: string } {
+  // Etiketten hämtas ur RESULT_LABELS och inte ur knapparna: ett resultat som
+  // tagits bort ur dispositionsflödet finns kvar i historiken och ska läsas
+  // som text, inte som enumnamn. Färgen får fortfarande komma från knappen när
+  // den finns kvar.
   const r = RESULT_OPTIONS.find((o) => o.value === result);
+  const resultLabel = RESULT_LABELS[result] ?? result;
   const o = outcome ? OUTCOME_OPTIONS.find((x) => x.value === outcome) : undefined;
   const n = noReason ? REASON_OPTIONS.find((x) => x.value === noReason) : undefined;
 
@@ -86,7 +91,7 @@ function labelFor(
   // beslutsfattaren", och det är det man vill veta innan man ringer igen.
   if (o && n) return { label: `${o.label} · ${n.label}`, color: o.color };
   if (o) return { label: o.label, color: o.color };
-  return { label: r?.label ?? result, color: r?.color ?? "var(--text-muted)" };
+  return { label: resultLabel, color: r?.color ?? "var(--text-muted)" };
 }
 
 export function LeadHistory({

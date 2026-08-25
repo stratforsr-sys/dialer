@@ -98,6 +98,36 @@ kostar en uppslagning var, och det är ett helt annat pass än en fil med nummer
 Den som laddar upp ska veta det när den laddas upp, inte när säljaren sitter
 där.
 
+### Dispositionsraden: två knappar bort, en till
+
+**Borttagna:** "Upptaget" och "Röstbrevlåda". Beställt — de användes inte, och
+varje knapp i resultatsteget är ett val som görs 150 gånger om dagen.
+Enumvärdena `BUSY`, `VOICEMAIL_LEFT` och `VOICEMAIL_NO_MESSAGE` står kvar i
+schemat: loggen är oföränderlig, och telefonikopplingen
+(`lib/telephony/normalize.ts`) sätter dem fortfarande automatiskt från Lynes
+statuskoder. Därför finns nu `RESULT_LABELS` bredvid `RESULT_OPTIONS` —
+knapparna säger vad som *erbjuds i dag*, etiketterna vad som *står i
+historiken*. Utan uppdelningen hade ett samtal från i juni renderats som
+`VOICEMAIL_NO_MESSAGE` i det ögonblick knappen togs bort.
+
+**Ny:** "Inget telefonnummer" (tangent 5). Den hör ihop med att bolag utan
+nummer numera delas ut: utan en väg ut kommer bolaget tillbaka i nästa block
+och nästa säljare gör om exakt samma sökning på Merinfo, Allabolag och Google.
+
+Knappen sitter bland dispositionerna men **skriver inget samtal**. Inget samtal
+ringdes, och `db.callAttempt.count()` är vad statistiken kallar "samtal" — en
+rad där hade blivit ett samtal i dagsmålet, i coachingvyn och i
+svarsfrekvensens nämnare. Värdet ligger därför utanför `CallResult`
+(`NO_PHONE_FOUND` i `cockpit-flow.ts`, `as const` så att typen inte kollapsar
+till `string`) och `markNoPhoneFound` pensionerar leadet med
+`retiredReason = "inget_nummer"` plus en `Activity`. Samma mekanism som "Fel
+nummer", alltså samma väg tillbaka: bolaget ligger kvar i mappen med sin
+historik och en admin kan nolla flaggan den dagen ett nummer dyker upp.
+
+Knappen är bortfiltrerad i `CallbackDisposition` — och tangent 5 grindad där —
+eftersom en återkomst per definition är ett löfte om att ringa ett nummer någon
+redan haft i luren.
+
 ### Hittat på vägen: `nextActionAt` jämförs mot fel strängformat
 
 Prisma lagrar DateTime i SQLite som `2026-08-26 09:15:00` — utan tidszon, alltid

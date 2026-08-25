@@ -9,6 +9,7 @@ import { CallbackForm, EMPTY_CALLBACK, type CallbackDraft } from "@/components/c
 import { RegisterDealModal } from "@/components/deals/RegisterDealModal";
 import {
   RESULT_OPTIONS,
+  NO_PHONE_FOUND,
   GATEKEEPER_OPTIONS,
   OUTCOME_OPTIONS,
   REASON_OPTIONS,
@@ -234,7 +235,14 @@ export function CallbackDisposition({
       const opt = optionForKey(flow.stage, e.key);
       if (!opt) return;
       e.preventDefault();
-      if (flow.stage === "result") pickResult(opt.value as CallResult);
+      // Tangenten som hör till "Inget telefonnummer" ska inte göra något här —
+      // knappen är bortfiltrerad ovan, och utan den här grinden hade siffran
+      // ändå nått pickResult och skrivit ett samtal med ett resultat som inte
+      // finns i enumet.
+      if (flow.stage === "result") {
+        if (opt.value === NO_PHONE_FOUND) return;
+        pickResult(opt.value as CallResult);
+      }
       else if (flow.stage === "gatekeeper" || flow.stage === "outcome")
         pickOutcome(opt.value as ConversationOutcome);
       else if (flow.stage === "reason") pickReason(opt.value as NoReason);
@@ -401,8 +409,13 @@ export function CallbackDisposition({
                 {flow.stage === "result" && (
                   <DispositionBar
                     stage="result"
-                    options={RESULT_OPTIONS}
-                    onPick={pickResult}
+                    /* "Inget telefonnummer" hör inte hemma här: raden ÄR ett
+                       löfte om att ringa ett nummer någon redan haft i luren.
+                       Knappen hade dessutom pensionerat bolaget mitt i en
+                       återkomst, vilket är precis motsatsen till vad rutan är
+                       till för. */
+                    options={RESULT_OPTIONS.filter((o) => o.value !== NO_PHONE_FOUND)}
+                    onPick={(v) => pickResult(v as CallResult)}
                     onBack={goBack}
                     canGoBack={false}
                   />

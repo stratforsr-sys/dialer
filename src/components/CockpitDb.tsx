@@ -10,7 +10,7 @@ import {
   Search, Star, Trophy, Tag,
 } from "lucide-react";
 import { startSession, endSession } from "@/app/actions/sessions";
-import { leaseNextLeads, releaseLeases, renewLeases, leaseSpecificLead, deckStatus, type OpenWarning, type DeckStatus } from "@/app/actions/dialer";
+import { leaseNextLeads, releaseLeases, renewLeases, leaseSpecificLead, deckStatus, markNoPhoneFound, type OpenWarning, type DeckStatus } from "@/app/actions/dialer";
 import type { LeadSearchHit } from "@/app/actions/leads";
 import { heartbeat, goOffline } from "@/app/actions/presence";
 import { saveCockpitNote } from "@/app/actions/activities";
@@ -30,7 +30,7 @@ import { formatWhen } from "@/lib/time";
 import {
   RESULT_OPTIONS, GATEKEEPER_OPTIONS, OUTCOME_OPTIONS, REASON_OPTIONS,
   INITIAL_FLOW, stageAfterResult, stageAfterOutcome, shouldAskFramework,
-  type FlowState,
+  NO_PHONE_FOUND, type FlowState, type ResultChoice,
 } from "@/lib/cockpit-flow";
 import type {
   CallResult, ConversationOutcome, NoReason, FrameworkStep,
@@ -1010,11 +1010,21 @@ export function CockpitDb({
   );
 
   // ── Flödessteg ─────────────────────────────────────────────────────────
-  const pickResult = useCallback((result: CallResult) => {
+  const pickResult = useCallback((result: ResultChoice) => {
+    // "Inget telefonnummer" är inget samtal och går inte genom skriv-bakom-kön:
+    // den skriver CallAttempt-rader, och det här ska aldrig bli ett samtal i
+    // statistiken. Bolaget pensioneras i stället och kön går vidare direkt —
+    // säljaren ska inte vänta på ett serversvar för att komma till nästa.
+    if (result === NO_PHONE_FOUND) {
+      const target = leads[index];
+      if (target) void markNoPhoneFound(target.id).catch(() => {});
+      advance();
+      return;
+    }
     const next = stageAfterResult(result);
     if (!next) { commit({ result }); return; }
     setFlow({ stage: next, result, outcome: null, noReason: null });
-  }, [commit]);
+  }, [advance, commit, index, leads]);
 
   const pickOutcome = useCallback((outcome: ConversationOutcome) => {
     const result = flow.result;

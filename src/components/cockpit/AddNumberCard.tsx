@@ -142,7 +142,11 @@ export function AddNumberCard({
           </p>
           <p className="text-[12px] mt-[2px]" style={{ color: "var(--text-muted)" }}>
             Bolaget kom in utan telefonnummer. Slå upp det och spara — det ligger
-            kvar på leadet för alla efteråt.
+            kvar på leadet för alla efteråt. Hittar du inget:{" "}
+            <span style={{ color: "var(--text-secondary)" }}>
+              disposition 5, «Inget telefonnummer»
+            </span>{" "}
+            tar bort bolaget ur kön så att ingen gör om sökningen.
           </p>
 
           <div className="flex flex-wrap items-center gap-2 mt-3">

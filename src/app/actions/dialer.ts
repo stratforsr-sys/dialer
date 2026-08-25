@@ -7,7 +7,7 @@ import { canAccessList, claimCutoff, isAdminUser } from "@/lib/lists";
 import { computeNext, slotAt, type Slot, type SchedulerConfig } from "@/lib/scheduler";
 import { resolveScript, firstNameOf, type ResolverVariant } from "@/lib/script-resolver";
 import { getActiveScripts } from "@/app/actions/scripts";
-import { RESULT_OPTIONS, OUTCOME_OPTIONS } from "@/lib/cockpit-flow";
+import { RESULT_LABELS, OUTCOME_OPTIONS } from "@/lib/cockpit-flow";
 import { findPendingCall, linkAttemptToCall } from "@/lib/telephony/link";
 import { hourOfDay, weekdayOf, formatTime, formatWhen } from "@/lib/time";
 import type {
@@ -239,6 +239,56 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
   if (ids.length === 0) return [];
 
   return hydrateLeads(ids, user);
+}
+
+// ── Inget nummer att hitta ─────────────────────────────────────────────────
+
+/**
+ * Säljaren letade och hittade inget nummer. Bolaget lämnar kön.
+ *
+ * Sedan filtret på kontaktrad togs bort delas bolag utan nummer ut som vilka
+ * andra som helst, med `AddNumberCard` för att slå upp numret. Det som saknades
+ * var vägen ut när uppslagningen inte gav något: utan den kommer bolaget
+ * tillbaka i nästa block, och nästa säljare gör om exakt samma sökning.
+ *
+ * **Skrivs inte som ett samtal.** Det ligger nära till hands — knappen sitter
+ * bland dispositionerna — men inget samtal ringdes. Statistiken räknar rader i
+ * `CallAttempt` som samtal, så en `CallAttempt` här hade blivit ett samtal i
+ * dagsmålet, i coachingvyn och i svarsfrekvensens nämnare. Det är precis den
+ * sortens hopblandning som `result`/`outcome` finns till för att undvika.
+ * Spåret blir en `Activity` i stället: loggen är oföränderlig, och där syns det
+ * vem som gav upp på bolaget och när.
+ *
+ * `retired` är samma mekanism som "Fel nummer" använder, alltså samma väg
+ * tillbaka: en admin som får tag på ett nummer kan nolla flaggan, och bolaget
+ * ligger kvar i mappen med sin historik. Det försvinner ur rotationen, inte ur
+ * databasen.
+ */
+export async function markNoPhoneFound(leadId: string) {
+  const user = await requireLeadAccess(leadId);
+
+  await db.lead.update({
+    where: { id: leadId },
+    data: {
+      retired: true,
+      retiredReason: "inget_nummer",
+      // Arbetslåset släpps i samma sats. Ligger det kvar står bolaget kvar som
+      // upptaget i en kvart efter att säljaren redan lämnat det.
+      leasedById: null,
+      leasedUntil: null,
+      nextActionAt: null,
+      nextSlotId: null,
+    },
+  });
+
+  await db.activity.create({
+    data: {
+      type: "STATUS_CHANGE",
+      actorId: user.id,
+      leadId,
+      metadata: JSON.stringify({ status: "retired", reason: "inget_nummer" }),
+    },
+  });
 }
 
 // ── Varför är däcket tomt? ─────────────────────────────────────────────────
@@ -1057,8 +1107,7 @@ export async function recordAttempt(input: RecordAttemptInput) {
   // rader per säljare och dag i en logg vars enda syfte är att gå att läsa.
   const note = input.note?.trim();
   if (note) {
-    const resultLabel =
-      RESULT_OPTIONS.find((o) => o.value === input.result)?.label ?? input.result;
+    const resultLabel = RESULT_LABELS[input.result] ?? input.result;
     const outcomeLabel = input.outcome
       ? OUTCOME_OPTIONS.find((o) => o.value === input.outcome)?.label ?? null
       : null;
