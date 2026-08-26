@@ -310,6 +310,39 @@ Stänger dispositionen inte alla rader måste `Lead.callbackAt` och `nextActionA
 skrivas om från den tidigaste som är kvar — de är ett eko av den öppna raden, och
 ett `null` där hade lämnat löftet i klockan men bolaget utanför däcket.
 
+**`nextActionAt = NULL` betyder "aldrig ringt", inte "ringbart nu".** De är
+ringbara på samma sätt, men bara den ena sorterar överst: `ORDER BY nextActionAt
+ASC` lägger NULL först i SQLite. Skriv därför aldrig NULL på ett lead som ringts
+— använd `rotationResumeAt` i `scheduler.ts`, som räknar fram tiden ur
+`lastAttemptAt` + vilotiden för `lastResult`. Det var precis det
+`syncLeadFromCallbacks` gjorde fel fram till 2026-08-26: en avbokad återkomst la
+bolaget överst i däcket i stället för tillbaka i kön, och 74 leads låg så.
+Avbokning släpper också `claimedAt` — låset skyddar ett löfte, och finns löftet
+inte kvar finns ingen relation att skydda.
+
+### Mappvyn måste säga samma sak som däcket
+
+`src/lib/deck-state.ts` speglar WHERE-satsen i `leaseNextLeads` som ren logik,
+så att `/lists/[id]` kan visa **varför** ett bolag inte delas ut (spärrat, kund,
+spärrlista, lovad återkomst, taket nått, vilar). De två implementationerna är
+avsiktligt separata — däcket måste filtrera i databasen, mappen måste förklara
+för en människa — men de får aldrig säga olika saker. **Ändras det ena villkoret
+ska det andra ändras i samma commit.**
+
+Utan den var mappen en väg runt alla regler: 831 av 5 668 bolag i Clicknet
+Lista 1 såg ringbara ut men var det inte, och `leaseSpecificLead` (som med flit
+struntar i däckets filter) öppnade dem villigt därifrån.
+
+### Cockpitens skrivningar går genom kön — alla
+
+`useDispositionQueue` → `/api/dispositions` ger omförsök vid nätverksfel,
+`keepalive` när fliken stängs och en synlig remsa när det ändå inte gick.
+**"Inget telefonnummer" ligger i samma kö** (`kind: "noPhoneFound"`) trots att
+den inte skriver någon `CallAttempt`. Fram till 2026-08-26 var den ett
+direktanrop med `.catch(() => {})` — systemets enda oåterkalleliga åtgärd var
+alltså också dess enda oskyddade. Lägg aldrig tillbaka en skrivning från
+cockpiten utanför kön.
+
 Utgående e-post finns, men gör exakt en sak: morgonmejlet med dagens
 återkomster. Det skickas **bara** för rader där säljaren kryssat i
 `emailReminder` — det är hela poängen med krysset, och förvalet är urbockat.

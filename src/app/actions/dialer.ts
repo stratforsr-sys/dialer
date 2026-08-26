@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { requireLeadAccess } from "@/lib/guard";
 import { canAccessList, claimCutoff, isAdminUser } from "@/lib/lists";
-import { computeNext, slotAt, type Slot, type SchedulerConfig } from "@/lib/scheduler";
+import { computeNext, slotAt, toSchedulerConfig, type Slot } from "@/lib/scheduler";
 import { resolveScript, firstNameOf, type ResolverVariant } from "@/lib/script-resolver";
 import { getActiveScripts } from "@/app/actions/scripts";
 import { RESULT_LABELS, OUTCOME_OPTIONS } from "@/lib/cockpit-flow";
@@ -34,36 +34,6 @@ export async function getCallSlots() {
     where: { active: true },
     orderBy: { order: "asc" },
   });
-}
-
-function toSchedulerConfig(cfg: {
-  maxAttempts: number;
-  cooldownDays: number;
-  retryHoursNoAnswer: number;
-  retryHoursBusy: number;
-  retryHoursVoicemail: number;
-  retryHoursGatekeeper: number;
-  retryDaysNoSalespeople: number;
-  blockedDatesJson: string;
-}): SchedulerConfig {
-  let blockedDates: string[] = [];
-  try {
-    const parsed = JSON.parse(cfg.blockedDatesJson);
-    if (Array.isArray(parsed)) blockedDates = parsed.filter((d) => typeof d === "string");
-  } catch {
-    // Trasig JSON ska inte stoppa ringandet — spärrade datum är en guardrail,
-    // inte en förutsättning.
-  }
-  return {
-    maxAttempts: cfg.maxAttempts,
-    cooldownDays: cfg.cooldownDays,
-    retryHoursNoAnswer: cfg.retryHoursNoAnswer,
-    retryHoursBusy: cfg.retryHoursBusy,
-    retryHoursVoicemail: cfg.retryHoursVoicemail,
-    retryHoursGatekeeper: cfg.retryHoursGatekeeper,
-    retryDaysNoSalespeople: cfg.retryDaysNoSalespeople,
-    blockedDates,
-  };
 }
 
 // ── Lease: hämta nästa block med leads ─────────────────────────────────────

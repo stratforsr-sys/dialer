@@ -13,6 +13,101 @@ Nyast först.
 
 ---
 
+## 2026-08-26 (senare) — Varför bolag dök upp igen: tre olika hål
+
+Rapporterat från golvet: *"listan gör att kunderna dyker upp igen, en säljare
+tryckte på inget telefonnummer men jag gick in i dialern och fick upp leadet
+ändå."*
+
+Alla elva utfall granskades mot sina regler, i produktionsdatan i stället för i
+koden. **Åtta av elva regler höll perfekt.** Det som inte höll var tre saker
+som alla ser ut som samma symptom från golvet men har olika orsaker.
+
+### Vad som höll
+
+| Regel | Utfall |
+|---|---|
+| Terminala utfall spärrar | 206/206 `WRONG_NUMBER` retired, 1/1 `SOLD` |
+| Taket (8 försök) | 0 leads över taket var ringbara |
+| `Lead.callbackAt` ↔ öppen `Callback` | 0 avvikelser i **båda** riktningarna |
+| Öppet löfte utanför däcket | 0 spärrade leads med öppen återkomst |
+| "Vill ej prata med säljare" → 30 dagar | 138/138 nollställda, 136/138 med rätt vila |
+| Claim-låset (migration 017) | 0 felaktiga lås efter 2026-08-13 |
+
+Krockar mellan säljare — två som ringer samma bolag inom en timme — finns i
+datan, men **bara 12–17 augusti**: 49 den 13:e, 26 den 14:e, 3 den 17:e, och
+noll den 20, 21, 24, 25 och 26. Migration 017 och arbetslåset täppte det, och
+det syns.
+
+### 1. En avbokad återkomst la bolaget ÖVERST i kön
+
+`syncLeadFromCallbacks` skrev `nextActionAt = NULL` när sista öppna återkomsten
+försvann, med kommentaren "alltså ringbart direkt". Två fel i ett:
+
+- Vilan som utfallet tjänade ihop försvann med löftet. Ett bolag som fick ett
+  nej i morse blev ringbart i samma sekund någon avbokade dess återkomst.
+- **`ORDER BY l."nextActionAt" ASC` sorterar NULL först i SQLite.** Bolaget kom
+  alltså inte tillbaka i kön — det kom tillbaka *överst* i den, före varje bolag
+  som faktiskt väntat ut sin tur. Därav upplevelsen att samma bolag kom om och
+  om igen.
+
+Mätt: **74 leads** låg med `nextActionAt = NULL` och `retired = 0`, och **alla
+74** hade en avbokad återkomst bakom sig. Hundra procent.
+
+`rotationResumeAt` i scheduler.ts räknar nu fram tiden ur `lastAttemptAt` +
+vilotiden för `lastResult`. Ett avbokat löfte betyder att löftet är borta, inte
+att bolaget aldrig ringts. Leads som *aldrig* ringts får fortfarande `null` —
+de är obearbetade, inte vilande, och det är skillnaden hela grenen finns för.
+Samma veva släpps `claimedAt`: låset finns för att skydda ett personligt löfte,
+och finns löftet inte kvar finns ingen relation att skydda.
+
+### 2. Raderingen var systemets enda oskyddade skrivning
+
+"Inget telefonnummer" gick förbi skriv-bakom-kön — tre direktanrop med
+`.catch(() => {})`. Systemets enda oåterkalleliga åtgärd hade alltså som enda
+åtgärd **ingen felhantering alls**: ett nätverksglapp, en utgången session eller
+ett serverfel svaldes tyst, bolaget låg kvar, och säljaren hade redan sett
+bekräftelsen försvinna från skärmen. Nästa pass fick samma bolag igen.
+
+Att det aldrig syntes i datan är i sig ett tecken: `retiredReason =
+'inget_nummer'` har **noll** rader i hela databasen, trots att grenen finns för
+bolag som ringts förut.
+
+Går nu genom samma kö som dispositionerna, med `kind: "noPhoneFound"` — omförsök
+vid nätverksfel, `keepalive` när fliken stängs, och en synlig remsa när det ändå
+inte gick. Femsekundersfristen är kvar; det som ändrats är vad som händer när
+den löper ut.
+
+### 3. Mappen visste ingenting om rotationens regler
+
+Det här är vad "**listan** gör att kunderna dyker upp igen" bokstavligen
+beskriver. `/lists/[id]` kände inte till `retired`, `hasActiveDeal`,
+`callbackAt`, `nextActionAt` eller spärrlistan. Ett spärrat bolag, en kund, ett
+bolag med öppet löfte och ett bolag som vilar renderades exakt som ett
+obearbetat lead — och gick att öppna rakt in i dialern därifrån, eftersom
+`leaseSpecificLead` med flit struntar i däckets filter.
+
+I `Clicknet Lista 1`: **831 av 5 668 bolag** — 192 spärrade, 2 kunder, 175 med
+öppet löfte, 462 vilande. Femton procent av mappen såg ringbar ut och var det
+inte.
+
+`src/lib/deck-state.ts` speglar nu däckets WHERE-sats som ren logik. Raden bär
+skälet ("Fel nummer", "Kund", "Lovad återkomst 3 sep", "Vilar till 28 aug"),
+rubriken räknar **ringbara** i stället för lediga — ledig svarar på om någon
+annan håller bolaget, ringbar på om det finns arbete kvar — och två nya filter
+skiljer ringbart från det som ligger ur rotationen. De två implementationerna är
+avsiktligt separata men får aldrig säga olika saker: **ändras däckets villkor
+ska `deck-state.ts` ändras i samma commit.**
+
+### Läkning av datan
+
+`020_lakning_avbokade_aterkomster.sql` räknade om de 74 leadsen (0 kvar) och
+släppte 20 av 23 kvarglömda claim-lås från före migration 017. De tre som står
+kvar har en öppen återkomst — låset skyddar ett levande löfte och ska ligga
+kvar. 28 andra gamla lås rördes inte av samma skäl.
+
+---
+
 ## 2026-08-26 — Ett manus kan höra till en enskild ringlista
 
 Fram till nu fanns **ett** manus per ramverkssteg, gemensamt för allt som

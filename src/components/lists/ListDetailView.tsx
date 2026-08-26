@@ -10,13 +10,20 @@ import {
 import type { ListDetail } from "@/app/actions/lists";
 import { releaseLead } from "@/app/actions/lists";
 import { claimState, CLAIM_TTL_DAYS } from "@/lib/claim";
+import { deckState, deckStateLabel, isOutOfRotation } from "@/lib/deck-state";
 import { FRAMEWORK_STEPS } from "@/lib/cockpit-flow";
 import { ShareListModal } from "./ShareListModal";
 
 type UserOption = { id: string; name: string; email: string; role: string };
 type Lead = ListDetail["leads"][number];
 
-type Filter = "all" | "free" | "mine" | "taken";
+/**
+ * `ringbar` och `ur_rotation` är inte ägarskap som de tre andra — de svarar på
+ * om däcket över huvud taget skulle dela ut bolaget. Ett spärrat bolag och ett
+ * bolag med öppet löfte såg tidigare ut precis som ett obearbetat lead här, och
+ * gick att öppna rakt in i dialern därifrån. Se `lib/deck-state.ts`.
+ */
+type Filter = "all" | "free" | "mine" | "taken" | "ringbar" | "ur_rotation";
 
 function relativeDays(date: Date | string): string {
   const days = Math.floor((Date.now() - new Date(date).getTime()) / 86400000);
@@ -45,22 +52,30 @@ export function ListDetailView({
   // Claim-status räknas ut en gång per render — samma "nu" för alla rader
   const withState = useMemo(() => {
     const now = new Date();
-    return list.leads.map((lead) => ({ lead, claim: claimState(lead, viewerId, now) }));
-  }, [list.leads, viewerId]);
+    return list.leads.map((lead) => ({
+      lead,
+      claim: claimState(lead, viewerId, now),
+      deck: deckState(lead, list.maxAttempts, now),
+    }));
+  }, [list.leads, list.maxAttempts, viewerId]);
 
   const counts = useMemo(() => {
-    let free = 0, mine = 0, taken = 0;
-    for (const { claim } of withState) {
+    let free = 0, mine = 0, taken = 0, ringbar = 0, urRotation = 0;
+    for (const { claim, deck } of withState) {
       if (claim.state === "free") free++;
       else if (claim.state === "mine") mine++;
       else taken++;
+      if (deck.state === "callable") ringbar++;
+      if (isOutOfRotation(deck)) urRotation++;
     }
-    return { free, mine, taken, total: withState.length };
+    return { free, mine, taken, ringbar, urRotation, total: withState.length };
   }, [withState]);
 
   const rows = useMemo(() => {
     let out = withState;
-    if (filter !== "all") out = out.filter(({ claim }) => claim.state === filter);
+    if (filter === "ringbar") out = out.filter(({ deck }) => deck.state === "callable");
+    else if (filter === "ur_rotation") out = out.filter(({ deck }) => isOutOfRotation(deck));
+    else if (filter !== "all") out = out.filter(({ claim }) => claim.state === filter);
     if (search) {
       const q = search.toLowerCase();
       out = out.filter(({ lead }) =>
@@ -85,9 +100,11 @@ export function ListDetailView({
 
   const FILTERS: { key: Filter; label: string; count: number }[] = [
     { key: "all", label: "Alla", count: counts.total },
+    { key: "ringbar", label: "Ringbara", count: counts.ringbar },
     { key: "free", label: "Lediga", count: counts.free },
     { key: "mine", label: "Mina", count: counts.mine },
     { key: "taken", label: "Tagna", count: counts.taken },
+    { key: "ur_rotation", label: "Ur rotationen", count: counts.urRotation },
   ];
 
   return (
@@ -108,9 +125,15 @@ export function ListDetailView({
             <h1 className="text-[22px] font-semibold tracking-tight truncate" style={{ color: "var(--text)" }}>
               {list.name}
             </h1>
+            {/* "Ringbara" först, inte "lediga". Ledig svarar på om någon annan
+                håller bolaget; ringbar svarar på om däcket skulle dela ut det
+                alls — och det är den siffran som säger hur mycket arbete som
+                faktiskt finns kvar i mappen. Skillnaden var 831 bolag i
+                Clicknet Lista 1 den 26 augusti 2026. */}
             <p className="text-[13px] mt-1" style={{ color: "var(--text-muted)" }}>
               {counts.total.toLocaleString("sv-SE")} leads ·{" "}
-              <span style={{ color: "var(--accent)" }}>{counts.free.toLocaleString("sv-SE")} lediga</span>
+              <span style={{ color: "var(--accent)" }}>{counts.ringbar.toLocaleString("sv-SE")} ringbara</span>
+              {counts.urRotation > 0 && ` · ${counts.urRotation.toLocaleString("sv-SE")} ur rotationen`}
               {counts.mine > 0 && ` · ${counts.mine} dina`}
               {list.sourceFile ? ` · ${list.sourceFile}` : ""}
             </p>
@@ -154,13 +177,13 @@ export function ListDetailView({
             )}
             <button
               onClick={() => router.push(`/cockpit?listId=${list.id}`)}
-              disabled={counts.free === 0 && counts.mine === 0}
+              disabled={counts.ringbar === 0}
               className="flex items-center gap-2 px-4 py-2 text-[13px] font-semibold rounded-md"
               style={{
                 background: "var(--accent)",
                 color: "var(--bg)",
-                opacity: counts.free === 0 && counts.mine === 0 ? 0.4 : 1,
-                cursor: counts.free === 0 && counts.mine === 0 ? "not-allowed" : "pointer",
+                opacity: counts.ringbar === 0 ? 0.4 : 1,
+                cursor: counts.ringbar === 0 ? "not-allowed" : "pointer",
               }}
             >
               <Play size={13} fill="currentColor" />
@@ -241,9 +264,11 @@ export function ListDetailView({
               </tr>
             </thead>
             <tbody>
-              {rows.map(({ lead, claim }) => {
+              {rows.map(({ lead, claim, deck }) => {
                 const contact = lead.contacts[0];
                 const lastCall = lead.activities[0];
+                const deckLabel = deckStateLabel(deck);
+                const outOfRotation = isOutOfRotation(deck);
 
                 return (
                   <tr
@@ -265,13 +290,32 @@ export function ListDetailView({
                         </div>
                         <div className="min-w-0">
                           <p className="text-[13px] font-medium truncate">{lead.companyName}</p>
-                          {lead.orgNumber && (
+                          {/* Varför däcket inte delar ut bolaget. Utan den här
+                              raden såg ett spärrat bolag, en kund och ett bolag
+                              med öppet löfte likadana ut som ett obearbetat
+                              lead — och gick att öppna rakt in i dialern
+                              härifrån, eftersom `leaseSpecificLead` med flit
+                              struntar i däckets filter. */}
+                          {deckLabel ? (
                             <p
                               className="text-[11px] truncate"
-                              style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}
+                              style={{ color: outOfRotation ? "var(--danger)" : "var(--text-dim)" }}
                             >
-                              {lead.orgNumber}
+                              {deckLabel}
+                              {deck.state === "resting" &&
+                                ` till ${deck.until.toLocaleDateString("sv-SE", { day: "numeric", month: "short" })}`}
+                              {deck.state === "callback" &&
+                                ` ${deck.at.toLocaleDateString("sv-SE", { day: "numeric", month: "short" })}`}
                             </p>
+                          ) : (
+                            lead.orgNumber && (
+                              <p
+                                className="text-[11px] truncate"
+                                style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}
+                              >
+                                {lead.orgNumber}
+                              </p>
+                            )
                           )}
                         </div>
                       </Link>

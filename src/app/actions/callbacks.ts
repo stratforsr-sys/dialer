@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { isAdminUser } from "@/lib/lists";
 import { ForbiddenError } from "@/lib/guard";
+import { rotationResumeAt, toSchedulerConfig, type Slot } from "@/lib/scheduler";
 
 /**
  * Återkomster — läsning och rättelser.
@@ -168,8 +169,37 @@ async function requireCallbackAccess(id: string) {
  * Speglar den öppna återkomsten till leadets schemaläggningskolumner.
  *
  * Finns flera öppna på samma lead vinner den tidigaste — det är den som ska
- * serveras härnäst. Finns ingen alls går leadet tillbaka i rotationen med
- * `nextActionAt = null`, alltså ringbart direkt.
+ * serveras härnäst.
+ *
+ * ## Finns ingen kvar: tillbaka till rotationen, inte till toppen av kön
+ *
+ * Fram till 2026-08-26 stod här `nextActionAt: next?.scheduledAt ?? null` med
+ * kommentaren "alltså ringbart direkt". Det var fel, och det var den enskilt
+ * största orsaken till att bolag dök upp igen direkt efter att de ringts:
+ *
+ *   - `nextActionAt IS NULL` passerar däckets tidsvillkor rakt igenom, så
+ *     bolaget blir ringbart i samma sekund som återkomsten avbokas.
+ *   - `ORDER BY l."nextActionAt" ASC` sorterar NULL **först** i SQLite. Bolaget
+ *     hamnade alltså inte bara tillbaka i kön utan allra överst i den, före
+ *     varje bolag som faktiskt väntat ut sin vila.
+ *
+ * Ett avbokat löfte betyder att löftet är borta — inte att bolaget aldrig
+ * ringts. Vilan det tjänade ihop på sitt senaste samtal gäller fortfarande, och
+ * `rotationResumeAt` räknar fram den ur `lastAttemptAt` + `lastResult`. Ett
+ * lead som aldrig ringts får `null`, vilket är rätt: det är obearbetat, inte
+ * vilande.
+ *
+ * Mätt i produktionen 2026-08-26: 74 leads låg med `nextActionAt = NULL` och
+ * `retired = 0`, och **alla 74** hade en avbokad återkomst bakom sig.
+ *
+ * ## Låset följer med löftet
+ *
+ * `claimedAt` sätts av `CALLBACK_BOOKED` för att en kollega inte ska bränna ett
+ * personligt löfte. Försvinner löftet finns ingen relation kvar att skydda, och
+ * då ska låset inte ligga kvar och hålla bolaget osynligt för alla andra i 60
+ * dagar. Samma regel som `claimsLead` i scheduler.ts, tillämpad åt andra hållet.
+ * Flyttas återkomsten i stället för att avbokas finns en PENDING-rad kvar och
+ * låset står orört.
  */
 async function syncLeadFromCallbacks(leadId: string) {
   const next = await db.callback.findFirst({
@@ -178,12 +208,36 @@ async function syncLeadFromCallbacks(leadId: string) {
     select: { scheduledAt: true },
   });
 
+  if (next) {
+    await db.lead.update({
+      where: { id: leadId },
+      data: { callbackAt: next.scheduledAt, nextActionAt: next.scheduledAt },
+    });
+    return;
+  }
+
+  const [lead, cfg, slots] = await Promise.all([
+    db.lead.findUnique({
+      where: { id: leadId },
+      select: { lastAttemptAt: true, lastResult: true },
+    }),
+    db.dialerConfig.findUnique({ where: { id: "singleton" } }),
+    db.callSlot.findMany({ where: { active: true }, orderBy: { order: "asc" } }),
+  ]);
+
+  const resumeAt =
+    lead && cfg
+      ? rotationResumeAt({
+          lastAttemptAt: lead.lastAttemptAt,
+          lastResult: lead.lastResult,
+          slots: slots as Slot[],
+          config: toSchedulerConfig(cfg),
+        })
+      : null;
+
   await db.lead.update({
     where: { id: leadId },
-    data: {
-      callbackAt: next?.scheduledAt ?? null,
-      nextActionAt: next?.scheduledAt ?? null,
-    },
+    data: { callbackAt: null, nextActionAt: resumeAt, claimedAt: null },
   });
 }
 

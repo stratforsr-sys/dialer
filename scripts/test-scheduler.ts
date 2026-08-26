@@ -9,7 +9,7 @@
  */
 
 import {
-  computeNext, slotAt, pickNextSlot, alignToSlot,
+  computeNext, slotAt, pickNextSlot, alignToSlot, rotationResumeAt,
   type Slot, type SchedulerConfig,
 } from "../src/lib/scheduler.ts";
 
@@ -175,6 +175,43 @@ const now = new Date(2026, 7, 5, 8, 30); // onsdag, tidiga passet
   const d = computeNext({ lead: base, result: "BUSY", outcome: null, slots: SLOTS, config: CFG, now });
   const hours = d.nextActionAt ? (d.nextActionAt.getTime() - now.getTime()) / 3_600_000 : 0;
   check("upptaget → ringer om samma dag", hours < 24, `blev ${hours.toFixed(1)}h (${fmt(d.nextActionAt)})`);
+}
+
+
+// ── rotationResumeAt — vad gäller när en återkomst avbokas ────────────────
+//
+// Regressionsskydd för buggen 2026-08-26: `nextActionAt = NULL` gjorde bolaget
+// inte bara ringbart direkt utan sorterade det FÖRST i däcket, före allt som
+// faktiskt väntat ut sin vila. 74 leads låg så i produktionen, alla med en
+// avbokad återkomst bakom sig.
+{
+  const d = rotationResumeAt({ lastAttemptAt: null, lastResult: null, slots: SLOTS, config: CFG });
+  check("aldrig ringt → ringbart nu (null)", d === null);
+}
+{
+  const ringt = new Date(2026, 7, 5, 9, 0);
+  const d = rotationResumeAt({ lastAttemptAt: ringt, lastResult: "NO_ANSWER", slots: SLOTS, config: CFG });
+  check("avbokad återkomst → aldrig null när bolaget ringts", d !== null);
+  const hours = d ? (d.getTime() - ringt.getTime()) / 3_600_000 : 0;
+  check("svarar ej → vilan räknas från senaste samtalet", hours >= CFG.retryHoursNoAnswer, `blev ${hours.toFixed(1)}h`);
+}
+{
+  const ringt = new Date(2026, 7, 5, 9, 0);
+  const dNo = rotationResumeAt({ lastAttemptAt: ringt, lastResult: "NO_ANSWER", slots: SLOTS, config: CFG });
+  const dGk = rotationResumeAt({ lastAttemptAt: ringt, lastResult: "CONNECTED_GATEKEEPER", slots: SLOTS, config: CFG });
+  check(
+    "växeln ger längre vila än svarar ej",
+    dNo !== null && dGk !== null && dGk.getTime() > dNo.getTime(),
+    `${fmt(dNo)} vs ${fmt(dGk)}`
+  );
+}
+{
+  // Ett gammalt samtal ska ge en tid som redan passerat — bolaget ÄR i tur.
+  // Poängen är att tiden finns, inte att den ligger i framtiden: NULL och
+  // "förfallen" är ringbara på samma sätt, men bara den ena sorterar överst.
+  const gammalt = new Date(2026, 6, 1, 9, 0);
+  const d = rotationResumeAt({ lastAttemptAt: gammalt, lastResult: "NO_ANSWER", slots: SLOTS, config: CFG });
+  check("gammalt samtal → förfallen tid, inte null", d !== null && d < new Date(2026, 7, 5));
 }
 
 console.log(`\n${pass} godkända, ${fail} misslyckade\n`);

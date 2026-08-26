@@ -87,7 +87,7 @@ export async function getList(listId: string) {
   // Åtkomstkollen bakas in i mappfrågan (en round-trip i stället för två),
   // och leadsen hämtas samtidigt. Saknar användaren åtkomst blir list null
   // och vi kastar leadsen — de har ändå aldrig lämnat servern.
-  const [list, rows] = await Promise.all([
+  const [list, rows, cfg] = await Promise.all([
     db.callList.findFirst({
       where: {
         id: listId,
@@ -114,6 +114,10 @@ export async function getList(listId: string) {
             owner: { select: { id: true, name: true } },
             contacts: { orderBy: { createdAt: "asc" }, take: 1 },
             _count: { select: { contacts: true } },
+            // Spärrlistan. Resten av det `deckState` behöver — retired,
+            // hasActiveDeal, attemptCount, callbackAt, nextActionAt — är
+            // skalärer och följer redan med `include`.
+            dnc: { select: { expiresAt: true } },
             activities: {
               where: { type: { in: ["CALL", "CALL_NO_ANSWER"] } },
               orderBy: { timestamp: "desc" },
@@ -123,6 +127,13 @@ export async function getList(listId: string) {
           },
         },
       },
+    }),
+    // Taket bor i DialerConfig och kan ändras utan deploy. Mappvyn måste läsa
+    // det ur samma ställe som däcket, annars ritar den "taket nått" på en
+    // gräns som inte längre gäller.
+    db.dialerConfig.findUnique({
+      where: { id: "singleton" },
+      select: { maxAttempts: true },
     }),
   ]);
 
@@ -138,6 +149,8 @@ export async function getList(listId: string) {
     createdBy: list.createdBy,
     members: list.access.map((a) => a.user),
     scripts: list.scripts,
+    /** Däckets tak — driver `deckState` i mappvyn. */
+    maxAttempts: cfg?.maxAttempts ?? 8,
     leads: rows.map((r) => r.lead),
   };
 }

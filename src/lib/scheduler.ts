@@ -185,6 +185,44 @@ function toISODate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+/**
+ * DialerConfig-raden till schemaläggarens konfiguration.
+ *
+ * Bor här och inte i `actions/dialer.ts`: den filen är `"use server"`, och ett
+ * sådant modul får bara exportera async-funktioner. En synkron hjälpare där
+ * går inte att dela med andra server actions — och `callbacks.ts` behöver
+ * exakt samma tolkning av vilodagar och vilotider som cockpiten använder.
+ */
+export function toSchedulerConfig(cfg: {
+  maxAttempts: number;
+  cooldownDays: number;
+  retryHoursNoAnswer: number;
+  retryHoursBusy: number;
+  retryHoursVoicemail: number;
+  retryHoursGatekeeper: number;
+  retryDaysNoSalespeople: number;
+  blockedDatesJson: string;
+}): SchedulerConfig {
+  let blockedDates: string[] = [];
+  try {
+    const parsed = JSON.parse(cfg.blockedDatesJson);
+    if (Array.isArray(parsed)) blockedDates = parsed.filter((d) => typeof d === "string");
+  } catch {
+    // Trasig JSON ska inte stoppa ringandet — spärrade datum är en guardrail,
+    // inte en förutsättning.
+  }
+  return {
+    maxAttempts: cfg.maxAttempts,
+    cooldownDays: cfg.cooldownDays,
+    retryHoursNoAnswer: cfg.retryHoursNoAnswer,
+    retryHoursBusy: cfg.retryHoursBusy,
+    retryHoursVoicemail: cfg.retryHoursVoicemail,
+    retryHoursGatekeeper: cfg.retryHoursGatekeeper,
+    retryDaysNoSalespeople: cfg.retryDaysNoSalespeople,
+    blockedDates,
+  };
+}
+
 /** Hur många timmar innan nästa försök, givet vad som hände. */
 function retryHours(result: CallResultLike, cfg: SchedulerConfig): number {
   switch (result) {
@@ -213,6 +251,44 @@ function terminalReason(
   if (result === "INVALID_NUMBER") return "ogiltigt_nummer";
   if (outcome === "SOLD") return "sald";
   return null;
+}
+
+/**
+ * När är leadets egen tur i rotationen, räknat från det SENAST ringda samtalet?
+ *
+ * Svarar på en fråga `computeNext` inte kan svara på: vad gäller när en bokad
+ * återkomst försvinner utan att ett samtal ringts? `computeNext` räknar upp
+ * `attemptCount` och förutsätter att någon precis lagt på luren. Här har
+ * ingenting hänt med bolaget — det enda som ändrats är att löftet inte finns
+ * längre, och då ska leadet falla tillbaka på den vila det redan hade tjänat
+ * ihop.
+ *
+ * `null` betyder "ringbart nu" och är rätt svar för ett lead som aldrig ringts:
+ * det är ett obearbetat lead, inte ett som väntar.
+ *
+ * Att i stället skriva `null` på ett lead SOM ringts är det som gick fel fram
+ * till 2026-08-26: `nextActionAt = NULL` sorterar först i `ORDER BY … ASC`, så
+ * ett bolag som fick ett nej i morse hamnade allra överst i däcket i samma
+ * sekund som någon avbokade dess återkomst — före alla bolag som faktiskt
+ * väntat ut sin vila.
+ */
+export function rotationResumeAt(params: {
+  lastAttemptAt: Date | null;
+  lastResult: CallResultLike | null;
+  slots: Slot[];
+  config: SchedulerConfig;
+}): Date | null {
+  const { lastAttemptAt, lastResult, slots, config } = params;
+  if (!lastAttemptAt) return null;
+
+  // Okänt resultat behandlas som "svarar ej" — den kortaste vilan av dem som
+  // finns, alltså den försiktiga gissningen: hellre ringa lite för tidigt än
+  // att låsa in ett bolag på ett resultat vi inte kan läsa.
+  const wait = new Date(
+    lastAttemptAt.getTime() + retryHours(lastResult ?? "NO_ANSWER", config) * 3600_000
+  );
+  const slot = pickNextSlot(slots, [], wait);
+  return alignToSlot(wait, slot, config.blockedDates);
 }
 
 /**

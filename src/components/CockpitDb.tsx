@@ -10,7 +10,7 @@ import {
   Search, Star, Trophy, Tag,
 } from "lucide-react";
 import { startSession, endSession } from "@/app/actions/sessions";
-import { leaseNextLeads, releaseLeases, renewLeases, leaseSpecificLead, deckStatus, markNoPhoneFound, type OpenWarning, type DeckStatus } from "@/app/actions/dialer";
+import { leaseNextLeads, releaseLeases, renewLeases, leaseSpecificLead, deckStatus, type OpenWarning, type DeckStatus } from "@/app/actions/dialer";
 import type { LeadSearchHit } from "@/app/actions/leads";
 import { heartbeat, goOffline } from "@/app/actions/presence";
 import { saveCockpitNote } from "@/app/actions/activities";
@@ -675,7 +675,15 @@ export function CockpitDb({
       if (pending) {
         clearTimeout(pending.timer);
         pendingDeleteRef.current = null;
-        void markNoPhoneFound(pending.leadId).catch(() => {});
+        queue.enqueue({
+          idempotencyKey: crypto.randomUUID(),
+          kind: "noPhoneFound",
+          leadId: pending.leadId,
+          companyName: pending.companyName,
+        });
+        // Kön töms normalt efter 150 ms. Fliken finns inte om 150 ms — töm nu,
+        // med keepalive, annars dör posten med sidan.
+        void queue.flush(true);
       }
       // Leads vi inte hann med lämnas tillbaka direkt i stället för att ligga
       // låsta tills leasen går ut.
@@ -849,15 +857,36 @@ export function CockpitDb({
   // bara refs. Toasten renderas från state — den ska ritas om.
   const pendingDeleteRef = useRef<(PendingDelete & { timer: ReturnType<typeof setTimeout> }) | null>(null);
 
-  /** Skickar en väntande radering nu. Anropas vid ny radering och när passet tar slut. */
+  /**
+   * Skickar en väntande radering nu. Anropas vid ny radering och när passet
+   * tar slut.
+   *
+   * Går genom skriv-bakom-kön, inte som ett direktanrop. Raderingen är den
+   * enda oåterkalleliga åtgärden i cockpiten och var fram till 2026-08-26 den
+   * enda utan felhantering: `.catch(() => {})` svalde nätverksglapp och
+   * utgångna sessioner, bolaget låg kvar, och säljaren hade redan sett
+   * bekräftelsen försvinna. Kön ger omförsök, keepalive och en synlig remsa.
+   */
+  const sendNoPhoneFound = useCallback(
+    (leadId: string, companyName: string) => {
+      queue.enqueue({
+        idempotencyKey: crypto.randomUUID(),
+        kind: "noPhoneFound",
+        leadId,
+        companyName,
+      });
+    },
+    [queue]
+  );
+
   const flushDelete = useCallback(() => {
     const pending = pendingDeleteRef.current;
     if (!pending) return;
     clearTimeout(pending.timer);
     pendingDeleteRef.current = null;
     setPendingDelete(null);
-    void markNoPhoneFound(pending.leadId).catch(() => {});
-  }, []);
+    sendNoPhoneFound(pending.leadId, pending.companyName);
+  }, [sendNoPhoneFound]);
 
   const scheduleDelete = useCallback((leadId: string, companyName: string, atIndex: number) => {
     // Två raderingar i rad ska inte kunna kvitta ut varandra: den förra går
@@ -867,12 +896,12 @@ export function CockpitDb({
     const timer = setTimeout(() => {
       pendingDeleteRef.current = null;
       setPendingDelete(null);
-      void markNoPhoneFound(leadId).catch(() => {});
+      sendNoPhoneFound(leadId, companyName);
     }, 5000);
 
     pendingDeleteRef.current = { leadId, companyName, atIndex, timer };
     setPendingDelete({ leadId, companyName, atIndex });
-  }, [flushDelete]);
+  }, [flushDelete, sendNoPhoneFound]);
 
   /**
    * Ångra: raderingen ställs in och kön hoppar tillbaka till bolaget.
@@ -1310,7 +1339,7 @@ export function CockpitDb({
           >
             <AlertTriangle size={14} style={{ color: "var(--danger)" }} />
             <span className="text-[12px] font-medium" style={{ color: "var(--danger)" }}>
-              {queue.failed.length} samtal kunde inte sparas ({queue.failed[0].companyName})
+              {queue.failed.length} {queue.failed.length === 1 ? "åtgärd" : "åtgärder"} kunde inte sparas ({queue.failed[0].companyName})
             </span>
             <button onClick={queue.dismissFailed} style={{ color: "var(--danger)" }}><X size={12} /></button>
           </motion.div>

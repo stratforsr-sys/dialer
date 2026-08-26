@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { recordAttempt, type RecordAttemptInput } from "@/app/actions/dialer";
+import { recordAttempt, markNoPhoneFound, type RecordAttemptInput } from "@/app/actions/dialer";
 import type { CallResult, ConversationOutcome, NoReason, FrameworkStep } from "@/generated/prisma/client";
 
 export const runtime = "nodejs";
@@ -24,6 +24,22 @@ export const maxDuration = 30;
 interface QueuedItem {
   idempotencyKey: string;
   leadId: string;
+  /**
+   * Vad posten är. `"noPhoneFound"` är ingen disposition — inget samtal
+   * ringdes — men den delar kö med dispositionerna med flit.
+   *
+   * Fram till 2026-08-26 gick den vägen förbi kön, som ett direktanrop med
+   * `.catch(() => {})` i tre olika lägen. Det gjorde systemets enda
+   * oåterkalleliga åtgärd till dess enda oskyddade: ett nätverksglapp, en
+   * utgången session eller ett serverfel svaldes tyst, bolaget låg kvar, och
+   * säljaren hade redan sett bekräftelsen försvinna från skärmen. Nästa pass
+   * fick samma bolag igen och nästa säljare gjorde om samma uppslagning.
+   *
+   * Här får den samma garantier som allt annat säljaren trycker på: omförsök
+   * vid nätverksfel, `keepalive` när fliken stängs, och en synlig remsa när
+   * det ändå inte gick.
+   */
+  kind?: "disposition" | "noPhoneFound";
   contactId?: string | null;
   listId?: string | null;
   sessionId?: string | null;
@@ -83,6 +99,12 @@ export async function POST(req: Request) {
 
   for (const item of items) {
     try {
+      if (item.kind === "noPhoneFound") {
+        await markNoPhoneFound(item.leadId);
+        results.push({ key: item.idempotencyKey, ok: true });
+        continue;
+      }
+
       const input: RecordAttemptInput = {
         leadId: item.leadId,
         contactId: item.contactId ?? null,
