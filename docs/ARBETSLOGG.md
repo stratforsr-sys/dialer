@@ -66,11 +66,17 @@ som bara gick att få reda på i en webbläsare — sajterna svarar 403 på curl
   Formatet hittades genom att fylla i deras egen sökruta och läsa av URL:en.
   Värt besväret: Eniro visade ett mobilnummer på ett av bolagen i
   `leads_bygg_hantverk` som saknar nummer hos oss.
-- **BraByggare** har varken sökning på bolagsnamn eller org-nummer.
-  Bolagssidorna ligger på interna id:n (`/hantverkare/3343/`) och visar inget
-  telefonnummer — bara beskrivning, omdömen och hemsida. Länken är därför en
-  Google-sökning mot domänen. Den leder rätt när bolaget finns där, men
-  förvänta er hemsidan som mellansteg, inte numret. Förvalt kontaktnamn är
+- **BraByggare går inte att länka till ett enskilt bolag.** Första försöket
+  var en `site:`-sökning mot domänen, och den gav ingenting — undersökt i
+  webbläsaren dagen efter, och skälen är fyra: söket kräver postnummer **plus**
+  kategori och tar inget bolagsnamn; resultatet byter aldrig URL, så inte ens
+  en kategorisökning går att spara som länk; bolagssidorna ligger på interna
+  id:n (`/hantverkare/3343/`) som bara finns i deras databas; och sitemapen har
+  476 URL:er och **noll** bolagssidor, så Google har inget indexerat att
+  träffa. Sidan visar dessutom inget telefonnummer, bara beskrivning, omdömen
+  och hemsida. Länken går nu till söksidan. Vill man ha bolaget måste säljaren
+  söka på postnummer och kategori på plats — värdera den mot de fem andra innan
+  den får ligga kvar. Förvalt kontaktnamn är
 "Växeln": det vanliga fyndet på ett litet bolag är företagsnumret, inte en
 namngiven beslutsfattare, och ett tomt namnfält hade tvingat säljaren att hitta
 på något innan numret gick att spara. Numret läggs på leadet i kön också, inte

@@ -36,7 +36,7 @@ export type NewContact = {
  * | Allabolag | org-nummer | Bolagssidan direkt — ledamotens namn, som ofta är vägen till mobilen |
  * | Hitta.se | namn + ort | Går direkt till bolagssidan när träffen är entydig |
  * | Eniro | namn | Katalogen med flest småbolagsnummer |
- * | BraByggare | namn, via Google | Ingen egen sökning finns — se nedan |
+ * | BraByggare | — | Söksidan; bolaget går inte att länka till — se nedan |
  * | Google | namn | Bolagsrutan och det som ingen katalog har |
  *
  * Registren slås upp på org-numret när det finns: då blir det en träff i
@@ -44,10 +44,14 @@ export type NewContact = {
  * oftast i bolagsrutan eller en katalogträff, och varje extra ord i frågan är
  * ett ord som kan sålla bort just den träffen.
  *
- * BraByggare är undantaget: sajten har varken sökning på bolagsnamn eller
- * org-nummer, bolagssidorna ligger på interna id:n (`/hantverkare/3343/`), och
- * sidan visar sällan ett telefonnummer. Länken är därför en Google-sökning mot
- * domänen. Den bär ändå bolagets hemsida och omdömen, och hemsidan bär numret.
+ * BraByggare är undantaget, och det är värt att veta varför innan någon
+ * försöker "laga" länken igen. Sajten går inte att länka till ett enskilt
+ * bolag: söket kräver postnummer plus kategori och tar inget bolagsnamn,
+ * resultatet byter aldrig URL, och bolagssidorna ligger på interna id:n
+ * (`/hantverkare/3343/`) som bara finns i deras databas. Sitemapen har 476
+ * URL:er och noll bolagssidor — därför gav en `site:`-sökning mot domänen
+ * ingenting alls; det finns inget indexerat att träffa. Länken går därför till
+ * söksidan, och säljaren söker vidare därifrån.
  *
  * Alla öppnas i en egen flik, aldrig i cockpiten: en navigering här hade delat
  * ringsessionen i två. Formaten är provade i webbläsaren — flera av sajterna
@@ -115,13 +119,20 @@ export function AddNumberCard({
       href: `https://www.eniro.se/${eniroQuery}/f%C3%B6retag`,
     },
     {
-      // BraByggare har varken sökning på bolagsnamn eller org-nummer —
-      // bolagssidorna ligger på interna id:n (/hantverkare/3343/). Enda vägen
-      // in utifrån är en Google-sökning mot domänen. Sidan visar sällan ett
-      // nummer heller, men den bär bolagets hemsida och omdömen, och hemsidan
-      // bär numret.
+      // BraByggare går INTE att länka till ett enskilt bolag. Undersökt i
+      // webbläsaren 2026-08-26:
+      //
+      //   • Söket kräver postnummer + kategori och tar inget bolagsnamn.
+      //   • Resultatet byter aldrig URL, så inte ens en kategorisökning går
+      //     att spara som länk.
+      //   • Bolagssidorna ligger på interna id:n (/hantverkare/3343/) som bara
+      //     finns i deras egen databas.
+      //   • Sitemapen har 476 URL:er och noll bolagssidor — därför hittade den
+      //     tidigare `site:`-sökningen ingenting: det finns inget indexerat.
+      //
+      // Kvar blir söksidan. Säljaren landar på BraByggare och får söka därifrån.
       label: "BraByggare",
-      href: `https://www.google.com/search?q=site:brabyggare.se+${encodeURIComponent(companyName)}`,
+      href: "https://www.brabyggare.se/sok-hantverkare/",
     },
     {
       // Bara bolagsnamnet, utan ort och utan ordet "telefon". Numret ligger
