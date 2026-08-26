@@ -238,7 +238,7 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
   const ids = rows.map((r) => r.id);
   if (ids.length === 0) return [];
 
-  return hydrateLeads(ids, user);
+  return hydrateLeads(ids, user, listId);
 }
 
 // ── Inget nummer att hitta ─────────────────────────────────────────────────
@@ -483,8 +483,17 @@ export async function deckStatus(listId: string | null): Promise<DeckStatus> {
  * på helt olika sätt — den ena ur rotationen, den andra på namn — men det
  * cockpiten renderar måste vara identiskt, annars hade ett uppslaget bolag
  * saknat exempelvis historiken och skillnaden bara synts som en tom panel.
+ *
+ * `listId` styr bara manusvalet: mappen kan ha ett eget manus som ersätter det
+ * allmänna för sina steg. Den ska vara samma mapp som cockpiten säger sig köra
+ * i, annars läser säljaren ett manus som hör till en annan lista än rubriken.
+ * `null` — ett bolag utan ringlista säljaren kommer åt — ger de allmänna.
  */
-async function hydrateLeads(ids: string[], user: { name: string }) {
+async function hydrateLeads(
+  ids: string[],
+  user: { name: string },
+  listId: string | null = null
+) {
   const leads = await db.lead.findMany({
     where: { id: { in: ids } },
     select: {
@@ -606,7 +615,11 @@ async function hydrateLeads(ids: string[], user: { name: string }) {
   // Manusen löses ut här, i samma svep. Ett anrop per lead vid uppkoppling
   // skulle lägga en rundtur mellan tangenttryckning och nästa samtal — och
   // hela poängen med förberäkning är att det inte ska finnas någon väntan.
-  const scripts = await getActiveScripts();
+  //
+  // listId följer med: har mappen ett eget manus för ett steg ersätter det det
+  // allmänna. Utan mapp (ett bolag öppnat direkt i dialern) gäller bara de
+  // allmänna — se getActiveScripts.
+  const scripts = await getActiveScripts(listId);
 
   return leads.map((lead) => ({
     ...lead,
@@ -950,20 +963,24 @@ export async function leaseSpecificLead(leadId: string) {
     warnings.push({ tone: "warn", text: `${info.owner.name} jobbar bolaget` });
   }
 
-  const [lead] = await hydrateLeads([leadId], user);
-  if (!lead) {
-    return { ok: false as const, reason: "notFound" as const, message: "Bolaget finns inte längre." };
-  }
-
   // Cockpiten körs i en mapps kontext. Ligger bolaget i flera tas den första
   // säljaren faktiskt kommer åt — en mapp hen saknar behörighet till hade
   // fått påfyllningen att kasta direkt efter första samtalet.
+  //
+  // Måste avgöras FÖRE hydreringen: mappen bestämmer vilket manus som gäller,
+  // och ett bolag som öppnas i en mapp med eget manus ska få det manuset — inte
+  // det allmänna bara för att vägen in var ⌘K i stället för däcket.
   let list: { id: string; name: string } | null = null;
   for (const entry of info.lists) {
     if (await canAccessList(user, entry.list.id)) {
       list = entry.list;
       break;
     }
+  }
+
+  const [lead] = await hydrateLeads([leadId], user, list?.id ?? null);
+  if (!lead) {
+    return { ok: false as const, reason: "notFound" as const, message: "Bolaget finns inte längre." };
   }
 
   return {

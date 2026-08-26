@@ -13,6 +13,64 @@ Nyast först.
 
 ---
 
+## 2026-08-26 — Ett manus kan höra till en enskild ringlista
+
+Fram till nu fanns **ett** manus per ramverkssteg, gemensamt för allt som
+ringdes. Det håller så länge alla mappar innehåller samma sorts bolag, och det
+gör de inte: `leads_bygg_hantverk` och en mapp med redovisningsbyråer öppnas
+inte med samma mening. Utvägen var att skriva om det allmänna manuset inför
+varje kampanj — och eftersom en redigering skapar en ny version river det sönder
+statistiken varje gång: gammalt utfall pekar på en text ingen längre använder.
+
+`ScriptTemplate.listId` (migration `019_manus_per_lista.sql`):
+
+| | |
+|---|---|
+| `NULL` | manuset gäller alla mappar — allt som fanns före migrationen |
+| satt | manuset gäller **bara** den mappen |
+
+### Ersätter, kompletterar inte
+
+`getActiveScripts(listId)` tar mappens manus för de steg mappen skrivit, och det
+allmänna för resten. Två manus för samma steg på skärmen samtidigt är samma sak
+som inget manus — ingen läser två alternativ mitt i ett samtal. Följden är att en
+kampanj bara behöver skriva om det steg som faktiskt skiljer sig, oftast
+öppningen, och slipper kopiera fem steg för att ändra ett.
+
+**Utan mapp gäller bara de allmänna.** Ett bolag som slås upp med ⌘K eller
+`?leadId=` kan ligga i vilken lista som helst; ett kampanjmanus ska inte läcka ut
+på det. `leaseSpecificLead` avgör därför mappen **före** hydreringen — den vet
+redan vilken mapp cockpiten kommer att köra i, och manuset måste vara samma
+mapps, annars läser säljaren ett manus som hör till en annan lista än rubriken
+ovanför.
+
+### Raderad mapp får inte göra kampanjmanuset allmänt
+
+FK:n är `ON DELETE SET NULL`, inte `CASCADE`: en publicerad version ligger på
+CallAttempt-rader och bär statistikens koppling till vad som faktiskt sades — en
+kaskad hade tagit bort just den texten. Men `listId = NULL` **betyder** "gäller
+alla", så nollningen ensam hade släppt ut kampanjmanuset på hela golvet i samma
+sekund som mappen raderades. `deleteList` inaktiverar därför mappens manus
+**före** borttagningen. Texten överlever, räckvidden gör det inte.
+
+### I gränssnittet
+
+- `/admin/scripts` grupperar manusen under "Alla mappar" och en rubrik per mapp.
+  Räckvidden ligger i en väljare **ovanför texten**, inte i en inställningsruta
+  någon annanstans: den är minst lika avgörande som orden och ska synas medan
+  man skriver dem. Att flytta ett manus mellan mappar rör aldrig texten, så ett
+  kampanjmanus kan lyftas till att gälla alla utan att en rad skrivs om.
+- Förhandsgranskningen av ett mappmanus körs mot ett bolag **ur mappen**.
+  Underlaget avgör vilken variant som vinner, så ett lead ur en annan lista
+  visar fel rad — och just den kontrollen är hela poängen med granskningen.
+  Exempelleadet ligger medvetet **inte** i redigerarens `key`: en ommontering
+  när mappens lead hämtats klart hade kastat det som redan skrivits.
+- Mappvyn visar "Eget manus: Intro" när mappen har ett publicerat eget. Utan den
+  raden syns kopplingen bara inne i manusvyn, och en säljare som möter en annan
+  öppning än vanligt läser den som ett fel att rätta till.
+
+---
+
 ## 2026-08-25 (senare) — "Mappen är slut" var sant, förklaringen var det inte
 
 Rapporterat från golvet: `leads_bygg_hantverk` möttes av *"0 samtal denna

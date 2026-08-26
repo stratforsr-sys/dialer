@@ -5,11 +5,12 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft, Play, Search, X, Users, Phone, Lock, Unlock,
-  Building2, CheckCircle2, Clock,
+  Building2, CheckCircle2, Clock, MessageSquare,
 } from "lucide-react";
 import type { ListDetail } from "@/app/actions/lists";
 import { releaseLead } from "@/app/actions/lists";
 import { claimState, CLAIM_TTL_DAYS } from "@/lib/claim";
+import { FRAMEWORK_STEPS } from "@/lib/cockpit-flow";
 import { ShareListModal } from "./ShareListModal";
 
 type UserOption = { id: string; name: string; email: string; role: string };
@@ -113,6 +114,27 @@ export function ListDetailView({
               {counts.mine > 0 && ` · ${counts.mine} dina`}
               {list.sourceFile ? ` · ${list.sourceFile}` : ""}
             </p>
+
+            {/* Eget manus. Säljaren ska veta att öppningen hen möter i
+                cockpiten hör till just den här mappen och inte är husets
+                allmänna — annars läser den som en avvikelse att rätta till.
+                Admin får dessutom vägen till redigeraren härifrån; utan raden
+                är kopplingen mellan mapp och manus bara synlig inne i
+                manusvyn. */}
+            {list.scripts.length > 0 && (
+              <p className="flex items-center gap-1.5 text-[12px] mt-1.5" style={{ color: "var(--text-muted)" }}>
+                <MessageSquare size={12} style={{ color: "var(--accent)" }} />
+                Eget manus:{" "}
+                {list.scripts
+                  .map((s) => FRAMEWORK_STEPS.find((f) => f.value === s.step)?.label ?? s.step)
+                  .join(", ")}
+                {isAdmin && (
+                  <Link href="/admin/scripts" className="underline underline-offset-2" style={{ color: "var(--text-muted)" }}>
+                    ändra
+                  </Link>
+                )}
+              </p>
+            )}
           </div>
 
           <div className="flex items-center gap-2 shrink-0">

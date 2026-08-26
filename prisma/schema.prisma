@@ -278,6 +278,7 @@ model CallList {
   leads        LeadOnList[]
   access       ListAccess[]
   callAttempts CallAttempt[]
+  scripts      ScriptTemplate[]
 
   @@index([archived, createdAt])
   @@index([createdById])
@@ -826,6 +827,21 @@ model ScriptTemplate {
   step   FrameworkStep
   active Boolean       @default(true)
 
+  /// NULL = manuset gäller alla mappar. Satt = manuset gäller BARA den mappen
+  /// och ersätter det allmänna manuset för samma steg när säljaren ringer där.
+  ///
+  /// En mapp med bygg-leads och en med redovisningsbyråer öppnas inte likadant,
+  /// och alternativet — att skriva om det allmänna manuset inför varje kampanj —
+  /// river sönder statistiken varje gång.
+  ///
+  /// SetNull och inte Cascade: en publicerad version kan ligga på hundratals
+  /// CallAttempt-rader, och kaskaden hade tagit bort texten statistiken pekar
+  /// på. `deleteList` inaktiverar mappens manus innan mappen försvinner, så ett
+  /// manus som blir mappfritt här är redan avstängt och kan aldrig råka bli
+  /// allmänt.
+  listId String?
+  list   CallList? @relation(fields: [listId], references: [id], onDelete: SetNull)
+
   createdById String
   createdBy   User   @relation("ScriptAuthor", fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
@@ -833,6 +849,7 @@ model ScriptTemplate {
   versions ScriptVersion[]
 
   @@index([step, active])
+  @@index([listId, step, active])
 }
 
 /// Oföränderlig när den publicerats — en redigering skapar en ny version.

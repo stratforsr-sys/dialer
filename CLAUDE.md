@@ -227,6 +227,14 @@ kolumner hade innehåll i en av dem.
 - Manus per ramverkssteg, i prioritetsordnade varianter (`src/lib/script-resolver.ts`).
   Manustexten visas ordagrant — radbrytningar och blankrader är en del av manuset,
   så alla vyer som renderar den måste ha `whitespace-pre-wrap`
+- **Manus kan knytas till en enskild ringlista** (`ScriptTemplate.listId`, migration
+  019). `NULL` = gäller alla mappar. Ett mappmanus **ersätter** det allmänna för
+  sitt steg när säljaren ringer i mappen; steg mappen inte skrivit faller tillbaka
+  på det allmänna. Utan mapp — ett bolag öppnat med ⌘K eller `?leadId=` — gäller
+  bara de allmänna. Valet sker i `getActiveScripts(listId)`, och `listId` måste
+  vara samma mapp som cockpiten säger sig köra i. Raderas mappen nollas `listId`
+  av FK:n, så `deleteList` inaktiverar mappens manus först — annars hade ett
+  kampanjmanus blivit allmänt i samma sekund
 - Uppföljningsmotorn: `CallAttempt` är append-only och all statistik läses därifrån
 
 ### Cron (vercel.json)

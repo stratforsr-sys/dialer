@@ -18,8 +18,11 @@ import type { FrameworkStep } from "@/generated/prisma/client";
 export async function getScripts() {
   await requireAdmin();
   return db.scriptTemplate.findMany({
-    orderBy: [{ step: "asc" }, { createdAt: "asc" }],
+    // Allmänna manus först (listId NULL sorterar först), sedan mappmanusen —
+    // samma ordning som adminvyn grupperar dem i.
+    orderBy: [{ listId: "asc" }, { step: "asc" }, { createdAt: "asc" }],
     include: {
+      list: { select: { id: true, name: true } },
       versions: {
         orderBy: { version: "desc" },
         include: { variants: { orderBy: { priority: "asc" } } },
@@ -31,11 +34,25 @@ export async function getScripts() {
 /**
  * De publicerade manusen, ett per steg. Det här är vad cockpit läser.
  * Opublicerade utkast syns aldrig för säljarna.
+ *
+ * `listId` är mappen säljaren ringer i. Har mappen ett eget manus för ett steg
+ * **ersätter** det det allmänna för just det steget — det kompletterar det
+ * inte. Två manus för samma steg på skärmen samtidigt är samma sak som inget
+ * manus, för ingen läser två alternativ mitt i ett samtal. Steg där mappen
+ * inte skrivit något faller tillbaka på det allmänna, så en kampanj bara
+ * behöver skriva om det som faktiskt skiljer sig — oftast öppningen.
+ *
+ * Utan listId (ett bolag öppnat direkt i dialern, utan ringlista) gäller bara
+ * de allmänna manusen: ett mappmanus är skrivet för mappens bolag och ska inte
+ * läcka ut på ett godtyckligt lead.
  */
-export async function getActiveScripts() {
+export async function getActiveScripts(listId?: string | null) {
   await requireAuth();
   const templates = await db.scriptTemplate.findMany({
-    where: { active: true },
+    where: {
+      active: true,
+      ...(listId ? { OR: [{ listId: null }, { listId }] } : { listId: null }),
+    },
     include: {
       versions: {
         where: { publishedAt: { not: null } },
@@ -46,12 +63,21 @@ export async function getActiveScripts() {
     },
   });
 
-  return templates
-    .filter((t) => t.versions.length > 0)
+  const publishable = templates.filter((t) => t.versions.length > 0);
+
+  // Steg där mappen skrivit ett eget manus. Bara de stegen tappar sitt
+  // allmänna manus — resten är oförändrade.
+  const overridden = new Set(
+    publishable.filter((t) => t.listId !== null).map((t) => t.step)
+  );
+
+  return publishable
+    .filter((t) => t.listId !== null || !overridden.has(t.step))
     .map((t) => ({
       templateId: t.id,
       step: t.step,
       name: t.name,
+      listId: t.listId,
       versionId: t.versions[0].id,
       version: t.versions[0].version,
       variants: t.versions[0].variants,
@@ -62,7 +88,7 @@ export async function getActiveScripts() {
  * Renderar manusen för ett lead. Körs på servern eftersom rådata i claims
  * aldrig ska lämna den — säljaren får den färdiga meningen, inte underlaget.
  */
-export async function getScriptsForLead(leadId: string) {
+export async function getScriptsForLead(leadId: string, listId?: string | null) {
   const user = await requireAuth();
 
   const [lead, scripts] = await Promise.all([
@@ -89,7 +115,7 @@ export async function getScriptsForLead(leadId: string) {
         },
       },
     }),
-    getActiveScripts(),
+    getActiveScripts(listId),
   ]);
 
   if (!lead) return [];
@@ -118,13 +144,23 @@ export async function getScriptsForLead(leadId: string) {
 
 // ── Skrivning (endast admin) ───────────────────────────────────────────────
 
-export async function createScriptTemplate(name: string, step: FrameworkStep) {
+export async function createScriptTemplate(
+  name: string,
+  step: FrameworkStep,
+  listId?: string | null
+) {
   const user = await requireAdmin();
+
+  if (listId) {
+    const list = await db.callList.findUnique({ where: { id: listId }, select: { id: true } });
+    if (!list) throw new Error("Mappen finns inte");
+  }
 
   const template = await db.scriptTemplate.create({
     data: {
       name,
       step,
+      listId: listId ?? null,
       createdById: user.id,
       versions: {
         create: {
@@ -261,6 +297,77 @@ export async function setTemplateActive(templateId: string, active: boolean) {
   await requireAdmin();
   await db.scriptTemplate.update({ where: { id: templateId }, data: { active } });
   revalidatePath("/admin/scripts");
+}
+
+/**
+ * Flyttar manuset mellan "alla mappar" och en enskild mapp.
+ *
+ * Ändrar bara vem som får texten, aldrig texten själv — publicerade versioner
+ * är oföränderliga och statistiken pekar på dem. Ett manus som skrivits för en
+ * kampanj kan alltså lyftas till att gälla alla utan att någon rad skrivs om.
+ */
+export async function setTemplateList(templateId: string, listId: string | null) {
+  await requireAdmin();
+
+  if (listId) {
+    const list = await db.callList.findUnique({ where: { id: listId }, select: { id: true } });
+    if (!list) throw new Error("Mappen finns inte");
+  }
+
+  await db.scriptTemplate.update({
+    where: { id: templateId },
+    data: { listId },
+  });
+  revalidatePath("/admin/scripts");
+  return { ok: true as const };
+}
+
+/**
+ * Mapparna manus kan knytas till, med antal manus per mapp.
+ *
+ * Arkiverade tas med: ett manus kan mycket väl höra till en mapp som lagts
+ * undan, och då ska den ändå gå att se i väljaren i stället för att raden
+ * visar ett tomt namn.
+ */
+export async function getListsForScripts() {
+  await requireAdmin();
+  const lists = await db.callList.findMany({
+    select: {
+      id: true,
+      name: true,
+      archived: true,
+      _count: { select: { scripts: true, leads: true } },
+    },
+    orderBy: [{ archived: "asc" }, { name: "asc" }],
+  });
+  return lists.map((l) => ({
+    id: l.id,
+    name: l.name,
+    archived: l.archived,
+    scriptCount: l._count.scripts,
+    leadCount: l._count.leads,
+  }));
+}
+
+/**
+ * Ett lead ur mappen att förhandsgranska mot.
+ *
+ * Ett mappmanus skrivs för mappens bolag, och att granska det mot ett
+ * godtyckligt lead ur en annan mapp visar fel varianter — det är underlaget som
+ * avgör vilken variant som vinner. Helst ett lead med dossier, annars vilket
+ * som helst i mappen.
+ */
+export async function getSampleLeadForList(listId: string) {
+  await requireAdmin();
+  const withDossier = await db.lead.findFirst({
+    where: { lists: { some: { listId } }, dossier: { isNot: null } },
+    select: { id: true, companyName: true },
+  });
+  if (withDossier) return withDossier;
+  return db.lead.findFirst({
+    where: { lists: { some: { listId } } },
+    select: { id: true, companyName: true },
+  });
 }
 
 export async function deleteTemplate(templateId: string) {

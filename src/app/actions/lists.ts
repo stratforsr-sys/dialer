@@ -96,6 +96,13 @@ export async function getList(listId: string) {
       include: {
         createdBy: { select: { id: true, name: true } },
         access: { include: { user: { select: { id: true, name: true, email: true } } } },
+        // Mappens egna manus. Bara de aktiva och publicerade räknas — ett
+        // utkast syns aldrig för säljaren, och en rad som påstår att mappen
+        // har ett eget manus när ingen får se det är värre än ingen rad.
+        scripts: {
+          where: { active: true, versions: { some: { publishedAt: { not: null } } } },
+          select: { id: true, step: true, name: true },
+        },
       },
     }),
     db.leadOnList.findMany({
@@ -130,6 +137,7 @@ export async function getList(listId: string) {
     createdAt: list.createdAt,
     createdBy: list.createdBy,
     members: list.access.map((a) => a.user),
+    scripts: list.scripts,
     leads: rows.map((r) => r.lead),
   };
 }
@@ -246,6 +254,17 @@ export async function deleteList(listId: string): Promise<DeleteListResult> {
   }
 
   const toDelete = createdHere.filter((id) => !shared.has(id));
+
+  // Mappens egna manus inaktiveras FÖRE borttagningen. Texten får inte
+  // kaskadera bort — publicerade versioner ligger på CallAttempt-rader och bär
+  // statistikens koppling till vad som faktiskt sades. Men de får inte heller
+  // bli kvar aktiva: FK:n nollar `listId` när mappen försvinner, och ett aktivt
+  // manus utan mapp gäller alla mappar. Ett kampanjmanus hade alltså plötsligt
+  // mött hela golvet i det ögonblick kampanjmappen raderades.
+  await db.scriptTemplate.updateMany({
+    where: { listId },
+    data: { active: false },
+  });
 
   await db.callList.delete({ where: { id: listId } });
   for (const batch of chunk(toDelete)) {
