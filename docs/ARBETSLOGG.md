@@ -47,16 +47,30 @@ ORDER BY-gren som lägger dem **sist**: ett pass ska börja med samtal, och
 uppslagningarna blir det man gör när det ringbara är slut i stället för ett
 avbrott mitt i rytmen.
 
-Cockpiten har fått `AddNumberCard` för de bolagen — Merinfo, Allabolag och
-Google, alla i egen flik (en navigering hade delat ringsessionen i två), och ett
-fält som sparar numret på leadet direkt. De två registren slås upp på
+Cockpiten har fått `AddNumberCard` för de bolagen — sex uppslagningar, alla i
+egen flik (en navigering hade delat ringsessionen i två), och ett fält som
+sparar numret på leadet direkt. De två registren slås upp på
 **org-numret utan bindestreck** när det finns: `merinfo.se/search?who=5594490830`
 ger en träff i stället för en lista, och `allabolag.se/5594490830` går rakt in på
 bolagssidan. Utan org-nummer faller de tillbaka på namnet. Google söker på
 enbart bolagsnamnet — numret ligger oftast i bolagsrutan eller en katalogträff,
-och varje extra ord i frågan kan sålla bort just den träffen. Formaten är
-provade i webbläsaren; båda sajterna svarar 403 på curl, så de går inte att
-kontrollera från terminalen. Förvalt kontaktnamn är
+och varje extra ord i frågan kan sålla bort just den träffen.
+
+**Hitta.se, Eniro och BraByggare tillkom 2026-08-26** på beställning. Tre saker
+som bara gick att få reda på i en webbläsare — sajterna svarar 403 på curl:
+
+- **Hitta.se** tar `?vad=` och hoppar direkt till bolagssidan när träffen är
+  entydig. Orten skickas med, den är det som gör den entydig.
+- **Eniro** har sökordet i sökvägen, inte som parameter:
+  `/boochbygg+p%C3%A5+svedjeudden+ab/företag`. `?q=` och `/namn` ger båda 404.
+  Formatet hittades genom att fylla i deras egen sökruta och läsa av URL:en.
+  Värt besväret: Eniro visade ett mobilnummer på ett av bolagen i
+  `leads_bygg_hantverk` som saknar nummer hos oss.
+- **BraByggare** har varken sökning på bolagsnamn eller org-nummer.
+  Bolagssidorna ligger på interna id:n (`/hantverkare/3343/`) och visar inget
+  telefonnummer — bara beskrivning, omdömen och hemsida. Länken är därför en
+  Google-sökning mot domänen. Den leder rätt när bolaget finns där, men
+  förvänta er hemsidan som mellansteg, inte numret. Förvalt kontaktnamn är
 "Växeln": det vanliga fyndet på ett litet bolag är företagsnumret, inte en
 namngiven beslutsfattare, och ett tomt namnfält hade tvingat säljaren att hitta
 på något innan numret gick att spara. Numret läggs på leadet i kön också, inte

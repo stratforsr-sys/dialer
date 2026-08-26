@@ -28,12 +28,30 @@ export type NewContact = {
  *
  * Rutan gör exakt två saker: slår upp numret och sparar det.
  *
- * Uppslagningen går till Merinfo, Allabolag och Google. De två första slås upp
- * på org-numret när det finns — då blir det en träff i stället för en lista —
- * och Google söker på enbart bolagsnamnet, eftersom numret oftast ligger i
- * bolagsrutan eller en katalogträff och varje extra ord i frågan är ett ord som
- * kan sålla bort just den träffen. Alla tre öppnas i en egen flik, aldrig i
- * cockpiten: en navigering här hade delat ringsessionen i två.
+ * Uppslagningen går till sex ställen, i den ordning de brukar ge svar:
+ *
+ * | Var | Nyckel | Vad det ger |
+ * |---|---|---|
+ * | Merinfo | org-nummer | En träff, med nummer när det finns registrerat |
+ * | Allabolag | org-nummer | Bolagssidan direkt — ledamotens namn, som ofta är vägen till mobilen |
+ * | Hitta.se | namn + ort | Går direkt till bolagssidan när träffen är entydig |
+ * | Eniro | namn | Katalogen med flest småbolagsnummer |
+ * | BraByggare | namn, via Google | Ingen egen sökning finns — se nedan |
+ * | Google | namn | Bolagsrutan och det som ingen katalog har |
+ *
+ * Registren slås upp på org-numret när det finns: då blir det en träff i
+ * stället för en lista. Google söker på enbart bolagsnamnet — numret ligger
+ * oftast i bolagsrutan eller en katalogträff, och varje extra ord i frågan är
+ * ett ord som kan sålla bort just den träffen.
+ *
+ * BraByggare är undantaget: sajten har varken sökning på bolagsnamn eller
+ * org-nummer, bolagssidorna ligger på interna id:n (`/hantverkare/3343/`), och
+ * sidan visar sällan ett telefonnummer. Länken är därför en Google-sökning mot
+ * domänen. Den bär ändå bolagets hemsida och omdömen, och hemsidan bär numret.
+ *
+ * Alla öppnas i en egen flik, aldrig i cockpiten: en navigering här hade delat
+ * ringsessionen i två. Formaten är provade i webbläsaren — flera av sajterna
+ * svarar 403 på curl, och Eniro ger 404 på allt utom sitt eget sökvägsformat.
  *
  * Sparandet skapar en kontakt med `createContact`, som normaliserar numret till
  * E164; utan det syns numret i kortet men går inte att ringa.
@@ -67,6 +85,11 @@ export function AddNumberCard({
   const digits = orgNumber?.replace(/\D/g, "") || null;
   const nameQuery = encodeURIComponent([companyName, city].filter(Boolean).join(" "));
 
+  // Eniro tar sökordet som en del av sökvägen med plus mellan orden, inte som
+  // en query-parameter: /boochbygg+p%C3%A5+svedjeudden+ab/företag. Andra
+  // format ger 404 — bekräftat i webbläsaren, sajten svarar inte på curl.
+  const eniroQuery = encodeURIComponent(companyName.toLowerCase()).replace(/%20/g, "+");
+
   const lookups = [
     {
       label: "Merinfo",
@@ -80,6 +103,25 @@ export function AddNumberCard({
       href: digits
         ? `https://www.allabolag.se/${digits}`
         : `https://www.allabolag.se/what/${encodeURIComponent(companyName)}`,
+    },
+    {
+      // Orten med: Hitta.se går direkt till bolagssidan när träffen är entydig,
+      // och orten är det som gör den entydig på vanliga bolagsnamn.
+      label: "Hitta.se",
+      href: `https://www.hitta.se/sok?vad=${nameQuery}`,
+    },
+    {
+      label: "Eniro",
+      href: `https://www.eniro.se/${eniroQuery}/f%C3%B6retag`,
+    },
+    {
+      // BraByggare har varken sökning på bolagsnamn eller org-nummer —
+      // bolagssidorna ligger på interna id:n (/hantverkare/3343/). Enda vägen
+      // in utifrån är en Google-sökning mot domänen. Sidan visar sällan ett
+      // nummer heller, men den bär bolagets hemsida och omdömen, och hemsidan
+      // bär numret.
+      label: "BraByggare",
+      href: `https://www.google.com/search?q=site:brabyggare.se+${encodeURIComponent(companyName)}`,
     },
     {
       // Bara bolagsnamnet, utan ort och utan ordet "telefon". Numret ligger
