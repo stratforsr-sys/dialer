@@ -69,6 +69,18 @@ bolaget — men klienten läste inte fältet. Den yankar nu bara förluster **me
 innehavare. `holder` föll också tillbaka på `null` om namnuppslagningen missade,
 vilket hade dolt en riktig krock; fallbacken är nu `"En kollega"`.
 
+### Läkning av datan
+
+`021_lakning_passerade_arbetslas.sql` släppte **61 lås**, 58 på bolag som aldrig
+ringts. Alla 61 låg i `hantverkare_5000_alla` — samma mapp golvet rapporterade
+från. Efteråt: 0 kvar, 4 352 ringbara bolag i mappen.
+
+Urvalet är låsets **färskhet**, inte dess skäl: kolumnen bär ingen anledning, så
+ett passerat bolag går inte att skilja från ett obearbetat i själva raden. Men
+cockpiten förnyar kön framför markören var femte minut på en lease som lever i
+femton, så ett lås som fortfarande används har alltid mer än tio minuter kvar.
+Under det förnyas det av ingen. Gränsen sattes vid nio minuter.
+
 Mätt strax innan ändringen, 13:33 UTC med fem säljare online: 158 aktiva
 arbetslås. Hur många som var passerade bolag går inte att läsa ut i efterhand —
 låset bär inget skäl — och det är hela anledningen till att felet levde så
