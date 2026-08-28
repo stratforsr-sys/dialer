@@ -7,9 +7,9 @@ import { canAccessList, claimCutoff, isAdminUser } from "@/lib/lists";
 import { computeNext, slotAt, toSchedulerConfig, type Slot } from "@/lib/scheduler";
 import { resolveScript, firstNameOf, type ResolverVariant } from "@/lib/script-resolver";
 import { getActiveScripts } from "@/app/actions/scripts";
-import { RESULT_LABELS, OUTCOME_OPTIONS } from "@/lib/cockpit-flow";
+import { RESULT_LABELS, OUTCOME_OPTIONS, REASON_OPTIONS } from "@/lib/cockpit-flow";
 import { findPendingCall, linkAttemptToCall } from "@/lib/telephony/link";
-import { hourOfDay, weekdayOf, formatTime, formatWhen } from "@/lib/time";
+import { hourOfDay, weekdayOf, formatTime, formatDate, formatWhen } from "@/lib/time";
 import type {
   CallResult,
   ConversationOutcome,
@@ -858,6 +858,10 @@ export async function leaseSpecificLead(leadId: string) {
       ownerId: true,
       leasedById: true,
       leasedUntil: true,
+      lastOutcome: true,
+      lastNoReason: true,
+      lastAttemptAt: true,
+      nextActionAt: true,
       owner: { select: { name: true } },
       lists: { select: { list: { select: { id: true, name: true } } } },
       callbacks: {
@@ -955,6 +959,31 @@ export async function leaseSpecificLead(leadId: string) {
   }
   if (info.claimedAt && info.claimedAt > claimCutoff(now) && info.ownerId !== user.id) {
     warnings.push({ tone: "warn", text: `${info.owner.name} jobbar bolaget` });
+  }
+  // Bolaget har tackat nej och vilar fortfarande.
+  //
+  // Rotationen delar aldrig ut ett sådant bolag — men den här funktionen
+  // struntar med flit i däckets filter, så ⌘K, sökträffen på Ringlistor och
+  // knappen på `/leads/[id]` går rakt förbi 60-dagarsvilan. Utan raden nedan
+  // är det den enda kvarvarande vägen till samtalet golvet klagade på: kunden
+  // som sa nej och blev uppringd igen. Den ska vara öppen — ibland finns ett
+  // skäl — men den ska aldrig vara omärkt.
+  //
+  // `danger`, inte `warn`: ett nej är ett besked från kunden, inte ett
+  // administrativt tillstånd som "taket är nått".
+  if (
+    info.lastOutcome === "DM_NO" &&
+    info.nextActionAt &&
+    info.nextActionAt > now &&
+    info.lastAttemptAt
+  ) {
+    const reason = info.lastNoReason
+      ? REASON_OPTIONS.find((r) => r.value === info.lastNoReason)?.label ?? null
+      : null;
+    warnings.push({
+      tone: "danger",
+      text: `Sa nej ${formatWhen(info.lastAttemptAt, now)}${reason ? ` — ${reason}` : ""}. Vilar till ${formatDate(info.nextActionAt)}`,
+    });
   }
 
   // Cockpiten körs i en mapps kontext. Ligger bolaget i flera tas den första
@@ -1126,6 +1155,11 @@ export async function recordAttempt(input: RecordAttemptInput) {
         retiredReason: decision.retiredReason,
         lastAttemptAt: now,
         lastResult: input.result,
+        // Utfallet speglas hit av samma skäl som resultatet: nej-vilan måste
+        // gå att räkna om utan att gå till CallAttempt-historiken, och
+        // cockpiten måste kunna varna för ett tidigare nej utan en join.
+        lastOutcome: input.outcome ?? null,
+        lastNoReason: input.noReason ?? null,
         // `ownerId` är "senast bearbetad av" och sätts alltid. Den ger
         // säljaren leadet i sina egna vyer men låser ingen ute — låset är
         // `claimedAt`.

@@ -13,6 +13,148 @@ Nyast först.
 
 ---
 
+## 2026-08-28 (senare) — Ett nej vilade 20 timmar, inte 60 dagar
+
+Rapporterat från golvet, och inte för första gången: *"ALLA säljare har fått
+upp minst 8 kunder som någon annan har tryckt utfall att kunden har sagt nej,
+men ändå får dem andra säljarna upp den igen och när vi ringer kunden blir
+kunden skit sur och lägger på."*
+
+Det stämde, och det var värre än åtta. **Rapporten underskattade felet med två
+tiopotenser.**
+
+### Felet
+
+`computeNext` hade en gren för exakt **ett** nej: `VILL_EJ_PRATA_SALJARE`, med
+30 dagars vila. De andra sju anledningarna — inget behov, har byrå, har
+inhouse, nöjd med annan, pris, timing, nej innan pitch — hade ingen gren alls.
+De föll igenom till normalfallet i steg 6, där vilan räknas ur `result`.
+
+Resultatet på ett nej är `CONNECTED_DM`. Den saknar egen gren i `retryHours()`
+och landar i `default:` — `retryHoursNoAnswer`, satt till **20 timmar** i
+produktionen.
+
+**Ett nej vilade alltså exakt lika länge som ett samtal där ingen svarade.**
+Kunden tackade nej på tisdagen och låg tillbaka i hela golvets däck på
+onsdagen. Inget claim-lås (`claimsLead` returnerar med rätta `false` för ett
+nej — ett nej är ingen relation), ingen markering i däcket, ingenting som
+skilde bolaget från ett obearbetat lead. Nästa säljare ringde.
+
+Det lömska är att grenen som fungerade dolde att de andra saknades: koden såg
+ut att hantera nej, och gjorde det — för en åttondel av dem.
+
+### Mätt i produktionsdatan
+
+| | |
+|---|---|
+| Registrerade nej totalt | 1 077 |
+| Bolag vars senaste samtal var ett nej, **ringbara i samma sekund** | **636** |
+| Ytterligare vilande och på väg tillbaka | 271 |
+| Samtal ringda av en **annan** säljare efter ett nej | 66 |
+| — varav inom ett dygn | **51** |
+| Kortaste uppmätta vila efter ett nej | 20,0 h |
+| Uppmätt vila för "vill ej prata säljare" | 740 h |
+
+De 20,0 timmarna är inte ungefär `retryHoursNoAnswer` — de **är**
+`retryHoursNoAnswer`, på decimalen. Fördelningen av de 636 visar var hålet
+satt: INGET_BEHOV 545, TIMING 27, HAR_BYRA 23, NOJD_MED_ANNAN 20,
+NEJ_INNAN_PITCH 10, HAR_INHOUSE 9, PRIS 1 — och **noll**
+VILL_EJ_PRATA_SALJARE, eftersom det var det enda som redan vilade.
+
+Per säljare, räknat på hur många av de ringbara nej-bolagen som fått sitt nej
+av **någon annan**: Harris 635, Simon 635, Zen 632, Mick 631, Edvin 622,
+Fredrik 517, Josef 494, Vlado 325. Golvet rapporterade åtta.
+
+### Inte samma bugg som den 13 augusti
+
+Krockarna 12–14 augusti (0,0 timmar mellan nejet och nästa samtal) var
+kapplöpningen som migration 017 och arbetslåset täppte, och de slutade den
+14:e. Det här är en annan bugg med samma symptom: den 27 augusti ringdes fyra
+sådana samtal, den 28:e sju, och det snabbaste låg 23,2 timmar efter nejet —
+alltså strax efter att 20-timmarsvilan löpt ut. Regeln fungerade precis som
+den var skriven. Den var skriven fel.
+
+### Lösningen
+
+`retryDaysNo` i `DialerConfig`, **60 dagar**, med ett nytt steg 4 i
+`computeNext` som gäller varje `DM_NO`.
+
+- **Utfallet bestämmer, inte anledningen.** Vilan hänger på `DM_NO`, inte på
+  `noReason`. Anledningen är statistik — den säger varför vi förlorade, inte
+  hur snart kunden vill höra av oss igen, och svaret på den frågan är detsamma
+  för alla åtta. En gren per anledning hade blivit åtta tal att hålla reda på
+  och åtta sätt för samma bugg att komma tillbaka.
+- **Före taket.** Steg 5 ger 30 dagars vila vid taket. Låg nej-grenen efter
+  hade ett nej på åttonde försöket fått den *kortare* vilan, alltså ett hål
+  precis där bolaget ringts som mest.
+- **`VILL_EJ_PRATA_SALJARE` kan bara förlänga.** `noRestDays` tar
+  `MAX(retryDaysNo, retryDaysNoSalespeople)`. Den knappen betyder en hårdare
+  hållning än ett vanligt nej och kan omöjligt förtjäna ett snabbare
+  återbesök — men den gamla siffran (30) är nu lägre än golvet, så utan
+  `MAX` hade den blivit en genväg tillbaka.
+- **`attemptCount` nollställs inte.** Ett nej är ett försök som räknas, och två
+  nej i rad ska föra bolaget mot taket i stället för tillbaka till ruta ett.
+  (Den gamla `VILL_EJ`-grenen nollställde. Den gör inte det längre.)
+- **Golvet i inställningarna är 7 dagar**, inte 1. Den enda siffra som orsakat
+  ett problem i produktionen är en för låg, och ett oavsiktligt "1" i fältet
+  hade återskapat exakt den här buggen via admin-sidan.
+
+### Hålet i avbokningsvägen, igen
+
+`rotationResumeAt` räknade vilan ur `lastResult` ensam. Ett bolag som sagt nej
+och **sedan** fått en återkomst inbokad föll därför tillbaka på 20 timmar när
+återkomsten avbokades. Samma väg som den 26 augusti lyfte 74 bolag tillbaka i
+förtid fick alltså inte bli hålet i nej-regeln också. Den tar nu `lastOutcome`
+och `lastNoReason`.
+
+Det krävde två nya kolumner: `Lead.lastOutcome` och `Lead.lastNoReason`,
+speglade dit `lastResult` redan speglade resultatet. Utan dem kan varken
+avbokningsvägen räkna om vilan eller däcket varna för ett nej utan att gå till
+CallAttempt-historiken.
+
+### Säkerhetsnätet — vägarna runt rotationen
+
+Rotationen delar inte längre ut ett nej-bolag. Men `leaseSpecificLead`
+**struntar med flit i däckets filter**, så ⌘K, sökträffen på Ringlistor och
+knappen på `/leads/[id]` går rakt förbi 60-dagarsvilan. Den vägen ska vara
+öppen — ibland finns ett skäl — men den får aldrig vara omärkt, annars är den
+den enda kvarvarande vägen till samtalet golvet klagade på.
+
+Ny varning över bolagsrubriken: *"Sa nej i tisdags — Inget behov. Vilar till
+27 okt"*, i `danger` och inte `warn`: ett nej är ett besked från kunden, inte
+ett administrativt tillstånd som "taket är nått".
+
+Mappvyn säger samma sak. `deckState` skiljer nu `resting` med `saidNo` från en
+vanlig rotationspaus, och raden står **"Sa nej"** i stället för "Vilar". Samma
+tillstånd i däcket, men inte samma sak för en människa som funderar på att
+öppna bolaget ändå.
+
+### Läkning av datan
+
+`022_nej_vilar_60_dagar.sql` backfillade de två kolumnerna ur senaste
+CallAttempt-raden och räknade om `nextActionAt` för varje bolag vars senaste
+samtal var ett nej.
+
+**634 ringbara nej-bolag före, 0 efter.** 907 ligger nu på oktober.
+
+Vilan räknas från **samtalet**, inte från migrationen: ett nej från den 13:e
+är ringbart den 12 oktober, inte 60 dagar från idag — bolaget ska inte straffas
+för att buggen fanns. `MAX`-villkoret gör att ett bolag som redan låg längre
+bort aldrig dras närmare. Spärrade bolag, kunder och de **4** med öppen
+återkomst rördes inte: ett lovat samtal rankar över vilan, och att skriva en
+framtida tid på ett spärrat bolag hade sett ut som ett löfte om att det kommer
+tillbaka.
+
+**Fotnot om datumformatet, som kostade tid:** `turso db shell` *visar*
+`nextActionAt` som `2026-08-10 09:15:00`. Det är shellens formatering. Det som
+faktiskt ligger i kolumnen är `2026-08-10T09:15:00.000+00:00` — 29 tecken, `T`
+som separator, `+00:00` och **inte** `Z`. Jämförelserna är textbaserade, så en
+migration som skriver ett annat format sorterar fel mot resten av tabellen.
+Kontrollera med `substr`/`length`, aldrig med ögat. Verifierat efteråt: alla
+rader bär fortfarande ett och samma format.
+
+---
+
 ## 2026-08-28 — "Nästa" band upp bolaget i en kvart
 
 Rapporterat från golvet: *"när jag trycker på nästa i cockpit så blir det som

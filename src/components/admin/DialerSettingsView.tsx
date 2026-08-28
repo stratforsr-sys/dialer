@@ -14,6 +14,7 @@ type Config = {
   retryHoursVoicemail: number;
   retryHoursGatekeeper: number;
   retryDaysNoSalespeople: number;
+  retryDaysNo: number;
   targetCallsPerHour: number;
   idleAlertMinutes: number;
   blockedDatesJson: string;
@@ -163,11 +164,18 @@ export function DialerSettingsView({
           <NumberField label="Upptaget (h)" value={cfg.retryHoursBusy} onChange={(v) => setCfg({ ...cfg, retryHoursBusy: v })} />
           <NumberField label="Röstbrevlåda (h)" value={cfg.retryHoursVoicemail} onChange={(v) => setCfg({ ...cfg, retryHoursVoicemail: v })} />
           <NumberField label="Växelstopp (h)" value={cfg.retryHoursGatekeeper} onChange={(v) => setCfg({ ...cfg, retryHoursGatekeeper: v })} />
+          <NumberField label="Sa nej (dagar)" value={cfg.retryDaysNo} onChange={(v) => setCfg({ ...cfg, retryDaysNo: v })} />
           <NumberField label="Ej säljsamtal (dagar)" value={cfg.retryDaysNoSalespeople} onChange={(v) => setCfg({ ...cfg, retryDaysNoSalespeople: v })} />
         </div>
         <p className="text-[11px] mt-2" style={{ color: "var(--text-dim)" }}>
           Udda tal är avsiktliga: 20 timmar i stället för 24 gör att nästa försök hamnar i ett annat
           tidsfönster i stället för på exakt samma klockslag nästa dag.
+        </p>
+        <p className="text-[11px] mt-2" style={{ color: "var(--text-dim)" }}>
+          <strong>Sa nej</strong> är i dagar och gäller alla åtta nej-anledningar — det är utfallet
+          som bestämmer vilan, inte anledningen. Den vinner över både väntetiderna ovan och vilan
+          vid taket, så ett nej kan aldrig komma tillbaka tidigare än så här. Lägsta tillåtna är 7
+          dagar. <em>Ej säljsamtal</em> kan bara förlänga vilan, aldrig korta den.
         </p>
       </Section>
 

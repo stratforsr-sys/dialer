@@ -57,6 +57,14 @@ export interface SchedulerConfig {
   retryHoursGatekeeper: number;
   /** Vila i dagar efter "vill inte prata med säljare". */
   retryDaysNoSalespeople: number;
+  /**
+   * Vila i dagar efter ett nej (`DM_NO`), oavsett anledning.
+   *
+   * Fram till 2026-08-28 fanns den inte, och det är hela buggen: ett nej föll
+   * igenom till `retryHoursNoAnswer` och behandlades alltså exakt som ett
+   * obesvarat samtal. Se `computeNext` steg 4.
+   */
+  retryDaysNo: number;
   blockedDates: string[]; // "YYYY-MM-DD"
 }
 
@@ -201,6 +209,7 @@ export function toSchedulerConfig(cfg: {
   retryHoursVoicemail: number;
   retryHoursGatekeeper: number;
   retryDaysNoSalespeople: number;
+  retryDaysNo: number;
   blockedDatesJson: string;
 }): SchedulerConfig {
   let blockedDates: string[] = [];
@@ -219,8 +228,25 @@ export function toSchedulerConfig(cfg: {
     retryHoursVoicemail: cfg.retryHoursVoicemail,
     retryHoursGatekeeper: cfg.retryHoursGatekeeper,
     retryDaysNoSalespeople: cfg.retryDaysNoSalespeople,
+    retryDaysNo: cfg.retryDaysNo,
     blockedDates,
   };
+}
+
+/**
+ * Vila i dagar efter ett nej.
+ *
+ * `retryDaysNo` är golvet och gäller varje nej oavsett anledning — det är
+ * utfallet "Sa nej" som bestämmer, inte den andra frågan säljaren svarar på
+ * efteråt. "Vill inte prata med säljare" får förlänga vilan men aldrig korta
+ * den: den knappen betyder en hårdare hållning än ett vanligt nej, så den kan
+ * omöjligt förtjäna ett snabbare återbesök.
+ */
+function noRestDays(noReason: NoReasonLike, cfg: SchedulerConfig): number {
+  if (noReason === "VILL_EJ_PRATA_SALJARE") {
+    return Math.max(cfg.retryDaysNo, cfg.retryDaysNoSalespeople);
+  }
+  return cfg.retryDaysNo;
 }
 
 /** Hur många timmar innan nästa försök, givet vad som hände. */
@@ -275,18 +301,41 @@ function terminalReason(
 export function rotationResumeAt(params: {
   lastAttemptAt: Date | null;
   lastResult: CallResultLike | null;
+  /**
+   * Utfallet på samma samtal. Utan det gick nej-vilan förlorad här: ett bolag
+   * som sagt nej och SEDAN fått en återkomst inbokad föll tillbaka på
+   * `retryHoursNoAnswer` när återkomsten avbokades, alltså 20 timmar i stället
+   * för 60 dagar. Avbokningen är just den väg som redan en gång lyfte bolag
+   * tillbaka in i däcket i förtid (2026-08-26), och den fick inte bli det
+   * hålet i nej-regeln också.
+   */
+  lastOutcome?: OutcomeLike;
+  lastNoReason?: NoReasonLike;
   slots: Slot[];
   config: SchedulerConfig;
 }): Date | null {
-  const { lastAttemptAt, lastResult, slots, config } = params;
+  const {
+    lastAttemptAt,
+    lastResult,
+    lastOutcome = null,
+    lastNoReason = null,
+    slots,
+    config,
+  } = params;
   if (!lastAttemptAt) return null;
 
-  // Okänt resultat behandlas som "svarar ej" — den kortaste vilan av dem som
-  // finns, alltså den försiktiga gissningen: hellre ringa lite för tidigt än
-  // att låsa in ett bolag på ett resultat vi inte kan läsa.
-  const wait = new Date(
-    lastAttemptAt.getTime() + retryHours(lastResult ?? "NO_ANSWER", config) * 3600_000
-  );
+  const wait = new Date(lastAttemptAt);
+  if (lastOutcome === "DM_NO") {
+    wait.setDate(wait.getDate() + noRestDays(lastNoReason, config));
+  } else {
+    // Okänt resultat behandlas som "svarar ej" — den kortaste vilan av dem som
+    // finns, alltså den försiktiga gissningen: hellre ringa lite för tidigt än
+    // att låsa in ett bolag på ett resultat vi inte kan läsa.
+    wait.setTime(
+      lastAttemptAt.getTime() +
+        retryHours(lastResult ?? "NO_ANSWER", config) * 3600_000
+    );
+  }
   const slot = pickNextSlot(slots, [], wait);
   return alignToSlot(wait, slot, config.blockedDates);
 }
@@ -388,23 +437,56 @@ export function computeNext(params: {
     };
   }
 
-  // 4. "Vill inte prata med säljare" — en hållning, inte en invändning.
-  //    Ligger före taket eftersom den är mer specifik: den säger något om
-  //    mottagaren, inte om hur många gånger vi råkat ringa. Leadet spärras
-  //    inte — bolaget kan ha bytt person, och en permanent spärr på en åsikt
-  //    någon uttryckte en gång kostar mer än den skyddar.
-  if (noReason === "VILL_EJ_PRATA_SALJARE") {
+  // 4. Kunden sa NEJ. Vila i `retryDaysNo` dagar — 60 som standard.
+  //
+  //    ## Vad som gick fel innan (rättat 2026-08-28)
+  //
+  //    Det här steget fanns inte. Bara den smalaste grenen av ett nej,
+  //    "vill inte prata med säljare", hade en egen vila. Varje ANNAT nej —
+  //    "inget behov", "har byrå", "nöjd med annan", "pris", "timing" — föll
+  //    rakt igenom till steg 6, och där räknas vilan ur `result`. Resultatet
+  //    på ett nej är `CONNECTED_DM`, som saknar egen gren i `retryHours()`
+  //    och alltså landar i `default:` — `retryHoursNoAnswer`.
+  //
+  //    Nettot: **ett nej vilade exakt lika länge som ett obesvarat samtal.**
+  //    Med produktionens 20 timmar innebar det att en kund som sagt nej på
+  //    tisdagen låg tillbaka i hela golvets däck på onsdagen, utan lås och
+  //    utan markering. Mätt i produktionsdatan 2026-08-28: 636 bolag vars
+  //    senaste samtal var ett nej låg ringbara i samma sekund, och 66 samtal
+  //    hade redan ringts av en ANNAN säljare efter ett nej — 51 av dem inom
+  //    ett dygn. Från kundens stol är det samma företag som ringer igen dagen
+  //    efter att de tackat nej.
+  //
+  //    ## Varför utfallet och inte anledningen bestämmer
+  //
+  //    Vilan hänger på `DM_NO`, inte på `noReason`. Anledningen är statistik —
+  //    den säger varför vi förlorade, inte hur snart kunden vill höra från oss
+  //    igen. Svaret på den frågan är detsamma för alla åtta: inte på ett bra
+  //    tag. En gren per anledning hade blivit åtta tal att hålla i huvudet och
+  //    åtta sätt för samma bugg att komma tillbaka.
+  //
+  //    ## Varför före taket
+  //
+  //    Steg 5 ger 30 dagars vila vid taket. Låg det här steget efter hade ett
+  //    nej på åttonde försöket fått den kortare vilan, och löftet "aldrig
+  //    tidigare än 60 dagar" hade haft ett hål precis där bolaget ringts som
+  //    mest. Nejet är alltid det starkaste beskedet vi har.
+  //
+  //    Leadet spärras inte, och `attemptCount` nollställs inte. Bolaget kan ha
+  //    bytt person på två månader, så en permanent spärr på en åsikt någon
+  //    uttryckte en gång kostar mer än den skyddar — men ett nej är ett
+  //    försök som räknas, och två nej i rad ska föra bolaget närmare taket,
+  //    inte tillbaka till ruta ett.
+  if (outcome === "DM_NO") {
     const rest = new Date(now);
-    rest.setDate(rest.getDate() + config.retryDaysNoSalespeople);
+    rest.setDate(rest.getDate() + noRestDays(noReason, config));
     const slot = pickNextSlot(slots, [], rest);
     return {
       nextActionAt: alignToSlot(rest, slot, config.blockedDates),
       nextSlotId: slot?.id ?? null,
-      // Nollställs som efter vilan vid taket: efter en månad är det ett nytt
-      // varv, och leadet ska inte falla direkt i taket på gamla försök.
-      attemptCount: 0,
-      noAnswerStreak: 0,
-      triedSlotIds: [],
+      attemptCount,
+      noAnswerStreak,
+      triedSlotIds,
       retired: false,
       retiredReason: null,
       callbackAt: null,

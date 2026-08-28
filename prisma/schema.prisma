@@ -101,6 +101,11 @@ model Lead {
   triedSlotsJson String    @default("[]") // pass som redan prövats detta varv
   lastAttemptAt  DateTime?
   lastResult     CallResult?
+  /// Utfallet på senaste samtalet, speglat hit av samma skäl som `lastResult`:
+  /// vilan ska gå att räkna om utan att slå i CallAttempt-historiken, och
+  /// däcket ska kunna varna för ett nej utan en join per rad.
+  lastOutcome    ConversationOutcome?
+  lastNoReason   NoReason?
   callbackAt     DateTime? // bokad återuppringning — vinner alltid över rotationen
 
   // Kort arbetslås (minuter), till skillnad från claim-låset (60 dygn).
@@ -675,6 +680,14 @@ model DialerConfig {
   /// bolaget kan ha bytt person, och en permanent spärr på en åsikt någon
   /// uttryckte en gång kostar mer än den skyddar.
   retryDaysNoSalespeople Int @default(30)
+
+  /// Vila i DAGAR efter ett nej ("Sa nej"), oavsett vilken av de åtta
+  /// anledningarna säljaren väljer efteråt. Utfallet bestämmer vilan;
+  /// anledningen är statistik. Fram till 2026-08-28 fanns inte den här
+  /// inställningen, och ett nej ärvde då `retryHoursNoAnswer` — 20 timmar.
+  /// Kunden ringdes alltså igen dagen efter att hon tackat nej, av vem som
+  /// helst på golvet. Se `computeNext` steg 4 i scheduler.ts.
+  retryDaysNo Int @default(60)
 
   /// Antal samtal per timme som räknas som normal takt. Driver insatslarmen
   /// i chefsvyn — aldrig försäljningssiffror, som är brus på timnivå.

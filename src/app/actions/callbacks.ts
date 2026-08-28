@@ -219,7 +219,12 @@ async function syncLeadFromCallbacks(leadId: string) {
   const [lead, cfg, slots] = await Promise.all([
     db.lead.findUnique({
       where: { id: leadId },
-      select: { lastAttemptAt: true, lastResult: true },
+      select: {
+        lastAttemptAt: true,
+        lastResult: true,
+        lastOutcome: true,
+        lastNoReason: true,
+      },
     }),
     db.dialerConfig.findUnique({ where: { id: "singleton" } }),
     db.callSlot.findMany({ where: { active: true }, orderBy: { order: "asc" } }),
@@ -230,6 +235,11 @@ async function syncLeadFromCallbacks(leadId: string) {
       ? rotationResumeAt({
           lastAttemptAt: lead.lastAttemptAt,
           lastResult: lead.lastResult,
+          // Utan de här två föll ett nej tillbaka på 20 timmar så fort någon
+          // avbokade en återkomst som bokats EFTER nejet — samma väg som
+          // 2026-08-26 redan en gång lyfte bolag tillbaka i förtid.
+          lastOutcome: lead.lastOutcome,
+          lastNoReason: lead.lastNoReason,
           slots: slots as Slot[],
           config: toSchedulerConfig(cfg),
         })

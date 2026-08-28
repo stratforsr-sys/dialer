@@ -115,8 +115,8 @@ export async function getList(listId: string) {
             contacts: { orderBy: { createdAt: "asc" }, take: 1 },
             _count: { select: { contacts: true } },
             // Spärrlistan. Resten av det `deckState` behöver — retired,
-            // hasActiveDeal, attemptCount, callbackAt, nextActionAt — är
-            // skalärer och följer redan med `include`.
+            // hasActiveDeal, attemptCount, callbackAt, nextActionAt,
+            // lastOutcome — är skalärer och följer redan med `include`.
             dnc: { select: { expiresAt: true } },
             activities: {
               where: { type: { in: ["CALL", "CALL_NO_ANSWER"] } },

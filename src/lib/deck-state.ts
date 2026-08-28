@@ -35,7 +35,13 @@ export type DeckState =
   | { state: "dnc" }
   | { state: "callback"; at: Date }
   | { state: "capped"; attempts: number }
-  | { state: "resting"; until: Date };
+  /**
+   * `saidNo` skiljer en vila som bolaget SJÄLVT bett om från en vanlig
+   * rotationspaus. Samma tillstånd i däcket — men inte samma sak för en
+   * människa som läser raden och funderar på att öppna bolaget ändå, vilket
+   * mappvyn låter en göra (`leaseSpecificLead` struntar i däckets filter).
+   */
+  | { state: "resting"; until: Date; saidNo: boolean };
 
 export interface DeckStateLead {
   retired: boolean;
@@ -45,6 +51,8 @@ export interface DeckStateLead {
   /** Ekot av den öppna återkomsten. Null när ingen är öppen. */
   callbackAt: Date | string | null;
   nextActionAt: Date | string | null;
+  /** Utfallet på senaste samtalet. Skiljer ett nej från en rotationspaus. */
+  lastOutcome?: string | null;
   /** Spärrlistan. `expiresAt: null` = permanent. */
   dnc?: { expiresAt: Date | string | null } | null;
 }
@@ -91,7 +99,13 @@ export function deckState(
   }
 
   const nextActionAt = asDate(lead.nextActionAt);
-  if (nextActionAt && nextActionAt > now) return { state: "resting", until: nextActionAt };
+  if (nextActionAt && nextActionAt > now) {
+    return {
+      state: "resting",
+      until: nextActionAt,
+      saidNo: lead.lastOutcome === "DM_NO",
+    };
+  }
 
   return { state: "callable" };
 }
@@ -112,7 +126,7 @@ export function deckStateLabel(s: DeckState): string | null {
     case "capped":
       return `${s.attempts} försök — taket nått`;
     case "resting":
-      return "Vilar";
+      return s.saidNo ? "Sa nej" : "Vilar";
   }
 }
 

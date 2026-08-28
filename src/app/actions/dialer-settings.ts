@@ -23,6 +23,7 @@ export async function updateDialerConfig(input: {
   retryHoursVoicemail: number;
   retryHoursGatekeeper: number;
   retryDaysNoSalespeople: number;
+  retryDaysNo: number;
   targetCallsPerHour: number;
   idleAlertMinutes: number;
   blockedDates: string[];
@@ -45,6 +46,12 @@ export async function updateDialerConfig(input: {
       retryHoursVoicemail: clamp(input.retryHoursVoicemail, 1, 720),
       retryHoursGatekeeper: clamp(input.retryHoursGatekeeper, 1, 720),
       retryDaysNoSalespeople: clamp(input.retryDaysNoSalespeople, 1, 365),
+      // Golvet är 7 dagar, inte 1. Fältet styr hur snart en kund som tackat
+      // nej får höra från oss igen, och den enda siffra som orsakat ett
+      // problem i produktionen är en för LÅG — 20 timmar, som gav samtal
+      // dagen efter ett nej. Ett oavsiktligt "1" här hade återskapat exakt
+      // den buggen genom inställningssidan.
+      retryDaysNo: clamp(input.retryDaysNo, 7, 365),
       targetCallsPerHour: clamp(input.targetCallsPerHour, 1, 200),
       idleAlertMinutes: clamp(input.idleAlertMinutes, 5, 240),
       // Bara giltiga datum sparas — ett trasigt värde här skulle annars tyst
