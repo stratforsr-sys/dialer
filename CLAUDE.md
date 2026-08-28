@@ -158,7 +158,7 @@ finns en relation att skydda.**
 |--------|--------|--------|
 | `CALLBACK_BOOKED` | **ja** | Löftet är personligt — en kollega som ringer bränner det |
 | `SOLD` | **ja** | Kunden är någons kund |
-| `DM_NO` | nej | Ett nej är ingen relation |
+| `DM_NO` | nej | Ett nej är ingen relation — men bolaget vilar 60 dagar |
 | `WRONG_DM` | nej | Erbjudandet nådde aldrig fram |
 | växelutfallen | nej | Ingen kontakt med beslutsfattaren |
 | svarar ej / upptaget / röstbrevlåda | nej | Inte ens en kontakt |
@@ -319,6 +319,47 @@ ASC` lägger NULL först i SQLite. Skriv därför aldrig NULL på ett lead som r
 bolaget överst i däcket i stället för tillbaka i kön, och 74 leads låg så.
 Avbokning släpper också `claimedAt` — låset skyddar ett löfte, och finns löftet
 inte kvar finns ingen relation att skydda.
+
+### Ett nej vilar 60 dagar
+
+`DialerConfig.retryDaysNo` (60) gäller **varje** `DM_NO`, oavsett vilken av de
+åtta anledningarna säljaren väljer efteråt: utfallet bestämmer vilan,
+anledningen är statistik. Grenen ligger **före** taket i `computeNext`, annars
+hade ett nej på åttonde försöket fått takets kortare 30-dagarsvila.
+`VILL_EJ_PRATA_SALJARE` kan bara förlänga (`MAX` av de två), aldrig korta.
+
+Fram till 2026-08-28 fanns bara grenen för "vill ej prata säljare". Alla andra
+nej föll igenom till normalfallet, där vilan räknas ur `result` — och
+`CONNECTED_DM` saknar gren i `retryHours()` och landar i `default:`,
+`retryHoursNoAnswer`. **Ett nej vilade alltså 20 timmar, precis som ett samtal
+där ingen svarade.** 636 bolag låg ringbara efter ett nej när det mättes.
+
+`rotationResumeAt` måste få `lastOutcome` — annars faller ett nej tillbaka på 20
+timmar när en återkomst avbokas. Därför speglas `Lead.lastOutcome` och
+`lastNoReason` vid varje disposition, som `lastResult` redan gjorde.
+
+### Spärrlistan — `BORTFALL` och "Inget telefonnummer"
+
+`DoNotCall` var fram till 2026-08-28 ett filter utan skrivväg: 0 rader. Två
+knappar skriver den nu, båda via `blockLead` i `actions/dialer.ts`:
+
+- **`CallResult.BORTFALL`** — tangent 6 i resultatsteget. Ligger i `CallResult`
+  och inte i `ConversationOutcome` för att den ska vara ETT tryck oavsett vem
+  som svarade. Terminal via `terminalReason` → `retiredReason = 'bortfall'`.
+- **"Inget telefonnummer"** — skriver spärren **före** raderingen. Efteråt finns
+  inget lead att läsa org-numret ur.
+
+**Spärrfiltret matchar `leadId` ELLER `orgNumber`.** Det andra ledet är hela
+poängen: `leadId` nollas när leadet raderas, och ett omimporterat bolag får ett
+nytt id. Utan org-numret skyddar spärren bara fram till nästa import. Villkoret
+finns på fem ställen — `leaseNextLeads`, `deckStatus`, `leaseSpecificLead`s
+varning, `actions/lists.ts` och `getLead` — och de måste ändras tillsammans.
+
+`phoneE164` är nullbar: ett nummerlöst bolag har inget att nyckla på.
+
+`liftDoNotCall` i `actions/leads.ts` är vägen tillbaka och är **admin-bara**.
+Den lyfter spärr och pensionering men rör aldrig `nextActionAt`, och lyfter
+aldrig `fel_nummer`/`ogiltigt_nummer` — numret är fortfarande fel.
 
 ### Mappvyn måste säga samma sak som däcket
 

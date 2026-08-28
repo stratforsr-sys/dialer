@@ -5,10 +5,11 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, Globe, Phone, PhoneOutgoing, Mail, Linkedin,
-  Plus, Send, Edit2, Trash2, Building2, Users,
+  Plus, Send, Edit2, Trash2, Building2, Users, Ban,
 } from "lucide-react";
 import type { LeadDetail as LeadDetailType } from "@/app/actions/leads";
-import { updateLead, reassignLead } from "@/app/actions/leads";
+import { updateLead, reassignLead, liftDoNotCall } from "@/app/actions/leads";
+import { RETIRED_LABELS } from "@/lib/deck-state";
 import { createNote } from "@/app/actions/activities";
 import { createContact } from "@/app/actions/contacts";
 
@@ -38,10 +39,22 @@ function formatDate(d: Date | string) {
 
 export function LeadDetail({
   lead,
+  isAdmin = false,
 }: {
   lead: NonNullable<LeadDetailType>;
+  /** Styr bara om "Lyft spärren" syns. Behörigheten avgörs i server-åtgärden. */
+  isAdmin?: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
+
+  // Spärrat på spärrlistan ELLER pensionerat av en av knapparna som spärrar.
+  // Båda ska ge samma banderoll: för den som läser sidan är skillnaden mellan
+  // "står i en tabell" och "raden är pensionerad" ingen skillnad alls —
+  // bolaget ringas inte, och det är det som ska stå.
+  const blocked =
+    !!lead.dnc ||
+    lead.retiredReason === "bortfall" ||
+    lead.retiredReason === "inget_nummer";
   const [note, setNote] = useState("");
   const [showAddContact, setShowAddContact] = useState(false);
   const [newContact, setNewContact] = useState({ name: "", role: "", directPhone: "", email: "" });
@@ -96,6 +109,47 @@ export function LeadDetail({
           <PhoneOutgoing size={13} /> Öppna i dialer
         </Link>
       </div>
+
+      {/* Spärrad — banderollen ovanför allt annat.
+          Ett spärrat bolag ser annars ut precis som vilket bolag som helst
+          här, och "Öppna i dialer" sitter en knapp bort: `leaseSpecificLead`
+          struntar i däckets filter och släpper in en. Raden säger varför
+          bolaget inte ringas, och är för en admin också vägen tillbaka —
+          `BORTFALL` är ett tangenttryck mitt i ett samtal och kommer att
+          tryckas fel. */}
+      {blocked && (
+        <div
+          className="flex items-center gap-3 px-6 py-3 border-b shrink-0"
+          style={{
+            background: "var(--danger-bg)",
+            borderColor: "var(--danger-border)",
+            color: "var(--danger)",
+          }}
+        >
+          <Ban size={15} className="shrink-0" />
+          <div className="text-[13px]">
+            <strong>Spärrat — ringas inte.</strong>{" "}
+            {lead.dnc?.reason ?? RETIRED_LABELS[lead.retiredReason ?? ""] ?? "Står på spärrlistan"}
+            {lead.dnc?.expiresAt && (
+              <> · gäller till {formatDate(lead.dnc.expiresAt)}</>
+            )}
+          </div>
+          {isAdmin && (
+            <button
+              onClick={() => startTransition(() => { liftDoNotCall(lead.id); })}
+              disabled={isPending}
+              className="ml-auto px-3 py-[6px] rounded-md text-[12px] font-medium border"
+              style={{
+                borderColor: "var(--border-strong)",
+                color: "var(--text)",
+                background: "var(--surface)",
+              }}
+            >
+              Lyft spärren
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Main content */}
       <div className="flex-1 overflow-hidden flex">

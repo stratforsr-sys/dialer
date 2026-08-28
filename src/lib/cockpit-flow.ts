@@ -67,6 +67,9 @@ export const RESULT_OPTIONS: FlowOption<ResultChoice>[] = [
   { key: "3", label: "Kom till växeln", value: "CONNECTED_GATEKEEPER", color: "#3B82F6", hint: "Vem svarade?" },
   { key: "4", label: "Nådde beslutsfattaren", value: "CONNECTED_DM", color: "#10B981", hint: "Vad hände?" },
   { key: "5", label: "Inget telefonnummer", value: NO_PHONE_FOUND, color: "#8B5CF6", hint: "Raderar leadet" },
+  // Sist, och medvetet längst från fingrarna på 1–4: den är oåterkallelig och
+  // ska inte gå att råka trycka på vägen till "Nådde beslutsfattaren".
+  { key: "6", label: "Bortfall", value: "BORTFALL", color: "#B91C1C", hint: "Spärrar bolaget permanent" },
 ];
 
 /**
@@ -84,6 +87,7 @@ export const RESULT_LABELS: Record<CallResult, string> = {
   INVALID_NUMBER: "Ogiltigt nummer",
   CONNECTED_GATEKEEPER: "Kom till växeln",
   CONNECTED_DM: "Nådde beslutsfattaren",
+  BORTFALL: "Bortfall — spärrat",
 };
 
 /** Svarade någon? Avgör om nästa steg ska visas — och nämnaren i svarsfrekvensen. */
@@ -184,7 +188,10 @@ export const INITIAL_FLOW: FlowState = {
 export function stageAfterResult(result: CallResult): FlowStage | null {
   if (result === "CONNECTED_GATEKEEPER") return "gatekeeper";
   if (result === "CONNECTED_DM") return "outcome";
-  return null; // svarar ej, upptaget, röstbrevlåda, fel nummer — klart direkt
+  // Svarar ej, upptaget, röstbrevlåda, fel nummer, bortfall — klart direkt.
+  // Bortfall har med flit ingen följdfråga: bolaget ska bort ur registret, och
+  // varför det ska bort ändrar ingenting om vad som händer med raden.
+  return null;
 }
 
 export function stageAfterOutcome(outcome: ConversationOutcome): FlowStage | null {

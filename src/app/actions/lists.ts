@@ -139,6 +139,29 @@ export async function getList(listId: string) {
 
   if (!list) return null;
 
+  // Spärrar som inte hänger på det här leadet.
+  //
+  // `dnc`-relationen matchar bara på `leadId`, men däcket filtrerar på
+  // org-nummer också — en spärr satt före en omimport pekar på ett id som
+  // inte finns längre. Utan den här uppslagningen hade mappen visat bolaget
+  // som ringbart medan däcket vägrade servera det, och de två vyerna hade
+  // sagt olika saker om samma bolag. Se regeln i CLAUDE.md.
+  const orgNumbers = rows
+    .filter((r) => !r.lead.dnc && r.lead.orgNumber)
+    .map((r) => r.lead.orgNumber as string);
+
+  const blockedOrgNumbers = new Set<string>();
+  if (orgNumbers.length > 0) {
+    const hits = await db.doNotCall.findMany({
+      where: {
+        orgNumber: { in: orgNumbers },
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
+      select: { orgNumber: true },
+    });
+    for (const h of hits) if (h.orgNumber) blockedOrgNumbers.add(h.orgNumber);
+  }
+
   return {
     id: list.id,
     name: list.name,
@@ -151,7 +174,14 @@ export async function getList(listId: string) {
     scripts: list.scripts,
     /** Däckets tak — driver `deckState` i mappvyn. */
     maxAttempts: cfg?.maxAttempts ?? 8,
-    leads: rows.map((r) => r.lead),
+    // En spärr på org-numret syntetiseras in i `dnc` så att `deckState` inte
+    // behöver veta att den finns — den ser en spärr, oavsett vilken nyckel
+    // den hittades på, precis som däcket gör.
+    leads: rows.map((r) =>
+      !r.lead.dnc && r.lead.orgNumber && blockedOrgNumbers.has(r.lead.orgNumber)
+        ? { ...r.lead, dnc: { expiresAt: null } }
+        : r.lead
+    ),
   };
 }
 

@@ -101,7 +101,14 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
     // Ordningen håller ändå isär de två sorternas arbete: ringbara bolag
     // först (se ORDER BY), så att ett pass börjar med samtal och inte med
     // uppslagning.
-    `NOT EXISTS (SELECT 1 FROM "DoNotCall" d WHERE d."leadId" = l."id"
+    // Spärrlistan. Matchar på leadId ELLER org-nummer, och det andra ledet är
+    // hela poängen: `leadId` nollas när leadet raderas ("Inget telefonnummer")
+    // och ett omimporterat bolag får ett nytt id. Utan org-numret skyddade
+    // spärren alltså bara fram till nästa import — precis den lucka som gör
+    // att ett bolag "dyker upp igen".
+    `NOT EXISTS (SELECT 1 FROM "DoNotCall" d
+        WHERE (d."leadId" = l."id"
+               OR (d."orgNumber" IS NOT NULL AND d."orgNumber" = l."orgNumber"))
         AND (d."expiresAt" IS NULL OR d."expiresAt" > ?))`,
     // Ett bolag med en öppen återkomst ligger UTANFÖR däcket. Inte "sist i
     // kön", inte "bara för den som lovade" — utanför. Ingen får det serverat
@@ -237,8 +244,13 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
  * 1. **Det finns ingen väg tillbaka och inget spår.** `Activity.leadId` är
  *    obligatorisk och kaskaderar, så en logg-rad om raderingen hade raderats
  *    med leadet. Bolaget måste importeras på nytt för att komma tillbaka.
- *    Spärrlistan överlever däremot — `DoNotCall` är nycklad på numret och
- *    sätter bara `leadId` till null.
+ *    Spärrlistan överlever däremot. `markNoPhoneFound` skriver en permanent
+ *    `DoNotCall` **före** raderingen (`blockLead`), och `onDelete: SetNull`
+ *    nollar bara `leadId` — org-numret står kvar. Eftersom däckets spärrfilter
+ *    matchar på org-nummer också är bolaget spärrat även efter en omimport,
+ *    trots att raden det spärrades på är borta. Utan den detaljen hade
+ *    raderingen varit minneslös: nästa import gav ett nytt lead-id och nästa
+ *    säljare gjorde om samma resultatlösa uppslagning.
  * 2. **`requireLeadAccess`, inte `requireAdmin`.** `deleteLead` i
  *    `actions/leads.ts` är admin-bara med motiveringen att aktivitetsloggen är
  *    oföränderlig och att den vägen inte får stå öppen för säljare. Här står
@@ -252,8 +264,116 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
  * nytt nummer i dag. I praktiken är det ett sällsynt fall: bolagen knappen
  * finns för har aldrig haft ett nummer att ringa.
  */
+/**
+ * Skriver en permanent rad i spärrlistan för ett bolag.
+ *
+ * Två vägar hit, med samma krav: `BORTFALL` i dispositionen och "Inget
+ * telefonnummer". Båda betyder "det här bolaget ska aldrig serveras igen", och
+ * skillnaden mot att bara pensionera leadet är att spärren **överlever att
+ * raden försvinner**. Ett pensionerat lead är skyddat tills någon importerar
+ * bolaget på nytt; då blir det en ny rad, med ett nytt id, utan minne.
+ *
+ * ## Nyckeln är org-numret, inte numret och inte leadet
+ *
+ * Alla tre skrivs, men de håller olika länge:
+ *
+ * | Nyckel | Överlever radering | Överlever omimport | Finns alltid |
+ * |---|---|---|---|
+ * | `leadId` | nej — `onDelete: SetNull` | nej, nytt id | ja |
+ * | `phoneE164` | ja | ja | **nej** — "inget nummer" har inget |
+ * | `orgNumber` | ja | **ja** — importen slår ihop på det | nästan alltid |
+ *
+ * Därför matchar däckets spärrfilter på `leadId` **eller** `orgNumber`.
+ *
+ * ## Tyst när det inte går att nyckla
+ *
+ * Ett bolag utan både org-nummer och telefonnummer går inte att spärra
+ * hållbart — det finns ingenting att känna igen det på nästa gång. Raden
+ * skrivs ändå, på `leadId` ensamt: den skyddar så länge leadet finns kvar,
+ * vilket är precis så länge det ändå går att skydda något. Funktionen kastar
+ * aldrig; en spärr som misslyckas får inte fälla samtalet som utlöste den.
+ */
+async function blockLead(params: {
+  leadId: string;
+  userId: string;
+  reason: string;
+  /** Numret som faktiskt ringdes, när det finns. */
+  dialedE164?: string | null;
+  orgNumber?: string | null;
+}) {
+  const { leadId, userId, reason } = params;
+
+  // Numret från samtalet först, annars bolagets första kontakt med ett
+  // nummer. `dialedE164` är sannast — det är det kunden blev störd på.
+  // Direktnumret före växeln: en spärr på växelnumret hade kunnat träffa ett
+  // helt kontorshus när numret delas, och spärrlistan är nycklad på numret.
+  let phoneE164 = params.dialedE164?.trim() || null;
+  if (!phoneE164) {
+    const contact = await db.contact.findFirst({
+      where: {
+        leadId,
+        OR: [{ directPhoneE164: { not: null } }, { switchboardE164: { not: null } }],
+      },
+      orderBy: { createdAt: "asc" },
+      select: { directPhoneE164: true, switchboardE164: true },
+    });
+    phoneE164 = contact?.directPhoneE164 ?? contact?.switchboardE164 ?? null;
+  }
+
+  const orgNumber =
+    params.orgNumber ??
+    (await db.lead.findUnique({ where: { id: leadId }, select: { orgNumber: true } }))
+      ?.orgNumber ??
+    null;
+
+  const data = {
+    leadId,
+    phoneE164,
+    orgNumber,
+    // Bolaget bad om det — det är vad både bortfall och ett nummerlöst bolag
+    // betyder i praktiken. `MANUAL` är för admin som lägger in en rad själv.
+    source: "PROSPECT_REQUEST" as const,
+    reason,
+    addedById: userId,
+    expiresAt: null, // permanent
+  };
+
+  // `leadId` är unikt: ett bolag har en spärr, inte en per gång någon tryckte.
+  // `phoneE164` är också unikt, och samma nummer kan sitta på två bolag — då
+  // vinner den befintliga raden och vi nöjer oss med att spärra på leadId.
+  try {
+    await db.doNotCall.upsert({
+      where: { leadId },
+      create: data,
+      update: { reason, source: data.source, expiresAt: null, orgNumber },
+    });
+  } catch {
+    try {
+      await db.doNotCall.upsert({
+        where: { leadId },
+        create: { ...data, phoneE164: null },
+        update: { reason, source: data.source, expiresAt: null, orgNumber },
+      });
+    } catch {
+      // Spärren är viktig men får inte fälla samtalet. Leadet är ändå
+      // pensionerat av `terminalReason`, så bolaget lämnar rotationen —
+      // det som går förlorat är skyddet vid en framtida omimport.
+    }
+  }
+}
+
 export async function markNoPhoneFound(leadId: string) {
   const user = await requireLeadAccess(leadId);
+
+  // Spärren skrivs FÖRE allt annat, och särskilt före raderingen: efteråt
+  // finns inget lead att läsa org-numret ur, och `blockLead` hade fått en
+  // tom rad att nyckla på. `onDelete: SetNull` på `leadId` gör att raden
+  // överlever raderingen med org-numret i behåll.
+  await blockLead({
+    leadId,
+    userId: user.id,
+    reason: "Inget telefonnummer gick att hitta",
+  });
 
   const [attempts, deals] = await Promise.all([
     db.callAttempt.count({ where: { leadId } }),
@@ -394,7 +514,9 @@ export async function deckStatus(listId: string | null): Promise<DeckStatus> {
           WHEN l."hasActiveDeal" = 1 THEN 'active_deal'
           WHEN EXISTS (
             SELECT 1 FROM "DoNotCall" d
-            WHERE d."leadId" = l."id" AND (d."expiresAt" IS NULL OR d."expiresAt" > ?)
+            WHERE (d."leadId" = l."id"
+                   OR (d."orgNumber" IS NOT NULL AND d."orgNumber" = l."orgNumber"))
+              AND (d."expiresAt" IS NULL OR d."expiresAt" > ?)
           ) THEN 'dnc'
           WHEN EXISTS (
             SELECT 1 FROM "Callback" cb WHERE cb."leadId" = l."id" AND cb."status" = 'PENDING'
@@ -852,6 +974,7 @@ export async function leaseSpecificLead(leadId: string) {
       companyName: true,
       retired: true,
       retiredReason: true,
+      orgNumber: true,
       hasActiveDeal: true,
       attemptCount: true,
       claimedAt: true,
@@ -926,10 +1049,25 @@ export async function leaseSpecificLead(leadId: string) {
       text: info.retiredReason ? `Spärrat: ${info.retiredReason}` : "Bolaget är spärrat",
     });
   }
-  if (info.dnc && (info.dnc.expiresAt === null || info.dnc.expiresAt > now)) {
+  // Relationen träffar bara spärrar nycklade på det HÄR leadet. En spärr som
+  // satts före en omimport pekar på ett id som inte finns längre och hittas
+  // bara via org-numret — samma andra led som däckets filter har.
+  const blocked =
+    info.dnc && (info.dnc.expiresAt === null || info.dnc.expiresAt > now)
+      ? info.dnc
+      : info.orgNumber
+        ? await db.doNotCall.findFirst({
+            where: {
+              orgNumber: info.orgNumber,
+              OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+            },
+            select: { reason: true },
+          })
+        : null;
+  if (blocked) {
     warnings.push({
       tone: "danger",
-      text: info.dnc.reason ? `Spärrlista: ${info.dnc.reason}` : "Står på spärrlistan",
+      text: blocked.reason ? `Spärrlista: ${blocked.reason}` : "Står på spärrlistan",
     });
   }
   if (info._count.contacts === 0) {
@@ -1079,7 +1217,12 @@ export async function recordAttempt(input: RecordAttemptInput) {
     db.callSlot.findMany({ where: { active: true }, orderBy: { order: "asc" } }),
     db.lead.findUnique({
       where: { id: input.leadId },
-      select: { attemptCount: true, noAnswerStreak: true, triedSlotsJson: true },
+      select: {
+        attemptCount: true,
+        noAnswerStreak: true,
+        triedSlotsJson: true,
+        orgNumber: true,
+      },
     }),
   ]);
 
@@ -1331,6 +1474,23 @@ export async function recordAttempt(input: RecordAttemptInput) {
   }
 
   await db.$transaction(writes);
+
+  // Bortfall: bolaget ur registret för gott.
+  //
+  // Efter transaktionen och inte i den. `terminalReason` har redan pensionerat
+  // leadet i samma skrivning som samtalet, så bolaget är ute ur rotationen
+  // oavsett hur det går här — spärrlistan är skyddet som gäller EFTER en
+  // omimport, inte det som stoppar nästa samtal idag. Att fälla ett registrerat
+  // samtal på att en spärrad rad inte gick att skriva vore fel prioritering.
+  if (input.result === "BORTFALL") {
+    await blockLead({
+      leadId: input.leadId,
+      userId: user.id,
+      reason: input.note?.trim() || "Bortfall — bolaget vill inte bli kontaktat",
+      dialedE164: input.dialedE164,
+      orgNumber: lead.orgNumber,
+    });
+  }
 
   // `Lead.callbackAt` är ett eko av den öppna raden, inte sanningen. Sedan
   // samtalet slutade stänga andras löften kan det finnas en öppen återkomst

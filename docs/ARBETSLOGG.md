@@ -13,6 +13,109 @@ Nyast först.
 
 ---
 
+## 2026-08-28 (sist) — Bortfall: spärrlistan får äntligen en skrivväg
+
+Beställt direkt efter nej-buggen: *"jag vill ha ett utfall som heter bortfall
+då spärras kunden helt, och gör 'inget nummer' samma sak som bortfall."*
+
+### Spärrlistan var ett filter utan åtgärd
+
+`DoNotCall` fanns i schemat sedan starten och lästes av däckets WHERE-sats.
+**Ingen kod skrev någonsin till den** — 0 rader i produktionen. Det gick alltså
+att spärra ett bolag i teorin och inte i praktiken.
+
+Det enda sättet att ta ett bolag ur rotationen var att pensionera raden
+(`Lead.retired`), och det skyddet **dör vid nästa omimport**: bolaget kommer
+tillbaka som en ny rad med ett nytt id, utan minne av att någon bett oss sluta
+ringa. Det är samma familj av fel som nej-buggen — bolaget dyker upp igen — men
+med en annan mekanism.
+
+### Bortfall ligger i CallResult, inte i ConversationOutcome
+
+Doktrinen säger att `result` är vad som hände med samtalet och `outcome` vad som
+hände i det, vilket pekar mot `ConversationOutcome`. Den lades ändå i
+`CallResult`, tangent **6** i resultatsteget, av två skäl:
+
+- **Ett tangenttryck.** I outcome-steget krävs `4` följt av `5`, och det går
+  bara när beslutsfattaren svarade. Kravet att tas bort ur registret kommer
+  lika ofta från växeln, och kunden håller på att lägga på medan säljaren
+  väljer.
+- **Precedens.** `WRONG_NUMBER` och `INVALID_NUMBER` ligger redan i `CallResult`
+  och är också beslut om *bolaget* snarare än om samtalet. `WRONG_NUMBER` bär
+  till och med samma hint, "Spärrar leadet".
+
+Priset är att svarsfrekvensen tappar en handfull samtal: `isConnected()` är
+falsk för `BORTFALL`, trots att någon nästan alltid svarade. Billigare än att
+låta ett bortfall se ut som en lyckad kontakt.
+
+Knappen ligger **sist**, längst från fingrarna på 1–4. Den är oåterkallelig och
+ska inte gå att råka trycka på vägen till "Nådde beslutsfattaren".
+
+### Nyckeln är org-numret
+
+`blockLead` skriver alla tre nycklarna, men de håller olika länge:
+
+| Nyckel | Överlever radering | Överlever omimport | Finns alltid |
+|---|---|---|---|
+| `leadId` | nej — `onDelete: SetNull` | nej, nytt id | ja |
+| `phoneE164` | ja | ja | **nej** |
+| `orgNumber` | ja | **ja** — importen slår ihop på det | nästan alltid |
+
+Däckets spärrfilter matchade fram till nu **bara `leadId`**. Det gjorde spärren
+verkningslös i exakt det fall den behövs mest. Filtret matchar nu `leadId` ELLER
+`orgNumber`, och samma andra led finns i `deckStatus`, i `leaseSpecificLead`s
+varning, i mappvyn och på lead-sidan.
+
+`phoneE164` blev nullbar (migration 023, tabellombyggnad — SQLite kan inte
+släppa NOT NULL med ALTER). Ett nummerlöst bolag har per definition inget nummer
+att nyckla på, och det är just det fallet som mest behöver överleva en import.
+SQLite räknar NULL som skilda värden i ett unikt index, så flera nummerlösa
+spärrar samexisterar.
+
+**`BORTFALL` i enumet krävde ingen SQL.** Prisma lagrar enums i SQLite som ren
+TEXT utan CHECK-villkor — verifierat mot `sqlite_master` innan migrationen
+skrevs. Läggs ett CHECK till i framtiden måste värdet med.
+
+### "Inget nummer" fortsätter radera
+
+Uttryckligt val, mot rekommendationen: raderingen från 25 augusti står kvar, och
+spärren skrivs **före** den. Efter raderingen finns inget lead att läsa
+org-numret ur, och `onDelete: SetNull` nollar bara `leadId` — org-numret står
+kvar i spärrlistan.
+
+Nettoeffekten blir därmed ändå den som pekades ut som fördelen med att sluta
+radera: bolaget är spärrat även efter en omimport, trots att raden det spärrades
+på är borta. Skillnaden mot att pensionera är att bolaget inte syns i mappen —
+vilket var hela poängen med beställningen den 25:e.
+
+### Vägen tillbaka
+
+`BORTFALL` är ett tangenttryck mitt i ett samtal och **kommer att tryckas fel**.
+Att skriva en permanent spärr utan att bygga vägen tillbaka hade varit att
+installera en dörr som bara går åt ena hållet.
+
+- Lead-sidan har en röd banderoll högst upp när bolaget är spärrat, med skälet.
+  Den saknades helt förut: ett spärrat bolag såg ut precis som vilket som helst,
+  med "Öppna i dialer" en knapp bort — och `leaseSpecificLead` släpper in en.
+- `liftDoNotCall` är **admin-bara** och syns bara för admin. Spärren finns för
+  att skydda kunden från oss; att lyfta den är ett beslut om att börja ringa
+  någon som bett oss låta bli, och ska inte ligga på den som råkade sätta den.
+- Den lyfter både spärrlistan och pensioneringen — bara den ena hade lämnat
+  bolaget stoppat ändå, på det andra villkoret, och gett ett gränssnitt som
+  påstår att något hänt när ingenting hänt.
+- Den rör **inte** `nextActionAt`. Ett bolag som sagt nej ska inte bli ringbart
+  i förtid av att en spärr lyfts.
+- Den lyfter inte `fel_nummer` eller `ogiltigt_nummer`. Numret är fortfarande
+  fel.
+
+### Öppen punkt
+
+Det finns fortfarande **ingen admin-vy över spärrlistan** — man når en spärr
+bara via bolaget den sitter på. Med 0 rader idag är det inget problem; blir det
+hundratals behövs en lista att överblicka och söka i.
+
+---
+
 ## 2026-08-28 (senare) — Ett nej vilade 20 timmar, inte 60 dagar
 
 Rapporterat från golvet, och inte för första gången: *"ALLA säljare har fått

@@ -68,6 +68,7 @@ export const RETIRED_LABELS: Record<string, string> = {
   ogiltigt_nummer: "Ogiltigt nummer",
   sald: "Såld",
   inget_nummer: "Inget nummer att hitta",
+  bortfall: "Bortfall — spärrat",
 };
 
 /**

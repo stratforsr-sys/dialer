@@ -25,7 +25,8 @@ export type CallResultLike =
   | "WRONG_NUMBER"
   | "INVALID_NUMBER"
   | "CONNECTED_GATEKEEPER"
-  | "CONNECTED_DM";
+  | "CONNECTED_DM"
+  | "BORTFALL";
 
 export type NoReasonLike =
   | "PRIS"
@@ -275,6 +276,12 @@ function terminalReason(
 ): string | null {
   if (result === "WRONG_NUMBER") return "fel_nummer";
   if (result === "INVALID_NUMBER") return "ogiltigt_nummer";
+  // Skiljer sig från de andra terminala utfallen på att den inte bara
+  // pensionerar RADEN: `recordAttempt` skriver också en permanent rad i
+  // `DoNotCall`, nycklad på org-numret, så spärren överlever en omimport.
+  // Pensioneringen ensam gör det inte — ett nytt lead-id är ett nytt bolag
+  // för allt utom spärrlistan.
+  if (result === "BORTFALL") return "bortfall";
   if (outcome === "SOLD") return "sald";
   return null;
 }

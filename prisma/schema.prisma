@@ -513,6 +513,21 @@ enum CallResult {
   INVALID_NUMBER
   CONNECTED_GATEKEEPER
   CONNECTED_DM
+  /// Bolaget ska aldrig ringas igen. Spärrar leadet OCH skriver en permanent
+  /// rad i `DoNotCall` — till skillnad från `WRONG_NUMBER`, som bara
+  /// pensionerar den här raden och därför försvinner vid en omimport.
+  ///
+  /// Ligger i `CallResult` och inte i `ConversationOutcome` för att den ska
+  /// gå att trycka på ETT tangenttryck, oavsett vem som svarade: kravet att
+  /// tas bort ur registret kommer lika ofta från växeln som från
+  /// beslutsfattaren, och kunden håller på att lägga på medan säljaren väljer.
+  /// Samma form som `WRONG_NUMBER` och `INVALID_NUMBER`, som också är beslut
+  /// om bolaget snarare än om samtalet.
+  ///
+  /// Räknas INTE som besvarat (`isConnected`), trots att någon nästan alltid
+  /// svarade. Svarsfrekvensen tappar därmed en handfull samtal — det är
+  /// billigare än att låta ett bortfall se ut som en lyckad kontakt.
+  BORTFALL
 }
 
 /// Vad som hände i SAMTALET. Sätts bara när någon faktiskt svarade.
@@ -704,10 +719,23 @@ model DialerConfig {
 /// Spärrlista. Egen tabell och nycklad på NUMRET, inte en flagga på leadet —
 /// spärren måste överleva att leadet raderas eller importeras på nytt.
 model DoNotCall {
-  id        String  @id @default(cuid())
-  phoneE164 String  @unique
-  leadId    String? @unique
-  lead      Lead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  id String @id @default(cuid())
+
+  /// Numret som spärras. **Nullbar sedan migration 023:** "Inget
+  /// telefonnummer" spärrar ett bolag som per definition inte har något
+  /// nummer att nyckla på. SQLite räknar NULL som skilda värden i ett
+  /// unikt index, så flera nummerlösa spärrar kan samexistera.
+  phoneE164 String? @unique
+
+  /// `onDelete: SetNull` — spärren överlever att leadet raderas. Det är hela
+  /// poängen med raden: "Inget telefonnummer" raderar bolaget, och utan en
+  /// spärr som lever vidare kommer det tillbaka minneslöst vid nästa import.
+  leadId String? @unique
+  lead   Lead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  /// Den hållbara nyckeln. `leadId` nollas när leadet raderas och `phoneE164`
+  /// kan saknas — org-numret överlever båda, och importen slår ihop på just
+  /// det. Däckets spärrfilter matchar därför på org-nummer OCH leadId.
   orgNumber String?
   source    DncSource
   reason    String?

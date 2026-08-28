@@ -114,10 +114,84 @@ export async function getLead(id: string) {
         },
       },
       tags: { include: { tag: true } },
+      dnc: true,
     },
   });
 
+  if (!lead) return null;
+
+  // Spärren kan hänga på org-numret i stället för på leadet — så ser den ut
+  // efter en omimport, eftersom `leadId` nollas när den gamla raden raderas.
+  // Däcket matchar på båda; den här vyn måste göra det också, annars påstår
+  // den att ett bolag är ringbart som rotationen vägrar servera.
+  if (!lead.dnc && lead.orgNumber) {
+    const byOrg = await db.doNotCall.findFirst({
+      where: {
+        orgNumber: lead.orgNumber,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
+    });
+    if (byOrg) return { ...lead, dnc: byOrg };
+  }
+
   return lead;
+}
+
+/**
+ * Lyfter en spärr och släpper tillbaka bolaget i rotationen.
+ *
+ * Vägen tillbaka från `BORTFALL`. Den knappen är ett tangenttryck mitt i ett
+ * samtal och kommer att tryckas fel — utan den här funktionen vore ett
+ * feltryck en dörr som bara går åt ena hållet.
+ *
+ * **Admin-bara.** Spärren finns för att skydda kunden från oss; att lyfta den
+ * är ett beslut om att börja ringa någon som bett oss låta bli, och det ska
+ * inte ligga på samma person som råkade sätta den.
+ *
+ * Både spärrlistan och pensioneringen släpps — bara den ena hade lämnat
+ * bolaget stoppat ändå, på det andra villkoret, och gett ett gränssnitt som
+ * påstår att något hänt när ingenting hänt. `nextActionAt` sätts INTE:
+ * `rotationResumeAt` gäller fortfarande, och ett bolag som sagt nej ska inte
+ * bli ringbart i förtid av att en spärr lyfts.
+ */
+export async function liftDoNotCall(leadId: string) {
+  const user = await requireAdmin();
+
+  const lead = await db.lead.findUnique({
+    where: { id: leadId },
+    select: { orgNumber: true, retiredReason: true },
+  });
+  if (!lead) throw new Error("Bolaget finns inte");
+
+  await db.doNotCall.deleteMany({
+    where: {
+      OR: [
+        { leadId },
+        ...(lead.orgNumber ? [{ orgNumber: lead.orgNumber }] : []),
+      ],
+    },
+  });
+
+  // Bara spärrar vi själva satt. Ett bolag som pensionerats för att numret var
+  // fel blir inte ringbart av att spärren lyfts — numret är fortfarande fel.
+  if (lead.retiredReason === "bortfall" || lead.retiredReason === "inget_nummer") {
+    await db.lead.update({
+      where: { id: leadId },
+      data: { retired: false, retiredReason: null },
+    });
+  }
+
+  await db.activity.create({
+    data: {
+      type: "STATUS_CHANGE",
+      actorId: user.id,
+      leadId,
+      metadata: JSON.stringify({ status: "unblocked", reason: "spärr lyft" }),
+    },
+  });
+
+  revalidatePath(`/leads/${leadId}`);
+  return { ok: true as const };
 }
 
 // ── Mutations ──────────────────────────────────────────────────────────────
