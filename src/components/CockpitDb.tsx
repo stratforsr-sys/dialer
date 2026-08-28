@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Phone, Globe, Linkedin, ChevronLeft, ChevronRight, ExternalLink, Mail,
-  ArrowLeft, SkipForward, Clock, Building2, Zap, X, AlertTriangle, Copy,
+  ArrowLeft, Clock, Building2, Zap, X, AlertTriangle, Copy,
   Check, Loader2, CalendarClock, Calendar, MapPin, Users, Banknote, Undo2,
   Search, Star, Trophy, Tag,
 } from "lucide-react";
@@ -687,7 +687,14 @@ export function CockpitDb({
       }
       // Leads vi inte hann med lämnas tillbaka direkt i stället för att ligga
       // låsta tills leasen går ut.
-      const rest = leadsRef.current.slice(indexRef.current).map((l) => l.id);
+      //
+      // HELA kön, inte `slice(index)`. Bolag bakom index är inte nödvändigtvis
+      // dispositionerade — ett passerat bolag ligger också där — och de som är
+      // det har redan fått låset släppt av `recordAttempt`, så deras id:n
+      // matchar ingenting och kostar inget. Med `slice(index)` låg varje
+      // passerat bolag kvar låst resten av leasen efter att fliken stängts,
+      // osynligt för hela golvet.
+      const rest = leadsRef.current.map((l) => l.id);
       if (rest.length > 0) void releaseLeases(rest);
     }
 
@@ -751,10 +758,17 @@ export function CockpitDb({
         // vid varje påfyllning som ändå lyckas.
         void deckStatus(listId).then(setDeck).catch(() => setDeck(null));
       } else {
-        setLeads((prev) => {
-          const seen = new Set(prev.map((l) => l.id));
-          return [...prev, ...more.filter((m) => !seen.has(m.id))];
-        });
+        // Rotationen kan servera ett bolag som redan ligger i kön — ett jag
+        // passerat och lämnat tillbaka är ringbart igen och kan komma direkt
+        // tillbaka i nästa block. Servern har då redan tagit låset, så det
+        // räcker inte att filtrera bort dubbletten i klienten: den måste
+        // lämnas tillbaka, annars ligger bolaget låst en kvart utan att synas
+        // för någon — samma fel som den här ändringen finns för att laga.
+        const seen = new Set(leadsRef.current.map((l) => l.id));
+        const fresh = more.filter((m) => !seen.has(m.id));
+        const dupes = more.filter((m) => seen.has(m.id)).map((m) => m.id);
+        if (dupes.length > 0) void releaseLeases(dupes);
+        if (fresh.length > 0) setLeads((prev) => [...prev, ...fresh]);
       }
     } finally {
       setRefilling(false);
@@ -777,14 +791,23 @@ export function CockpitDb({
   // Den leasar bara NYA bolag och rör aldrig dem som redan ligger i kön, så
   // förnyelsen har i praktiken aldrig funnits.
   //
-  // Förnyas gör bara det oringda: `slice(index)`. Bolag bakom index är redan
-  // dispositionerade, och `recordAttempt` släpper låset i samma skrivning som
-  // samtalet — att förlänga dem hade parkerat bolag ingen ska ringa.
+  // Förnyas gör bara det oringda: `slice(index)`. Bolag bakom index är
+  // avklarade — dispositionerade eller passerade — och låset är redan släppt på
+  // båda, av `recordAttempt` respektive `passLead`. Att förlänga dem hade
+  // parkerat bolag ingen ska ringa.
   const syncLeases = useCallback(async () => {
     const pending = leadsRef.current.slice(indexRef.current).map((l) => l.id);
     if (pending.length === 0) return;
 
-    const { lost } = await renewLeases(pending);
+    // **Bara förluster med en innehavare räknas.** Ett id som kommer tillbaka
+    // utan innehavare är inte en kollega som tagit bolaget — det är mitt eget
+    // lås som släppts, av `recordAttempt`, av `passLead` eller av att leasen
+    // hann gå ut utan att någon annan ville ha bolaget. Utan den skillnaden
+    // hade ett bolag jag själv passerat och sedan gått tillbaka till med
+    // "Föregående" mötts av bandet "En kollega har …" om en kollega som inte
+    // finns.
+    const { lost: allLost } = await renewLeases(pending);
+    const lost = allLost.filter((l) => l.holder !== null);
     if (lost.length === 0) return;
 
     // Ett förlorat bolag ska bort ur kön direkt. Alternativet är att säljaren
@@ -928,6 +951,29 @@ export function CockpitDb({
   }, [resetFlow]);
 
   /**
+   * Gå förbi bolaget utan att röra det.
+   *
+   * `advance` ensam räcker inte. Den flyttar bara markören, och arbetslåset
+   * ligger kvar: bolaget blir osynligt för hela golvet tills leasen går ut, och
+   * det förnyas aldrig eftersom `syncLeases` bara rör kön framför markören. För
+   * säljaren såg det ut precis som ett ringt bolag — det försvann ur kön utan
+   * att någon dispositionerat det. Fram till 2026-08-28 var det vad knappen
+   * "Nästa" gjorde.
+   *
+   * Att passera är inget utfall och ingen händelse. Låset lämnas tillbaka, och
+   * därmed är bolaget ringbart i samma sekund — för mig och för alla andra,
+   * precis som innan jag fick det serverat.
+   *
+   * Ligger före `openLeadById` med flit: den passerar också ett pågående bolag
+   * och måste kunna anropa den här.
+   */
+  const passLead = useCallback(() => {
+    const target = leadsRef.current[indexRef.current];
+    if (target) void releaseLeases([target.id]);
+    advance();
+  }, [advance]);
+
+  /**
    * Byt till ett uppslaget bolag utan att lämna passet.
    *
    * Bolaget läggs direkt efter det aktuella och blir nästa i kön — inte i
@@ -955,14 +1001,19 @@ export function CockpitDb({
     setOpened({ id: res.lead.id, warnings: res.warnings });
 
     if (hasCurrent) {
-      advance();
+      // `passLead`, inte `advance`. Kommentaren ovan har alltid lovat att det
+      // pågående bolaget hoppas över "precis som med s" — men `advance` lämnade
+      // kvar arbetslåset, så bolaget kom inte tillbaka: det låg parkerat resten
+      // av leasen, osynligt för alla, varje gång någon slog upp ett bolag med
+      // ⌘K mitt i kön.
+      passLead();
     } else {
       setContactIndex(0);
       setIdleSeconds(0);
       resetFlow();
     }
     return null;
-  }, [advance, resetFlow]);
+  }, [passLead, resetFlow]);
 
   const openSearched = useCallback(
     (hit: LeadSearchHit) => openLeadById(hit.id),
@@ -1026,12 +1077,6 @@ export function CockpitDb({
       setSavingNote(false);
     }
   }, [notes, contactIndex, savingNote]);
-
-  const skipLead = useCallback(() => {
-    const target = leadsRef.current[indexRef.current];
-    if (target) void releaseLeases([target.id]);
-    advance();
-  }, [advance]);
 
   // ── Skrivning ──────────────────────────────────────────────────────────
   const commit = useCallback(
@@ -1182,8 +1227,8 @@ export function CockpitDb({
   // ── Tangentbord ────────────────────────────────────────────────────────
   const flowRef = useRef(flow);
   flowRef.current = flow;
-  const handlersRef = useRef({ pickResult, pickOutcome, pickReason, goBack, advance, prevLead, skipLead, commit });
-  handlersRef.current = { pickResult, pickOutcome, pickReason, goBack, advance, prevLead, skipLead, commit };
+  const handlersRef = useRef({ pickResult, pickOutcome, pickReason, goBack, prevLead, passLead, commit });
+  handlersRef.current = { pickResult, pickOutcome, pickReason, goBack, prevLead, passLead, commit };
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -1208,9 +1253,9 @@ export function CockpitDb({
       if (f.stage === "result") {
         const opt = RESULT_OPTIONS.find((o) => o.key === e.key);
         if (opt) { e.preventDefault(); h.pickResult(opt.value); return; }
-        if (e.key === "ArrowRight") h.advance();
+        if (e.key === "ArrowRight") h.passLead();
         if (e.key === "ArrowLeft") h.prevLead();
-        if (e.key === "s") h.skipLead();
+        if (e.key === "s") h.passLead();
         return;
       }
       if (f.stage === "gatekeeper") {
@@ -1784,7 +1829,7 @@ export function CockpitDb({
                   enda ytan som aldrig scrollar, och den ska inte äta höjd i onödan. */}
               <div className="flex items-center justify-between gap-3 mt-3">
                 <p className="text-[10px] shrink-0" style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-                  siffror = välj · backsteg = ångra · S skippa · ESC stäng panel
+                  siffror = välj · backsteg = ångra · S eller → nästa · ESC stäng panel
                 </p>
                 {flow.stage === "result" && (
                   <div className="flex items-center gap-2 shrink-0">
@@ -1793,12 +1838,13 @@ export function CockpitDb({
                       style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)", opacity: index === 0 ? 0.4 : 1 }}>
                       <ChevronLeft size={13} /> Föregående
                     </button>
-                    <button onClick={skipLead}
-                      className="flex items-center gap-1 text-[11px] px-3 py-2 rounded-md"
-                      style={{ color: "var(--text-dim)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
-                      <SkipForward size={12} /> Skippa (S)
-                    </button>
-                    <button onClick={advance}
+                    {/* En enda väg förbi bolaget. "Skippa" och "Nästa" satt här
+                        bredvid varandra och såg ut som samma sak — men bara
+                        "Skippa" lämnade tillbaka arbetslåset, och "Nästa" var
+                        den knapp säljarna använde. Två knappar för samma
+                        avsikt, där den självklara var den som band upp
+                        bolaget. */}
+                    <button onClick={passLead} title="Gå vidare utan att röra bolaget — det ligger kvar i kön"
                       className="flex items-center gap-1 text-[12px] px-3 py-2 rounded-md"
                       style={{ color: "var(--text-muted)", background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
                       Nästa <ChevronRight size={13} />

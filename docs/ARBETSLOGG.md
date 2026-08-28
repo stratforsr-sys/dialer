@@ -13,6 +13,72 @@ Nyast först.
 
 ---
 
+## 2026-08-28 — "Nästa" band upp bolaget i en kvart
+
+Rapporterat från golvet: *"när jag trycker på nästa i cockpit så blir det som
+att jag har ringt kunden."*
+
+Stämmer, och det syntes inte i datan — för ingenting skrevs. `advance()`
+flyttade bara markören. Arbetslåset (`Lead.leasedById` / `leasedUntil`) låg
+kvar, och därifrån föll bolaget mellan tre stolar:
+
+- `syncLeases` förnyar bara `slice(index)`, alltså kön **framför** markören. Ett
+  passerat bolag ligger bakom den och rörs aldrig.
+- Sessionens avslut släppte också bara `slice(index)`, på antagandet att allt
+  bakom markören var dispositionerat — vilket `recordAttempt` mycket riktigt
+  hade släppt låset på. Ett *passerat* bolag är också bakom markören, och det
+  hade ingen släppt.
+- Rotationen kräver `leasedUntil IS NULL OR leasedUntil < now`.
+
+Nettot: ett tryck på Nästa gjorde bolaget osynligt för hela golvet — inklusive
+säljaren själv — tills leasen gick ut en kvart senare. Från stolen är det
+oskiljbart från ett ringt bolag: det försvann ur kön utan utfall.
+
+**Det fanns redan en knapp som gjorde rätt.** `Skippa (S)` släppte låset och
+gick vidare. Den satt bredvid `Nästa`, såg ut som samma sak, och `Nästa` var
+den säljarna tryckte på. Två knappar för samma avsikt, där den självklara var
+den som band upp bolaget.
+
+`passLead` (release + advance) är nu den enda vägen förbi ett bolag, på knappen
+`Nästa`, på `S` och på `→`. `Skippa` är borta. `advance` finns kvar som ren
+markörflytt och används bara där låset redan är släppt: efter en disposition
+(`recordAttempt`) och efter en radering (`markNoPhoneFound`).
+
+### Samma hål på tre andra ställen
+
+- **⌘K mitt i kön.** `openLeadById` sa i sin egen kommentar att det pågående
+  bolaget "hoppas över precis som med `s`" — men anropade `advance`. Varje
+  uppslagning parkerade alltså bolaget säljaren stod på. Anropar `passLead` nu.
+- **Sessionens avslut** släpper hela kön i stället för `slice(index)`.
+  `leasedById = ?` i WHERE gör det ofarligt att skicka för mycket: id:n jag inte
+  håller matchar ingenting. Uträkningen av "vilka är kvar" var själva felet, så
+  den är borttagen i stället för lagad. `releaseLeases` kör i block om 200 —
+  kön är över hundra id:n mot slutet av ett pass.
+- **Påfyllningen.** `refill` leasar på servern och filtrerade sedan bort
+  dubbletter i klienten. Ett passerat bolag är ringbart igen och kan komma
+  tillbaka direkt i nästa block — låset togs, raden kastades, och bolaget låg
+  låst utan att synas för någon. Dubbletterna lämnas nu tillbaka.
+
+### Ett falskt övertagandeband
+
+Med releasen på plats hade `Föregående` tillbaka till ett passerat bolag mötts
+av bandet *"En kollega har …"* om en kollega som inte finns: `renewLeases`
+rapporterar ett id som förlorat så fort det inte längre är mitt, oavsett varför.
+Servern visste redan skillnaden — `holder` är null när ingen annan håller
+bolaget — men klienten läste inte fältet. Den yankar nu bara förluster **med**
+innehavare. `holder` föll också tillbaka på `null` om namnuppslagningen missade,
+vilket hade dolt en riktig krock; fallbacken är nu `"En kollega"`.
+
+Mätt strax innan ändringen, 13:33 UTC med fem säljare online: 158 aktiva
+arbetslås. Hur många som var passerade bolag går inte att läsa ut i efterhand —
+låset bär inget skäl — och det är hela anledningen till att felet levde så
+länge. **Fotnot till mätningar mot den här databasen:** `datetime('now')` ger
+`YYYY-MM-DD HH:MM:SS` medan kolumnerna är ISO med `T` och `Z`. Jämförelsen är
+textbaserad, så `'…T06:56Z' > '… 13:33'` är sant. Använd
+`strftime('%Y-%m-%dT%H:%M:%S.000Z','now')`.
+
+---
+
 ## 2026-08-26 (senare) — Varför bolag dök upp igen: tre olika hål
 
 Rapporterat från golvet: *"listan gör att kunderna dyker upp igen, en säljare

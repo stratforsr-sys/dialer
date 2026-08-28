@@ -616,16 +616,34 @@ async function hydrateLeads(
   }));
 }
 
-/** Lämnar tillbaka leads som inte hanns med, så de blir ringbara direkt igen. */
+/**
+ * Lämnar tillbaka leads som inte hanns med, så de blir ringbara direkt igen.
+ *
+ * `leasedById = ?` gör satsen ofarlig att skicka för mycket till: id:n jag inte
+ * håller matchar ingenting. Cockpiten utnyttjar det och skickar hela kön när
+ * passet tar slut i stället för att försöka räkna ut vilka som är kvar — den
+ * uträkningen var precis det som gick fel och lämnade passerade bolag låsta.
+ *
+ * Kön växer med varje påfyllning och är över hundra id:n mot slutet av ett
+ * pass, så satsen körs i block: ett `IN` med ett obundet antal parametrar är
+ * ett tak som förr eller senare nås, och då hade releasen fallit helt.
+ */
+const RELEASE_CHUNK = 200;
+
 export async function releaseLeases(leadIds: string[]) {
   const user = await requireAuth();
-  if (leadIds.length === 0) return { released: 0 };
+  const ids = Array.from(new Set(leadIds));
+  if (ids.length === 0) return { released: 0 };
 
-  const res = await db.lead.updateMany({
-    where: { id: { in: leadIds }, leasedById: user.id },
-    data: { leasedById: null, leasedUntil: null },
-  });
-  return { released: res.count };
+  let released = 0;
+  for (let i = 0; i < ids.length; i += RELEASE_CHUNK) {
+    const res = await db.lead.updateMany({
+      where: { id: { in: ids.slice(i, i + RELEASE_CHUNK) }, leasedById: user.id },
+      data: { leasedById: null, leasedUntil: null },
+    });
+    released += res.count;
+  }
+  return { released };
 }
 
 /** Ett bolag som försvunnit ur kön för att någon annan hunnit ta det. */
@@ -786,9 +804,15 @@ export async function renewLeases(leadIds: string[]) {
 
   return {
     held: Array.from(held),
+    // `holder = null` betyder EXAKT en sak: ingen annan håller bolaget, alltså
+    // var det mitt eget lås som släppts (av `recordAttempt`, av att säljaren
+    // passerade bolaget, eller av att leasen gick ut utan att någon tog över).
+    // Klienten skiljer på de två fallen och yankar bara riktiga krockar, så
+    // namnuppslagningen får inte kunna göra en krock innehavarlös — därav
+    // fallbacken i stället för `?? null`.
     lost: lostIds.map((id) => {
       const holderId = holderByLead.get(id);
-      return { id, holder: holderId ? nameById.get(holderId) ?? null : null };
+      return { id, holder: holderId ? nameById.get(holderId) ?? "En kollega" : null };
     }),
   };
 }
