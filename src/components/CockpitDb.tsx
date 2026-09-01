@@ -609,6 +609,48 @@ export function CockpitDb({
   const [gk, setGk] = useState<GatekeeperDraft>(EMPTY_GATEKEEPER);
   const [callback, setCallback] = useState<CallbackDraft>(EMPTY_CALLBACK);
   const [askCallback, setAskCallback] = useState(false);
+
+  // ── Den osparade bokningen ───────────────────────────────────────────────
+  //
+  // `2 Ring igen` öppnar tidsrutan men skriver ingenting förrän säljaren
+  // trycker Spara. Backar hen ut, byter bolag med ⌘K eller laddar om sidan
+  // försvinner allt: inget samtal, inget löfte, inget lås — och bolaget ligger
+  // kvar i hela golvets däck medan säljaren tror att hen registrerat en
+  // återkomst.
+  //
+  // Det är den sista vägen till felet som lagades 2026-09-01, och den enda som
+  // inte går att se i datan efteråt: det finns per definition ingen rad att
+  // räkna. Vägen ut är fortfarande öppen — ibland ska en bokning kastas — men
+  // den är inte längre tyst.
+  const askCallbackRef = useRef(false);
+  askCallbackRef.current = askCallback;
+
+  /** Åtgärden som väntar på ett svar om den osparade bokningen. */
+  const [leaveGuard, setLeaveGuard] = useState<{ run: () => void } | null>(null);
+
+  /** Kör åtgärden — eller frågar först, när en obokad återkomst står öppen. */
+  const guardLeave = useCallback((run: () => void) => {
+    if (askCallbackRef.current) {
+      setLeaveGuard({ run });
+      return;
+    }
+    run();
+  }, []);
+
+  // Omladdning och stängd flik når ingen React-hanterare. Webbläsarens egen
+  // fråga är det enda som fungerar där, och den kostar ingenting så länge den
+  // bara sätts upp medan rutan faktiskt står öppen — ett `beforeunload` som
+  // ligger kvar hela passet gör varje sidbyte till en fråga och lär säljaren
+  // att klicka bort den.
+  useEffect(() => {
+    if (!askCallback) return;
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [askCallback]);
   const [endedAtStep, setEndedAtStep] = useState<FrameworkStep | null>(null);
   const [closeAttempts, setCloseAttempts] = useState(0);
   const [objections, setObjections] = useState<string[]>([]);
@@ -1020,6 +1062,7 @@ export function CockpitDb({
     [openLeadById]
   );
 
+
   /**
    * Ta bolaget bakom en återkomst utan att lämna passet.
    *
@@ -1036,6 +1079,25 @@ export function CockpitDb({
       return message;
     },
     [openLeadById]
+  );
+
+  /**
+   * Notisklockan, med den osparade bokningen i vägen.
+   *
+   * Klockan tar redan ett felmeddelande tillbaka och visar det på raden, så
+   * den behöver ingen egen ruta — och det är rätt plats för beskedet: felet
+   * hör till klicket, inte till skärmen. Att i stället öppna bekräftelserutan
+   * härifrån hade lagt två frågor ovanpå varandra, en om bolaget säljaren
+   * lämnar och en om det hen är på väg till.
+   */
+  const guardedOpenCallback = useCallback(
+    async (leadId: string, callbackId: string): Promise<string | null> => {
+      if (askCallbackRef.current) {
+        return "Du har en osparad återkomst — spara eller kasta den först.";
+      }
+      return openCallback(leadId, callbackId);
+    },
+    [openCallback]
   );
 
   // ── Anteckning: Enter sparar ───────────────────────────────────────────
@@ -1214,7 +1276,8 @@ export function CockpitDb({
     commit({ result, outcome, noReason });
   }, [commit, flow]);
 
-  const goBack = useCallback(() => {
+  /** Ett steg tillbaka i trappan. Kastar bokningsrutan om den står öppen. */
+  const stepBack = useCallback(() => {
     setAskCallback(false);
     setFlow((f) => {
       if (f.stage === "reason") return { ...f, stage: "outcome", noReason: null };
@@ -1224,11 +1287,15 @@ export function CockpitDb({
     });
   }, []);
 
+  // Escape i bokningsrutan och backsteg i trappan går båda hit. Står tidsrutan
+  // öppen betyder ett steg tillbaka att löftet kastas, och då ska det sägas.
+  const goBack = useCallback(() => guardLeave(stepBack), [guardLeave, stepBack]);
+
   // ── Tangentbord ────────────────────────────────────────────────────────
   const flowRef = useRef(flow);
   flowRef.current = flow;
-  const handlersRef = useRef({ pickResult, pickOutcome, pickReason, goBack, prevLead, passLead, commit });
-  handlersRef.current = { pickResult, pickOutcome, pickReason, goBack, prevLead, passLead, commit };
+  const handlersRef = useRef({ pickResult, pickOutcome, pickReason, goBack, prevLead, passLead, commit, guardLeave });
+  handlersRef.current = { pickResult, pickOutcome, pickReason, goBack, prevLead, passLead, commit, guardLeave };
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -1236,7 +1303,9 @@ export function CockpitDb({
       // anteckningsfältet: den ska svara likadant var i vyn man än befinner sig.
       if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        setShowSwitcher(true);
+        // Uppslagningen passerar det pågående bolaget (`openLeadById` →
+        // `passLead`). Står bokningsrutan öppen är det en kastad återkomst.
+        handlersRef.current.guardLeave(() => setShowSwitcher(true));
         return;
       }
 
@@ -1303,7 +1372,7 @@ export function CockpitDb({
       <div className="relative flex flex-col items-center justify-center h-screen gap-4" style={{ background: "var(--bg)" }}>
         {/* Kön är slut — då är återkomsterna det som är kvar att göra. */}
         <div className="absolute top-4 right-5">
-          <CallbackBell onOpenLead={openCallback} calledLead={calledLead} />
+          <CallbackBell onOpenLead={guardedOpenCallback} calledLead={calledLead} />
         </div>
         <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: "var(--success-bg)", border: "1px solid var(--success-border)" }}>
           {refilling ? <Loader2 size={28} className="animate-spin" style={{ color: "var(--success)" }} /> : <Zap size={28} style={{ color: "var(--success)" }} />}
@@ -1353,7 +1422,7 @@ export function CockpitDb({
           </button>
           {/* Kön är slut, men ett bolag man vet namnet på går fortfarande att
               ringa — annars är enda vägen dit att lämna cockpiten. */}
-          <button onClick={() => setShowSwitcher(true)} className="flex items-center gap-1.5 px-4 py-2 text-[13px] rounded-md" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
+          <button onClick={() => guardLeave(() => setShowSwitcher(true))} className="flex items-center gap-1.5 px-4 py-2 text-[13px] rounded-md" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
             <Search size={13} /> Sök bolag
           </button>
         </div>
@@ -1411,9 +1480,9 @@ export function CockpitDb({
         </div>
 
         <div className="flex items-center gap-4">
-          <CallbackBell onOpenLead={openCallback} calledLead={calledLead} />
+          <CallbackBell onOpenLead={guardedOpenCallback} calledLead={calledLead} />
           <button
-            onClick={() => setShowSwitcher(true)}
+            onClick={() => guardLeave(() => setShowSwitcher(true))}
             title="Sök upp ett bolag (⌘K)"
             className="flex items-center gap-1.5 px-2 py-[3px] rounded-sm text-[11px] shrink-0"
             style={{ background: "var(--surface-inset)", border: "1px solid var(--border)", color: "var(--text-dim)" }}
@@ -1951,8 +2020,144 @@ export function CockpitDb({
         <LeadSwitcher onClose={() => setShowSwitcher(false)} onPick={openSearched} />
       )}
 
+      <UnsavedCallbackGuard
+        pending={leaveGuard !== null}
+        at={callback.at}
+        onStay={() => setLeaveGuard(null)}
+        onDiscard={() => {
+          const go = leaveGuard?.run;
+          setLeaveGuard(null);
+          setAskCallback(false);
+          setCallback(EMPTY_CALLBACK);
+          setFlow(INITIAL_FLOW);
+          // Ref:en, inte bara state: React batchar, så `askCallback` är
+          // fortfarande sant när åtgärden nedan körs — och en åtgärd som råkar
+          // gå genom `guardLeave` hade då öppnat rutan igen på en bokning som
+          // just kastats.
+          askCallbackRef.current = false;
+          go?.();
+        }}
+      />
+
       <UndoDeleteToast pending={pendingDelete} onUndo={undoDelete} />
     </div>
+  );
+}
+
+/**
+ * Frågan innan en osparad återkomst kastas.
+ *
+ * Trycket på `2 Ring igen` skriver ingenting. Först `Spara` gör det, och fram
+ * till 2026-09-01 fanns det tre sätt att lämna rutan däremellan som alla var
+ * helt tysta: backsteg, Escape och ⌘K. Bolaget låg då kvar i hela golvets
+ * däck utan samtal, utan löfte och utan lås — medan säljaren gick vidare i
+ * tron att en återkomst var bokad. Symptomet var oskiljbart från
+ * återkomstbuggen som lagades samma dag, med den skillnaden att det här inte
+ * lämnar någon rad att hitta i efterhand.
+ *
+ * Rutan **stoppar ingen**. Den gör bara valet synligt. Men fokus ligger på
+ * `Tillbaka till bokningen`, inte på `Kasta`: säljaren trycker Enter hundra
+ * gånger om dagen och en reflex ska aldrig kunna kasta ett löfte. Samma skäl
+ * som `Bortfall` ligger sist bland resultatknapparna — det oåterkalleliga
+ * hålls undan från fingrarna, inte bakom en extra fråga.
+ *
+ * Tiden säljaren hunnit välja står med. "Du har inte sparat återkomsten" är
+ * en påminnelse; "Imorgon 09:00 sparas inte" är ett besked om vad som går
+ * förlorat, och det är skillnaden mellan en ruta man läser och en man klickar
+ * bort.
+ */
+function UnsavedCallbackGuard({
+  pending,
+  at,
+  onStay,
+  onDiscard,
+}: {
+  pending: boolean;
+  /** Råvärdet från `datetime-local`, tomt om säljaren inte hunnit välja. */
+  at: string;
+  onStay: () => void;
+  onDiscard: () => void;
+}) {
+  const chosen = at ? new Date(at) : null;
+  const valid = chosen !== null && !Number.isNaN(chosen.getTime());
+
+  return (
+    <AnimatePresence>
+      {pending && (
+        <>
+          <motion.div
+            key="guard-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.14 }}
+            className="fixed inset-0 z-[60]"
+            style={{ background: "rgba(16, 24, 40, 0.32)" }}
+            onClick={onStay}
+          />
+          <motion.div
+            key="guard-modal"
+            initial={{ opacity: 0, scale: 0.97 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.97 }}
+            transition={{ duration: 0.14, ease: "easeOut" }}
+            role="dialog"
+            aria-modal="true"
+            className="fixed left-1/2 top-1/2 z-[61] w-[400px] max-w-[calc(100vw-32px)] -translate-x-1/2 -translate-y-1/2 rounded-lg p-5"
+            style={{
+              background: "var(--surface)",
+              border: "1px solid var(--border-strong)",
+              boxShadow: "var(--shadow-3)",
+            }}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <AlertTriangle size={14} style={{ color: "var(--danger)" }} />
+              <p className="text-[14px] font-semibold" style={{ color: "var(--text)" }}>
+                Återkomsten är inte sparad
+              </p>
+            </div>
+            <p className="text-[13px] leading-[1.5]" style={{ color: "var(--text-muted)" }}>
+              {valid && chosen ? (
+                <>
+                  <span style={{ color: "var(--text)" }}>{formatWhen(chosen)}</span> sparas
+                  inte, och bolaget går tillbaka i kön för hela golvet.
+                </>
+              ) : (
+                <>
+                  Ingen tid är vald, så inget löfte skrivs — bolaget går tillbaka i kön för
+                  hela golvet.
+                </>
+              )}
+            </p>
+            <div className="flex items-center justify-end gap-2 mt-4">
+              <button
+                onClick={onDiscard}
+                className="px-3 py-2 text-[12px] font-medium rounded-md"
+                style={{
+                  background: "var(--surface-inset)",
+                  border: "1px solid var(--border)",
+                  color: "var(--text-muted)",
+                }}
+              >
+                Kasta
+              </button>
+              <button
+                onClick={onStay}
+                autoFocus
+                className="px-4 py-2 text-[12px] font-semibold rounded-md"
+                style={{
+                  background: "var(--accent)",
+                  color: "var(--on-accent)",
+                  border: "1px solid var(--border)",
+                }}
+              >
+                Tillbaka till bokningen
+              </button>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
   );
 }
 

@@ -264,6 +264,12 @@ Rör man den ena måste man röra den andra (`syncLeadFromCallbacks` i
   filtrerar själva (cockpitklockan visar bara det som är dags inom fem minuter,
   sidomenyns räknare bara missade och aktuella). Frågan ska svara sant.
 - **Bokningen sker i `recordAttempt`**, i samma transaktion som samtalet.
+  Trycket på `2 Ring igen` skriver ingenting — först `Spara` i `CallbackForm`
+  gör det. Backsteg, Escape, ⌘K och omladdning går därför genom
+  `UnsavedCallbackGuard` i `CockpitDb`, som frågar innan bokningen kastas.
+  Utan den var de fyra tysta: bolaget låg kvar i hela golvets däck utan samtal,
+  utan löfte och utan lås, medan säljaren trodde att en återkomst var bokad.
+  Lägg aldrig till en femte väg ut ur rutan utan att den går genom `guardLeave`.
 - **`sellerId` är den som lovade**, inte `Lead.ownerId` — ägarskapet byter hand
   vid nästa disposition, påminnelsen ska ändå gå till rätt person.
 

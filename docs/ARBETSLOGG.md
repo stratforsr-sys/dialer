@@ -127,15 +127,54 @@ Efteråt: `Lead.callbackAt` ↔ öppen `Callback` stämmer i **båda** riktninga
   de flesta lovade av en sedan dess borttagen användare. De är skyddade av
   däckets återkomstfilter men syns inte som någons bolag i mappvyn. Gammal
   skuld, inte ny — den nya koden skriver tillbaka låset vid nästa disposition.
-- **En avbruten bokningsruta lämnar inget spår.** Trycker säljaren `2 Ring
-  igen`, får upp tidsrutan och sedan backar, laddar om eller byter bolag med
-  ⌘K, skrivs ingenting alls — inget samtal, inget löfte, inget lås. Bolaget
-  ligger kvar i däcket för hela golvet och säljaren tror att hen registrerat
-  något. Går inte att mäta i efterhand (det finns per definition ingen rad), och
-  är den enda kvarvarande vägen till symptomet som rapporterades.
+- ~~**En avbruten bokningsruta lämnar inget spår.**~~ Täppt samma dag, se
+  nedan.
 - **Vlado avbokade 37 egna förfallna återkomster på fem minuter** i morse. Helt
   legitimt, men värt att veta: en avbokning släpper bolaget till hela golvet
   direkt (minus vilan). Det är avsiktligt.
+
+### Efterspel samma dag — den tysta vägen ur bokningsrutan
+
+Trycket på `2 Ring igen` skriver ingenting. Först `Spara` gör det, och
+däremellan fanns **tre helt tysta vägar ut**: backsteg, Escape och ⌘K. Alla tre
+lämnade bolaget utan samtal, utan löfte och utan lås — kvar i hela golvets däck
+— medan säljaren gick vidare i tron att en återkomst var bokad.
+
+Symptomet är oskiljbart från felet ovan. Skillnaden är att det här inte lämnar
+någon rad att hitta i efterhand: det finns per definition ingenting att räkna,
+vilket också är varför det aldrig dykt upp i en mätning.
+
+Beslutat efter avstämning: **varna, stoppa inte.** `UnsavedCallbackGuard` frågar
+innan bokningen kastas och säger vad som går förlorat — "Imorgon 09:00 sparas
+inte, och bolaget går tillbaka i kön för hela golvet". Fokus ligger på
+`Tillbaka till bokningen`, inte på `Kasta`: säljaren trycker Enter hundra gånger
+om dagen, och en reflex ska aldrig kunna kasta ett löfte. Samma princip som
+`Bortfall` sist bland resultatknapparna — det oåterkalleliga hålls undan från
+fingrarna, inte bakom en extra fråga.
+
+Fyra vägar täppta, var och en där den faktiskt går:
+
+| Väg | Hur |
+|---|---|
+| Backsteg och Escape | `goBack` → `guardLeave(stepBack)` — täcker varje anropsplats i stället för att lappa dem en och en |
+| ⌘K och sökknapparna | `guardLeave(() => setShowSwitcher(true))` — uppslagningen passerar det pågående bolaget via `passLead` |
+| Notisklockan | Returnerar ett felmeddelande på raden i stället för att öppna en andra ruta. Klockan visar det redan; två frågor ovanpå varandra — en om bolaget man lämnar, en om det man är på väg till — är värre än ingen |
+| Omladdning och stängd flik | `beforeunload`, monterad **bara** medan rutan står öppen. En som ligger kvar hela passet gör varje sidbyte till en fråga och lär säljaren att klicka bort den |
+
+`passLead` och `prevLead` lämnades omedvetet oskyddade och är det med flit:
+knapparna och tangenterna för dem renderas bara i resultatsteget, alltså aldrig
+medan bokningsrutan står öppen. Att guarda dem inifrån hade dessutom brutit
+`openLeadById`, som anropar `passLead` **efter** att det nya bolaget redan
+reserverats — bekräftelserutan hade då dykt upp mitt i en halvfärdig växling.
+
+### Låsningen ändras inte
+
+Frågan ställdes om "de kan inte få upp andras utfall alls" skulle betyda att
+fler utfall låser bolaget. Svaret blev **nej**: `claimsLead` fortsätter täcka
+bara `CALLBACK_BOOKED` och `SOLD`. Ett nej vilar redan 60 dagar och ett
+obesvarat samtal är ingen relation. Att låsa på varje samtal var precis det som
+gällde före 13 augusti — 590 låsta leads varav 45 hade ett skäl — och det tar
+slut på databasen långt innan det tar slut på krockar.
 
 ---
 
