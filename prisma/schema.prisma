@@ -511,6 +511,10 @@ enum ActivityType {
   DEAL_STAGE_CHANGE
   DEAL_WON
   DEAL_LOST
+  /// En admin raderade affären. Metadata bär belopp, titel och vem som sålde
+  /// den, så att raden går att läsa efter att Deal-raden är borta. Kolumnen är
+  /// TEXT i SQLite — värdet krävde ingen migration, bara en ny klient.
+  DEAL_DELETED
 }
 
 // ==================== CALL SESSIONS (Fluff-tracking) ====================

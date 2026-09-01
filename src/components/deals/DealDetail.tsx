@@ -5,10 +5,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft, Building2, Mail, Phone, Globe, MapPin, Users, Repeat,
-  Pencil, Check, X, Undo2, ExternalLink,
+  Pencil, Check, X, Undo2, ExternalLink, Trash2, Lock,
 } from "lucide-react";
 import { LeadHistory } from "@/components/cockpit/LeadHistory";
-import { updateDeal, cancelDeal } from "@/app/actions/deals";
+import { updateDeal, cancelDeal, deleteDeal } from "@/app/actions/deals";
 import { formatDate } from "@/lib/time";
 import type { DealDetail as DealDetailData } from "@/app/actions/deals";
 
@@ -20,6 +20,10 @@ import type { DealDetail as DealDetailData } from "@/app/actions/deals";
  * `LeadHistory` återanvänds rakt av från cockpiten, för samtalen och
  * anteckningarna ligger fortfarande på leadet. Affären äger dem inte, den
  * pekar bara på samma bolag.
+ *
+ * Säljaren ser hela sidan men kan inte röra den. Rätta, ångra och radera är
+ * admin — knapparna finns inte ens i DOM:en för en säljare, och grinden som
+ * faktiskt håller ligger i `requireDealAdmin` på servern.
  */
 
 function money(n: number): string {
@@ -37,12 +41,13 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-export function DealDetail({ data }: { data: DealDetailData }) {
+export function DealDetail({ data, isAdmin }: { data: DealDetailData; isAdmin: boolean }) {
   const { deal, lead } = data;
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
   const [editing, setEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState("");
 
   const [contactName, setContactName] = useState(deal.contactName ?? "");
@@ -85,6 +90,26 @@ export function DealDetail({ data }: { data: DealDetailData }) {
         router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Kunde inte ångra affären");
+      }
+    });
+  }
+
+  /**
+   * Raderingen bekräftas i sidan, inte i en `window.confirm`. En systemruta
+   * läses inte — den klickas bort — och det här är den enda åtgärden på sidan
+   * som inte går att ta tillbaka.
+   */
+  function handleDelete() {
+    setError("");
+    startTransition(async () => {
+      try {
+        await deleteDeal(deal.id);
+        // Sidan finns inte längre. `refresh()` hade gett en 404 att titta på.
+        router.push("/deals");
+        router.refresh();
+      } catch (err) {
+        setConfirmingDelete(false);
+        setError(err instanceof Error ? err.message : "Kunde inte ta bort affären");
       }
     });
   }
@@ -153,13 +178,25 @@ export function DealDetail({ data }: { data: DealDetailData }) {
             >
               <ExternalLink size={11} /> Leadet
             </Link>
-            <button
-              onClick={() => setEditing(true)}
-              className="flex items-center gap-1.5 text-[12px] px-3 py-[6px] rounded-md shrink-0"
-              style={{ background: "var(--surface-inset)", border: "1px solid var(--border-strong)", color: "var(--text-muted)" }}
-            >
-              <Pencil size={11} /> Redigera
-            </button>
+            {isAdmin ? (
+              <button
+                onClick={() => setEditing(true)}
+                className="flex items-center gap-1.5 text-[12px] px-3 py-[6px] rounded-md shrink-0"
+                style={{ background: "var(--surface-inset)", border: "1px solid var(--border-strong)", color: "var(--text-muted)" }}
+              >
+                <Pencil size={11} /> Redigera
+              </button>
+            ) : (
+              // Säljaren ska förstå att uppgifterna är låsta, inte tro att
+              // knappen glömts bort och börja leta efter den.
+              <span
+                className="flex items-center gap-1.5 text-[11px] px-2.5 py-[6px] rounded-md shrink-0"
+                style={{ color: "var(--text-dim)" }}
+                title="Affären kan bara ändras av en administratör"
+              >
+                <Lock size={11} /> Låst
+              </span>
+            )}
           </>
         )}
         {editing && (
@@ -369,23 +406,81 @@ export function DealDetail({ data }: { data: DealDetailData }) {
               ligger på leadet och ska läsas likadant oavsett var man står. */}
           <LeadHistory attempts={lead.callAttempts} activities={lead.activities} />
 
-          {!cancelled && (
-            <button
-              onClick={handleCancel}
-              disabled={isPending}
-              className="flex items-center gap-1.5 self-start text-[12px] px-3 py-[7px] rounded-md"
-              style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--text-dim)" }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = "var(--danger)";
-                e.currentTarget.style.borderColor = "var(--danger-border)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = "var(--text-dim)";
-                e.currentTarget.style.borderColor = "var(--border)";
-              }}
-            >
-              <Undo2 size={11} /> Ångra affären
-            </button>
+          {/* Ångra och radera är två olika saker och ligger därför inte bredvid
+              varandra som jämbördiga val. Ångra är utfallet — affären står kvar.
+              Radera är rättelsen — den är borta. Bara admin ser något av dem. */}
+          {isAdmin && (
+            <div className="flex flex-col gap-3">
+              {!cancelled && (
+                <button
+                  onClick={handleCancel}
+                  disabled={isPending}
+                  className="flex items-center gap-1.5 self-start text-[12px] px-3 py-[7px] rounded-md"
+                  style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--text-dim)" }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = "var(--danger)";
+                    e.currentTarget.style.borderColor = "var(--danger-border)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = "var(--text-dim)";
+                    e.currentTarget.style.borderColor = "var(--border)";
+                  }}
+                >
+                  <Undo2 size={11} /> Ångra affären
+                </button>
+              )}
+
+              {confirmingDelete ? (
+                <div
+                  className="flex items-center gap-3 rounded-md px-3 py-[10px]"
+                  style={{ background: "var(--danger-bg)", border: "1px solid var(--danger-border)" }}
+                >
+                  <p className="text-[12px] flex-1" style={{ color: "var(--danger)", lineHeight: 1.5 }}>
+                    Affären raderas permanent och går inte att få tillbaka.
+                    Statistiken räknar om sig. Vill du bara markera att kunden
+                    hoppade av — använd <strong>Ångra affären</strong> i stället.
+                  </p>
+                  <button
+                    onClick={() => setConfirmingDelete(false)}
+                    disabled={isPending}
+                    className="text-[12px] px-3 py-[6px] rounded-md shrink-0"
+                    style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+                  >
+                    Avbryt
+                  </button>
+                  <button
+                    onClick={handleDelete}
+                    disabled={isPending}
+                    className="flex items-center gap-1.5 text-[12px] font-semibold px-3 py-[6px] rounded-md shrink-0"
+                    style={{
+                      background: "var(--danger)",
+                      color: "var(--on-danger)",
+                      opacity: isPending ? 0.6 : 1,
+                      boxShadow: "var(--shadow-1)",
+                    }}
+                  >
+                    <Trash2 size={11} /> {isPending ? "Tar bort..." : "Ta bort permanent"}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => { setError(""); setConfirmingDelete(true); }}
+                  disabled={isPending}
+                  className="flex items-center gap-1.5 self-start text-[12px] px-3 py-[7px] rounded-md"
+                  style={{ background: "transparent", border: "1px solid transparent", color: "var(--text-dim)" }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = "var(--danger)";
+                    e.currentTarget.style.borderColor = "var(--danger-border)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = "var(--text-dim)";
+                    e.currentTarget.style.borderColor = "transparent";
+                  }}
+                >
+                  <Trash2 size={11} /> Ta bort affären
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>

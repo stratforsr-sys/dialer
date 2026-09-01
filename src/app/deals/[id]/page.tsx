@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { requireAuth } from "@/lib/auth";
 import { getDeal } from "@/app/actions/deals";
 import { DealDetail } from "@/components/deals/DealDetail";
 
@@ -8,7 +9,10 @@ export default async function DealPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const data = await getDeal(id);
+  const [user, data] = await Promise.all([requireAuth(), getDeal(id)]);
   if (!data) notFound();
-  return <DealDetail data={data} />;
+  // Knapparna för att rätta, ångra och radera visas bara för admin. Grinden
+  // ligger i server actionen — det här är bara att slippa visa en knapp som
+  // ändå säger nej.
+  return <DealDetail data={data} isAdmin={user.role === "ADMIN"} />;
 }

@@ -13,7 +13,59 @@ Nyast först.
 
 ---
 
-## 2026-09-01 (sist) — Ett obesvarat samtal räknades som ett infriat löfte
+## 2026-09-01 (sist) — Affären är säljarens att skapa, inte att skriva om
+
+Beställt: *"jag måste kunna gå in och ta bort affärer och ändra osv, dock ska
+inte säljare kunna göra det men jag ska kunna."*
+
+Fram till nu låg `updateDeal` och `cancelDeal` bakom `requireDealAccess` — samma
+grind som läsningen. Vem som helst som såg affären kunde alltså skriva om
+ordervärdet på den, inklusive säljaren som tjänade provision på siffran, och
+ångra den utan att någon annan visste om det. Det är inte ett underlag.
+
+**Ny gräns:** `createDeal` är kvar hos säljaren — affären föds i dispositionen
+och ska göra det. Allt som händer *efter* avslutet är admin:
+`requireDealAdmin` i `src/lib/guard.ts` bär `updateDeal`, `cancelDeal` och den
+nya `deleteDeal`.
+
+**Ångra ≠ radera, och de ligger inte bredvid varandra som jämbördiga val.**
+
+| | Vad | Raden | När |
+|---|---|---|---|
+| `cancelDeal` | utfall | står kvar som LOST | kunden hoppade av |
+| `deleteDeal` | rättelse | borta | feltryck, dubblett, fel bolag |
+
+En ångrad affär är information för den som räknar stängningsgrad. En affär som
+aldrig skulle ha funnits är brus i samma siffra. Det fanns tidigare bara det
+första, och därför fanns det ingen väg alls att bli av med ett feltryck.
+
+**Loggen rensas inte.** `deleteDeal` skriver en `DEAL_DELETED`-aktivitet med
+titel, belopp, status och vem som sålde den bevarade i metadata *innan* raden
+raderas, och de gamla `DEAL_WON`-raderna står kvar. En affär som gick att radera
+spårlöst hade gjort aktivitetsloggen värdelös som underlag — och tre personer
+har ADMIN i produktionen (Harris, Simon, Zen), så "admin" är inte samma sak som
+"jag". Loggen svarar på vem.
+
+`DEAL_DELETED` är ett nytt värde i `ActivityType`. `Activity.type` är TEXT i
+SQLite utan CHECK-villkor, så det krävde **ingen migration** — bara en ny
+genererad klient, vilket Vercels `postinstall` gör av sig själv.
+
+`hasActiveDeal` räknas om efter raderingen på samma villkor som i `cancelDeal`:
+bolaget går tillbaka i rotationen först när ingen vunnen affär håller det kvar.
+
+I gränssnittet: `/deals/[id]` får `isAdmin` från sessionen. Säljaren ser hela
+sidan men får en låsikon där Redigera stod — en knapp som saknas utan
+förklaring läses som en bugg och genererar en fråga. Raderingen bekräftas i
+sidan, inte i en `window.confirm`: en systemruta klickas bort, den läses inte,
+och det här är enda åtgärden på sidan som inte går att ta tillbaka.
+
+**Öppen punkt:** `updateLead`, `deleteContact` och anteckningar är fortfarande
+öppna för säljare. Det här arbetet gällde affärer. Om samma resonemang ska
+gälla kunduppgifter är det ett eget beslut.
+
+---
+
+## 2026-09-01 — Ett obesvarat samtal räknades som ett infriat löfte
 
 Rapporterat från golvet: *"en säljare har tryckt in 'ring igen' och sen har en
 annan säljare fått upp det fast det inte är hans kund. När jag letar på

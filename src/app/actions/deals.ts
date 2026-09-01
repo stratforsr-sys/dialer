@@ -7,11 +7,15 @@
  * som går via ett bokat möte. Därför finns ingen `moveDealToStage` och ingen
  * `closeDeal`: raden föds stängd. Det enda som kan hända efteråt är att
  * uppgifterna rättas eller att affären ångras.
+ *
+ * **Vem får vad.** Säljaren skapar affären och läser den. Allt som händer
+ * efter avslutet — rätta uppgifter, ångra, radera — är admin. Se
+ * `requireDealAdmin` i `src/lib/guard.ts` för varför.
  */
 
 import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
-import { requireLeadAccess, requireDealAccess } from "@/lib/guard";
+import { requireLeadAccess, requireDealAccess, requireDealAdmin } from "@/lib/guard";
 import { visibleLeadWhere } from "@/lib/lists";
 import { revalidatePath } from "next/cache";
 
@@ -184,7 +188,7 @@ export async function updateDeal(
     closedAt?: Date;
   }
 ) {
-  await requireDealAccess(dealId);
+  await requireDealAdmin(dealId);
   const deal = await db.deal.update({ where: { id: dealId }, data });
 
   revalidatePath("/deals");
@@ -202,7 +206,7 @@ export async function updateDeal(
  * det kvar.
  */
 export async function cancelDeal(dealId: string, reason?: string) {
-  const { user } = await requireDealAccess(dealId);
+  const { user } = await requireDealAdmin(dealId);
 
   const deal = await db.deal.findUnique({ where: { id: dealId } });
   if (!deal) throw new Error("Affären finns inte");
@@ -234,4 +238,64 @@ export async function cancelDeal(dealId: string, reason?: string) {
   revalidatePath("/deals");
   revalidatePath(`/deals/${dealId}`);
   revalidatePath(`/leads/${deal.leadId}`);
+}
+
+/**
+ * Affären raderas — den skulle aldrig ha funnits.
+ *
+ * Skilj den från `cancelDeal`. Att ångra är ett utfall: kunden fanns och hoppade
+ * av, och raden ska stå kvar som ångrad för den som räknar stängningsgrad. Att
+ * radera är en rättelse av något som är fel i grunden — ett feltryck, en dubblett,
+ * en affär registrerad på fel bolag. Sånt ska inte ligga kvar och dra ner
+ * statistiken som en "förlorad" affär.
+ *
+ * **Aktivitetsloggen rensas inte.** Raderingen skriver en egen rad
+ * (`DEAL_DELETED`) med belopp och titel bevarade i metadata, och de gamla
+ * DEAL_WON-raderna står kvar. Loggen är oföränderlig — en affär som går att
+ * radera spårlöst hade gjort den värdelös som underlag. Raden går att läsa
+ * även om affären inte längre går att öppna.
+ *
+ * `DealProduct` följer med via FK:ns cascade. Samtalen och anteckningarna
+ * ligger på leadet och rörs inte.
+ */
+export async function deleteDeal(dealId: string) {
+  const { user } = await requireDealAdmin(dealId);
+
+  const deal = await db.deal.findUnique({ where: { id: dealId } });
+  if (!deal) throw new Error("Affären finns inte");
+
+  // Loggen skrivs före raderingen. Går delete:en fel står det en rad för mycket
+  // i loggen, vilket syns — går den rätt men loggen fallerat hade affären
+  // försvunnit utan spår, vilket inte syns alls.
+  await db.activity.create({
+    data: {
+      type: "DEAL_DELETED",
+      actorId: user.id,
+      leadId: deal.leadId,
+      metadata: JSON.stringify({
+        dealId,
+        title: deal.title,
+        value: deal.value,
+        valueType: deal.valueType,
+        status: deal.status,
+        closedAt: deal.closedAt,
+        createdById: deal.createdById,
+      }),
+    },
+  });
+
+  await db.deal.delete({ where: { id: dealId } });
+
+  // Samma villkor som i cancelDeal: bolaget går tillbaka i rotationen först när
+  // ingen vunnen affär håller det kvar.
+  const stillWon = await db.deal.count({
+    where: { leadId: deal.leadId, status: "WON" },
+  });
+  if (stillWon === 0) {
+    await db.lead.update({ where: { id: deal.leadId }, data: { hasActiveDeal: false } });
+  }
+
+  revalidatePath("/deals");
+  revalidatePath(`/leads/${deal.leadId}`);
+  return { leadId: deal.leadId };
 }

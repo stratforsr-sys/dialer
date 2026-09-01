@@ -110,6 +110,32 @@ export async function requireDealAccess(
 }
 
 /**
+ * Strängare på affärer: bara admin.
+ *
+ * Att skapa en affär är säljarbete — den föds ur ett samtal och registreras i
+ * dispositionen. Att ändra en i efterhand är det inte. Ordervärdet är underlag
+ * för provision och för statistiken i chefsvyn, och ett belopp som går att
+ * skriva om efteråt av samma person som tjänar på siffran är inte ett underlag.
+ * Samma sak gäller ångra och radera: båda tar tillbaka en såld affär ur
+ * statistiken.
+ *
+ * Säljaren kan fortfarande läsa affären — `requireDealAccess` gäller för det.
+ */
+export async function requireDealAdmin(
+  dealId: string
+): Promise<{ user: AuthedUser; leadId: string }> {
+  const user = await requireAuth();
+  if (!isAdminUser(user)) throw new ForbiddenError(`deal ${dealId} (kräver admin)`);
+
+  const deal = await db.deal.findUnique({
+    where: { id: dealId },
+    select: { id: true, leadId: true },
+  });
+  if (!deal) throw new ForbiddenError(`deal ${dealId}`);
+  return { user, leadId: deal.leadId };
+}
+
+/**
  * Samtalssessioner tillhör alltid en säljare. Ingen får skriva i någon annans
  * session — statistiken i chefsvyn bygger på att de siffrorna inte går att
  * peta i utifrån.

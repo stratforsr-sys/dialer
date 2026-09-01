@@ -176,6 +176,12 @@ får bolaget, filtret styr *om* någon får det alls.
 ### User Roles
 - ADMIN: sees all leads, all stats, manages users and products
 - SELLER: sees only own leads, own stats
+- **Affärer: säljaren skapar, admin ändrar.** `createDeal` är säljarbete —
+  affären föds i dispositionen. `updateDeal`, `cancelDeal` och `deleteDeal`
+  ligger bakom `requireDealAdmin` (`src/lib/guard.ts`): ordervärdet är underlag
+  för provision och statistik, och ett belopp som går att skriva om i efterhand
+  av den som tjänar på siffran är inget underlag. Säljaren läser affären som
+  vanligt.
 
 ### Affärer — pipelinen är borta (migration 015)
 Det finns **ingen pipeline och inga stadier**. `PipelineStage` är droppad,
@@ -195,6 +201,11 @@ kolumner hade innehåll i en av dem.
 - **`DealStatus` är WON | LOST.** Raden föds `WON`. `LOST` betyder ångrad i
   efterhand, inte "förlorad i pipelinen". `cancelDeal` raderar aldrig — den
   sätter LOST och släpper tillbaka leadet i rotationen.
+- **`deleteDeal` är rättelsen, inte utfallet.** Ångra (`cancelDeal`) betyder att
+  kunden fanns och hoppade av — raden ska stå kvar. Radera betyder att affären
+  aldrig skulle ha funnits: feltryck, dubblett, fel bolag. Bara admin, och
+  raderingen skriver en `DEAL_DELETED`-aktivitet med belopp och säljare bevarade
+  i metadata **innan** raden försvinner. Aktivitetsloggen rensas aldrig.
 - **Kontaktuppgifterna kopieras till affären**, de pekas inte ut med
   `contactId`. Vem som skrev på ska stå kvar även om kontakten byts på leadet.
 - **`/deals`** listar alla affärer, **`/deals/[id]`** är kunden. Historiken där
