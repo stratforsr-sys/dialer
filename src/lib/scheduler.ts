@@ -242,8 +242,12 @@ export function toSchedulerConfig(cfg: {
  * efteråt. "Vill inte prata med säljare" får förlänga vilan men aldrig korta
  * den: den knappen betyder en hårdare hållning än ett vanligt nej, så den kan
  * omöjligt förtjäna ett snabbare återbesök.
+ *
+ * Exporterad för att `cancelCallback` behöver exakt samma tal: ett nej som kom
+ * fram när en återkomst släpptes ska vila lika länge som ett nej i cockpiten.
+ * Två uträkningar av samma sak blir förr eller senare två olika tal.
  */
-function noRestDays(noReason: NoReasonLike, cfg: SchedulerConfig): number {
+export function noRestDays(noReason: NoReasonLike, cfg: SchedulerConfig): number {
   if (noReason === "VILL_EJ_PRATA_SALJARE") {
     return Math.max(cfg.retryDaysNo, cfg.retryDaysNoSalespeople);
   }

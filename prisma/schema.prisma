@@ -241,6 +241,26 @@ model Callback {
   bookedOnAttemptId    String?
   completedOnAttemptId String?
 
+  /// Varför löftet släpptes. **Obligatorisk vid avbokning** sedan 2026-09-01:
+  /// en avbokning är ett beslut om bolaget, inte en städning av en lista, och
+  /// utan skäl blev den ett tyst släpp — kunden kunde ha sagt nej tack och
+  /// bolaget låg ändå tillbaka i hela golvets däck efter tjugo timmar.
+  /// `cancelCallback` översätter värdet till samma tillstånd på leadet som
+  /// motsvarande utfall i dispositionen ger.
+  ///
+  /// NULL på de 124 rader som avbokades före kravet. De går inte att gissa i
+  /// efterhand och ska inte se ut som om någon svarat på frågan.
+  cancelReason   CallbackCancelReason?
+  /// Andra nivån, och obligatorisk när `cancelReason` är `SA_NEJ` — samma
+  /// åtta anledningar som dispositionen frågar efter, så att ett nej räknas
+  /// likadant oavsett vilken väg det kom in.
+  cancelNoReason NoReason?
+  /// Den som släppte löftet. Bara ett id, ingen relation, samma skäl som för
+  /// attempt-id:na ovan — och det är oftast men inte alltid `sellerId`: en
+  /// admin kan släppa vems rad som helst, vilket är utvägen när en säljare
+  /// slutat.
+  cancelledById  String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -254,6 +274,29 @@ model Callback {
   /// tillhör NÅGON ANNAN än den som leasar?". Ett villkor per lead-kandidat i
   /// appens hetaste fråga.
   @@index([leadId, status, sellerId])
+}
+
+/// Varför en återkomst släpptes.
+///
+/// Fyra värden, medvetet få: knappen sitter i notisklockan mitt i ett pass och
+/// en lista på tio hade blivit en lista ingen läser. Var och en motsvarar ett
+/// utfall som redan finns i dispositionen, och `cancelCallback` skriver samma
+/// tillstånd på leadet som det utfallet skulle gett — annars hade avbokningen
+/// varit en andra, tystare väg förbi rotationens regler.
+enum CallbackCancelReason {
+  /// Kunden sa nej. Kräver `cancelNoReason`. Leadet vilar `retryDaysNo` dagar,
+  /// precis som ett `DM_NO` i cockpiten, och `lastOutcome` speglas dit så att
+  /// däcket och mappvyn säger "Sa nej" och inte "Vilar".
+  SA_NEJ
+  /// Kunden vill inte bli kontaktad alls. Pensionerar leadet **och** skriver
+  /// spärrlistan på org-numret, så att spärren överlever en omimport.
+  BORTFALL
+  /// Numret går inte till bolaget. Pensionerar leadet, som `WRONG_NUMBER`.
+  FEL_NUMMER
+  /// Löftet var felbokat eller inaktuellt — inget besked om bolaget. Enda
+  /// skälet som lämnar leadet i den vanliga rotationen, och det ska finnas:
+  /// utan en ärlig utväg väljer säljaren ett falskt skäl för att komma vidare.
+  FELBOKAD
 }
 
 enum CallbackStatus {

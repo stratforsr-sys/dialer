@@ -5,6 +5,7 @@ import { requireAuth } from "@/lib/auth";
 import { requireLeadAccess } from "@/lib/guard";
 import { canAccessList, claimCutoff, isAdminUser } from "@/lib/lists";
 import { computeNext, slotAt, toSchedulerConfig, type Slot } from "@/lib/scheduler";
+import { blockLead } from "@/lib/donotcall";
 import { resolveScript, firstNameOf, type ResolverVariant } from "@/lib/script-resolver";
 import { getActiveScripts } from "@/app/actions/scripts";
 import { RESULT_LABELS, OUTCOME_OPTIONS, REASON_OPTIONS, isConnected } from "@/lib/cockpit-flow";
@@ -264,104 +265,6 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
  * nytt nummer i dag. I praktiken är det ett sällsynt fall: bolagen knappen
  * finns för har aldrig haft ett nummer att ringa.
  */
-/**
- * Skriver en permanent rad i spärrlistan för ett bolag.
- *
- * Två vägar hit, med samma krav: `BORTFALL` i dispositionen och "Inget
- * telefonnummer". Båda betyder "det här bolaget ska aldrig serveras igen", och
- * skillnaden mot att bara pensionera leadet är att spärren **överlever att
- * raden försvinner**. Ett pensionerat lead är skyddat tills någon importerar
- * bolaget på nytt; då blir det en ny rad, med ett nytt id, utan minne.
- *
- * ## Nyckeln är org-numret, inte numret och inte leadet
- *
- * Alla tre skrivs, men de håller olika länge:
- *
- * | Nyckel | Överlever radering | Överlever omimport | Finns alltid |
- * |---|---|---|---|
- * | `leadId` | nej — `onDelete: SetNull` | nej, nytt id | ja |
- * | `phoneE164` | ja | ja | **nej** — "inget nummer" har inget |
- * | `orgNumber` | ja | **ja** — importen slår ihop på det | nästan alltid |
- *
- * Därför matchar däckets spärrfilter på `leadId` **eller** `orgNumber`.
- *
- * ## Tyst när det inte går att nyckla
- *
- * Ett bolag utan både org-nummer och telefonnummer går inte att spärra
- * hållbart — det finns ingenting att känna igen det på nästa gång. Raden
- * skrivs ändå, på `leadId` ensamt: den skyddar så länge leadet finns kvar,
- * vilket är precis så länge det ändå går att skydda något. Funktionen kastar
- * aldrig; en spärr som misslyckas får inte fälla samtalet som utlöste den.
- */
-async function blockLead(params: {
-  leadId: string;
-  userId: string;
-  reason: string;
-  /** Numret som faktiskt ringdes, när det finns. */
-  dialedE164?: string | null;
-  orgNumber?: string | null;
-}) {
-  const { leadId, userId, reason } = params;
-
-  // Numret från samtalet först, annars bolagets första kontakt med ett
-  // nummer. `dialedE164` är sannast — det är det kunden blev störd på.
-  // Direktnumret före växeln: en spärr på växelnumret hade kunnat träffa ett
-  // helt kontorshus när numret delas, och spärrlistan är nycklad på numret.
-  let phoneE164 = params.dialedE164?.trim() || null;
-  if (!phoneE164) {
-    const contact = await db.contact.findFirst({
-      where: {
-        leadId,
-        OR: [{ directPhoneE164: { not: null } }, { switchboardE164: { not: null } }],
-      },
-      orderBy: { createdAt: "asc" },
-      select: { directPhoneE164: true, switchboardE164: true },
-    });
-    phoneE164 = contact?.directPhoneE164 ?? contact?.switchboardE164 ?? null;
-  }
-
-  const orgNumber =
-    params.orgNumber ??
-    (await db.lead.findUnique({ where: { id: leadId }, select: { orgNumber: true } }))
-      ?.orgNumber ??
-    null;
-
-  const data = {
-    leadId,
-    phoneE164,
-    orgNumber,
-    // Bolaget bad om det — det är vad både bortfall och ett nummerlöst bolag
-    // betyder i praktiken. `MANUAL` är för admin som lägger in en rad själv.
-    source: "PROSPECT_REQUEST" as const,
-    reason,
-    addedById: userId,
-    expiresAt: null, // permanent
-  };
-
-  // `leadId` är unikt: ett bolag har en spärr, inte en per gång någon tryckte.
-  // `phoneE164` är också unikt, och samma nummer kan sitta på två bolag — då
-  // vinner den befintliga raden och vi nöjer oss med att spärra på leadId.
-  try {
-    await db.doNotCall.upsert({
-      where: { leadId },
-      create: data,
-      update: { reason, source: data.source, expiresAt: null, orgNumber },
-    });
-  } catch {
-    try {
-      await db.doNotCall.upsert({
-        where: { leadId },
-        create: { ...data, phoneE164: null },
-        update: { reason, source: data.source, expiresAt: null, orgNumber },
-      });
-    } catch {
-      // Spärren är viktig men får inte fälla samtalet. Leadet är ändå
-      // pensionerat av `terminalReason`, så bolaget lämnar rotationen —
-      // det som går förlorat är skyddet vid en framtida omimport.
-    }
-  }
-}
-
 export async function markNoPhoneFound(leadId: string) {
   const user = await requireLeadAccess(leadId);
 

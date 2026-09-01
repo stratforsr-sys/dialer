@@ -22,6 +22,7 @@ import {
   setCallbackEmailReminder,
   type CallbackRow,
 } from "@/app/actions/callbacks";
+import type { CallbackCancelReason, NoReason } from "@/generated/prisma/client";
 import { CallbackDisposition } from "@/components/notifications/CallbackDisposition";
 import { formatTime, formatWhen, formatRelative, isSameDay } from "@/lib/time";
 
@@ -489,6 +490,8 @@ function Row({
   onDisposition: (row: CallbackRow) => void;
 }) {
   const overdue = row.scheduledAt.getTime() < now.getTime();
+  /** Står skälpanelen öppen? Se `ReleasePanel`. */
+  const [releasing, setReleasing] = useState(false);
 
   return (
     <div
@@ -609,11 +612,154 @@ function Row({
 
         <ActionButton
           icon={<CalendarX2 size={10} />}
-          label="Avboka"
-          title="Ta bort återkomsten — leadet går tillbaka i rotationen"
+          label="Släpp"
+          title="Släpp löftet — kräver ett utfall, precis som ett samtal"
           danger
-          onClick={() => onAct(row.id, () => cancelCallback(row.id))}
+          active={releasing}
+          onClick={() => setReleasing((v) => !v)}
         />
+      </div>
+
+      {releasing && (
+        <ReleasePanel
+          onCancel={() => setReleasing(false)}
+          onRelease={(input) =>
+            onAct(row.id, async () => {
+              await cancelCallback(row.id, input);
+              setReleasing(false);
+            })
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Släpp löftet ──────────────────────────────────────────────────────────
+
+/**
+ * Skälen, i den ordning en säljare tänker dem.
+ *
+ * Fyra, inte tio. Panelen öppnas mitt i ett pass och varje extra rad är en rad
+ * som inte läses. Var och en motsvarar ett utfall som redan finns i
+ * dispositionen — `cancelCallback` skriver samma tillstånd på leadet som det
+ * utfallet skulle gett, så att avbokningen inte blir en andra, tystare väg
+ * förbi rotationens regler.
+ *
+ * `Felbokad` ligger sist och `Vill inte bli kontaktad` näst sist, längst från
+ * det man siktar på. Den andra är oåterkallelig: den spärrar bolaget permanent
+ * på org-numret.
+ */
+const RELEASE_REASONS: Array<{
+  value: CallbackCancelReason;
+  label: string;
+  hint: string;
+  danger?: boolean;
+}> = [
+  { value: "SA_NEJ", label: "Kunden sa nej", hint: "Vilar 60 dagar" },
+  { value: "FEL_NUMMER", label: "Fel nummer", hint: "Spärrar leadet" },
+  {
+    value: "BORTFALL",
+    label: "Vill inte bli kontaktad",
+    hint: "Spärrar bolaget permanent",
+    danger: true,
+  },
+  { value: "FELBOKAD", label: "Felbokad — inget besked", hint: "Tillbaka i rotationen" },
+];
+
+/** Samma åtta anledningar, samma ordning och samma ord som i cockpiten. */
+const RELEASE_NO_REASONS: Array<{ value: NoReason; label: string }> = [
+  { value: "PRIS", label: "Pris" },
+  { value: "TIMING", label: "Timing" },
+  { value: "HAR_BYRA", label: "Har byrå" },
+  { value: "HAR_INHOUSE", label: "Har inhouse" },
+  { value: "INGET_BEHOV", label: "Inget behov" },
+  { value: "NOJD_MED_ANNAN", label: "Nöjd med annan" },
+  { value: "NEJ_INNAN_PITCH", label: "Sa nej innan pitch" },
+  { value: "VILL_EJ_PRATA_SALJARE", label: "Vill inte prata med säljare" },
+];
+
+/**
+ * Frågan som gör släppet till ett besked i stället för en städning.
+ *
+ * Fram till 2026-09-01 var `Avboka` ett klick utan fråga, och bolaget låg
+ * tillbaka i hela golvets däck efter tjugo timmar — även när kunden precis
+ * sagt nej tack. Beskedet fanns i huvudet på en säljare och ingenstans i
+ * datan.
+ *
+ * Panelen viker ut sig i raden i stället för att lägga sig som en modal:
+ * klockan är redan ett lager över allt annat, och ett tredje lager ovanpå det
+ * gör det oklart vilken rad man svarar om.
+ */
+function ReleasePanel({
+  onCancel,
+  onRelease,
+}: {
+  onCancel: () => void;
+  onRelease: (input: { reason: CallbackCancelReason; noReason?: NoReason | null }) => void;
+}) {
+  // Ett nej kräver sin anledning. Att skicka i två steg i stället för att
+  // förvälja en är hela poängen: ett förvalt "Inget behov" hade blivit det
+  // vanligaste nejet i statistiken utan att någon valt det.
+  const [askNo, setAskNo] = useState(false);
+
+  return (
+    <div
+      className="mt-[8px] rounded-md p-[10px]"
+      style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}
+    >
+      <div className="flex items-center gap-2 mb-[8px]">
+        <p
+          className="text-[10px] font-bold uppercase tracking-widest"
+          style={{ color: "var(--text-dim)" }}
+        >
+          {askNo ? "Varför sa kunden nej?" : "Vad hände med bolaget?"}
+        </p>
+        <button
+          onClick={askNo ? () => setAskNo(false) : onCancel}
+          className="ml-auto text-[10px]"
+          style={{ color: "var(--text-dim)" }}
+        >
+          {askNo ? "Tillbaka" : "Avbryt"}
+        </button>
+      </div>
+
+      <div className="flex flex-wrap gap-[5px]">
+        {askNo
+          ? RELEASE_NO_REASONS.map((r) => (
+              <button
+                key={r.value}
+                onClick={() => onRelease({ reason: "SA_NEJ", noReason: r.value })}
+                className="text-[11px] font-medium px-[8px] py-[4px] rounded-sm"
+                style={{
+                  background: "var(--surface)",
+                  border: "1px solid var(--border)",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                {r.label}
+              </button>
+            ))
+          : RELEASE_REASONS.map((r) => (
+              <button
+                key={r.value}
+                title={r.hint}
+                onClick={() =>
+                  r.value === "SA_NEJ" ? setAskNo(true) : onRelease({ reason: r.value })
+                }
+                className="text-left text-[11px] font-medium px-[8px] py-[4px] rounded-sm"
+                style={{
+                  background: "var(--surface)",
+                  border: `1px solid ${r.danger ? "var(--danger-border)" : "var(--border)"}`,
+                  color: r.danger ? "var(--danger)" : "var(--text-secondary)",
+                }}
+              >
+                {r.label}
+                <span className="block text-[9px]" style={{ color: "var(--text-dim)" }}>
+                  {r.hint}
+                </span>
+              </button>
+            ))}
       </div>
     </div>
   );

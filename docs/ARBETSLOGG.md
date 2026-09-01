@@ -167,6 +167,76 @@ medan bokningsrutan står öppen. Att guarda dem inifrån hade dessutom brutit
 `openLeadById`, som anropar `passLead` **efter** att det nya bolaget redan
 reserverats — bekräftelserutan hade då dykt upp mitt i en halvfärdig växling.
 
+### Efterspel 2 — `Avboka` var samma hål med en annan knapp
+
+Beställt direkt efter: *"när en återkomst släpps så lägg ett krav att man måste
+lägga ett utfall, så ifall det var nej tack osv."*
+
+Rätt sett, och det var inte en förbättring utan en tredje variant av samma fel.
+`Avboka` gjorde två saker: satte raden till CANCELLED och lät
+`syncLeadFromCallbacks` lägga tillbaka bolaget på den vila det redan tjänat
+ihop. På ett bolag där någon bokat en återkomst är senaste resultatet
+`CONNECTED_DM`, och den saknar gren i `retryHours()` — alltså `default:`,
+`retryHoursNoAnswer`, **20 timmar**.
+
+Sa kunden "nej tack, sluta ringa" när säljaren följde upp löftet, och säljaren
+avbokade i stället för att registrera samtalet, låg bolaget tillbaka i hela
+golvets däck dagen efter. Samma slutresultat som felet ovan, samma 20 timmar,
+men via en knapp som såg ut som en städknapp. **Beskedet från kunden fanns i
+huvudet på en säljare och ingenstans i datan.**
+
+En avbokning är ett beslut om bolaget, inte en städning av en lista. Knappen
+heter nu `Släpp` och kräver ett skäl, och skälet skriver samma tillstånd på
+leadet som motsvarande utfall i dispositionen ger:
+
+| Skäl | Leadet |
+|---|---|
+| `SA_NEJ` (+ en av de åtta anledningarna) | Vilar 60 dagar, `lastOutcome = DM_NO` |
+| `BORTFALL` | Pensionerat **och** spärrlistat på org-numret |
+| `FEL_NUMMER` | Pensionerat, som `WRONG_NUMBER` |
+| `FELBOKAD` | Tillbaka i rotationen — det gamla beteendet |
+
+Fyra val, inte tio: panelen öppnas mitt i ett pass och varje extra rad är en rad
+som inte läses. `Sa nej` frågar i ett andra steg efter anledningen, med samma
+åtta ord som cockpiten — ett förvalt "Inget behov" hade blivit det vanligaste
+nejet i statistiken utan att någon valt det.
+
+**`FELBOKAD` måste finnas.** Ett skäl som betyder "inget besked om bolaget" är
+inte en lucka i kravet, det är förutsättningen för att kravet ska ge sann data:
+utan en ärlig utväg väljer säljaren ett falskt skäl för att komma vidare, och då
+ser datan fullständig ut och är fel. En obligatorisk fråga utan en sann
+svarsmöjlighet är värre än ingen fråga.
+
+**Ingen `CallAttempt` skrivs.** Med flit: den tabellen är statistikens nämnare,
+och en avbokning som blev ett samtal hade sänkt svarsfrekvensen, höjt dagsmålet
+och räknats i coachningen för ett samtal som aldrig ringdes. Samma skäl som
+"Inget telefonnummer" ligger utanför `CallResult`. Spåret för en människa
+skrivs i `Activity` i stället, med samma `{ status, notes }`-form som
+CALL-raderna redan har, så att lead-sidan renderar den utan att veta att den
+finns.
+
+Två saker föll ut på vägen:
+
+- **`blockLead` flyttades till `src/lib/donotcall.ts`.** `callbacks.ts` behövde
+  den, och en `"use server"`-fil exporterar bara async-funktioner där **varje**
+  export blir en endpoint klienten kan anropa. `blockLead` tar `userId` som
+  parameter — en exporterad variant hade låtit vem som helst spärra vilket
+  bolag som helst i någon annans namn.
+- **`noRestDays` exporterades ur scheduler.ts.** Ett nej som kom fram när ett
+  löfte släpptes ska vila lika länge som ett nej i cockpiten, och två
+  uträkningar av samma tal blir förr eller senare två olika tal.
+
+Fällan jag gick i själv under skrivningen, värd att skriva ner: den första
+versionen lämnade `nextActionAt = null` om `DialerConfig` saknades. Det är
+precis felet från 26 augusti — NULL betyder "aldrig ringt", inte "vilar", och
+`ORDER BY nextActionAt ASC` sorterar NULL först. Ett nej hade landat allra
+överst i hela golvets däck. Grenen faller nu tillbaka på
+`syncLeadFromCallbacks` i stället, som räknar en riktig tid.
+
+De 124 rader som avbokades före kravet får `cancelReason = NULL` och leadsen
+bakom dem rörs inte. Skälet går inte att gissa i efterhand, och ett påhittat
+`FELBOKAD` hade sett ut som om någon svarat på frågan.
+
 ### Låsningen ändras inte
 
 Frågan ställdes om "de kan inte få upp andras utfall alls" skulle betyda att

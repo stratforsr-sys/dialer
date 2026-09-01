@@ -313,10 +313,34 @@ tid. Två mekanismer håller regeln:
   anteckning och en dispositionsruta (`CallbackDisposition`). Bolaget kommer
   tillbaka in i rotationen på exakt två sätt, båda aktiva: någon
   dispositionerar samtalet — och då avgör utfallet vad som händer med leadet,
-  precis som för alla andra samtal — eller någon avbokar återkomsten. En admin
-  kan avboka vems rad som helst (`requireCallbackAccess`), vilket är utvägen när
+  precis som för alla andra samtal — eller någon släpper återkomsten. En admin
+  kan släppa vems rad som helst (`requireCallbackAccess`), vilket är utvägen när
   en säljare slutat. Ett bolag släpps av ett beslut, inte av en klocka; lägg
   inte tillbaka ett släpp på tid.
+- **Att släppa ett löfte kräver ett utfall** (`CallbackCancelReason`, migration
+  025). Knappen hette `Avboka` och var ett klick utan fråga: raden blev
+  CANCELLED och bolaget låg tillbaka i hela golvets däck efter **20 timmar**,
+  också när kunden precis sagt nej tack — beskedet fanns i huvudet på en
+  säljare och ingenstans i datan. Skälet styr nu leadet, med samma tillstånd
+  som motsvarande utfall i dispositionen ger:
+
+  | Skäl | Leadet |
+  |---|---|
+  | `SA_NEJ` (+ `NoReason`) | Vilar 60 dagar, `lastOutcome = DM_NO` |
+  | `BORTFALL` | Pensionerat **och** spärrlistat på org-numret |
+  | `FEL_NUMMER` | Pensionerat, som `WRONG_NUMBER` |
+  | `FELBOKAD` | Tillbaka i rotationen — det gamla beteendet |
+
+  **Ingen `CallAttempt` skrivs** — inget samtal ringdes, och den tabellen är
+  statistikens nämnare. Spåret för en människa är en `Activity` av typ
+  `STATUS_CHANGE` med samma `{ status, notes }`-form som CALL-raderna.
+  `FELBOKAD` måste finnas kvar som alternativ: utan en ärlig utväg väljer
+  säljaren ett falskt skäl, och då är en obligatorisk fråga värre än ingen.
+- **`blockLead` ligger i `src/lib/donotcall.ts`**, inte i en server action. En
+  `"use server"`-fil exporterar bara async-funktioner och varje export blir en
+  endpoint klienten kan anropa — `blockLead` tar `userId` som parameter, så en
+  exporterad variant hade låtit vem som helst spärra vilket bolag som helst i
+  någon annans namn.
 - **`answeredCallbackId` pekar ut raden dispositionen svarar på.** Klockan
   skickar med den, och då stängs just den raden oavsett klockslag. Utan den
   hade en säljare som ringde tio minuter för tidigt fått löftet kvar i klockan

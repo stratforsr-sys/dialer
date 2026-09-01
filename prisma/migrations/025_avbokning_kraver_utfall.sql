@@ -1,0 +1,42 @@
+-- 025_avbokning_kraver_utfall
+--
+-- Tre kolumner på `Callback`. Koden som kräver dem ligger i samma commit.
+--
+-- ## Varför
+--
+-- `Avboka` var ett klick utan fråga: raden blev CANCELLED och
+-- `syncLeadFromCallbacks` la tillbaka bolaget i rotationen på den vila det
+-- redan hade tjänat ihop. På ett bolag vars senaste samtal var `CONNECTED_DM`
+-- betyder det `retryHoursNoAnswer` — **tjugo timmar**.
+--
+-- Sa kunden "nej tack, sluta ringa" när säljaren följde upp löftet, och
+-- säljaren avbokade i stället för att registrera samtalet, låg bolaget alltså
+-- tillbaka i hela golvets däck dagen efter. Samma slutresultat som felet
+-- migration 024 lagade, men via en annan knapp: **beskedet från kunden fanns i
+-- huvudet på en säljare och ingenstans i datan.**
+--
+-- Avbokningen är ett beslut om bolaget, inte en städning av en lista. Den
+-- kräver nu ett skäl, och skälet styr vad som händer med leadet — samma
+-- tillstånd som motsvarande utfall i dispositionen ger. Se
+-- `CallbackCancelReason` i schemat.
+--
+-- ## Enum utan CHECK
+--
+-- Prisma lagrar enums i SQLite som ren TEXT utan CHECK-villkor — verifierat mot
+-- `sqlite_master` när `BORTFALL` lades till i migration 023. Kolumnerna är
+-- därför vanliga TEXT-kolumner. Läggs ett CHECK till i framtiden måste de fyra
+-- värdena med.
+--
+-- ## Ingen backfill
+--
+-- De 124 rader som avbokades före kravet får `NULL`. Skälet går inte att gissa
+-- i efterhand, och ett påhittat `FELBOKAD` hade sett ut som om någon svarat på
+-- frågan. NULL betyder här "avbokad innan vi började fråga", och det är sant.
+--
+-- Leadsen bakom dem rörs inte heller. De har sedan länge gått vidare i
+-- rotationen och flera har ringts om; att räkna om deras vila nu vore att
+-- straffa bolag för en regel som inte fanns när beslutet togs.
+
+ALTER TABLE "Callback" ADD COLUMN "cancelReason" TEXT;
+ALTER TABLE "Callback" ADD COLUMN "cancelNoReason" TEXT;
+ALTER TABLE "Callback" ADD COLUMN "cancelledById" TEXT;

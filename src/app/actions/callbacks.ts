@@ -4,7 +4,16 @@ import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { isAdminUser } from "@/lib/lists";
 import { ForbiddenError } from "@/lib/guard";
-import { rotationResumeAt, toSchedulerConfig, type Slot } from "@/lib/scheduler";
+import {
+  rotationResumeAt,
+  toSchedulerConfig,
+  noRestDays,
+  alignToSlot,
+  pickNextSlot,
+  type Slot,
+} from "@/lib/scheduler";
+import { blockLead } from "@/lib/donotcall";
+import type { CallbackCancelReason, NoReason } from "@/generated/prisma/client";
 
 /**
  * Återkomster — läsning och rättelser.
@@ -294,17 +303,249 @@ export async function snoozeCallback(id: string, minutes: number) {
   return rescheduleCallback(id, new Date(Date.now() + safe * 60_000).toISOString());
 }
 
-/** Avboka. Leadet går tillbaka i den vanliga rotationen. */
-export async function cancelCallback(id: string) {
-  const { cb } = await requireCallbackAccess(id);
+export interface CancelCallbackInput {
+  reason: CallbackCancelReason;
+  /** Obligatorisk när `reason` är `SA_NEJ`. */
+  noReason?: NoReason | null;
+  /** Fritext, syns i aktivitetsloggen på bolaget. */
+  note?: string | null;
+}
+
+/**
+ * Släpp löftet — med ett utfall.
+ *
+ * ## Varför knappen inte längre är ett klick
+ *
+ * `Avboka` gjorde tidigare två saker: satte raden till CANCELLED och lät
+ * `syncLeadFromCallbacks` lägga tillbaka bolaget i rotationen på den vila det
+ * redan hade tjänat ihop. På ett bolag vars senaste samtal var `CONNECTED_DM`
+ * — alltså varje bolag där någon bokat en återkomst — betyder det
+ * `retryHoursNoAnswer`, **tjugo timmar**.
+ *
+ * Sa kunden "nej tack, sluta ringa" när säljaren följde upp löftet, och
+ * säljaren avbokade i stället för att registrera samtalet, låg bolaget alltså
+ * tillbaka i hela golvets däck dagen efter. Beskedet från kunden fanns i
+ * huvudet på en säljare och ingenstans i datan. Det är samma slutresultat som
+ * felet migration 024 lagade, via en annan knapp.
+ *
+ * En avbokning är ett **beslut om bolaget**, inte en städning av en lista.
+ * Skälet är därför obligatoriskt, och det styr vad som händer med leadet:
+ * exakt samma tillstånd som motsvarande utfall i dispositionen ger. Annars är
+ * avbokningen en andra, tystare väg förbi rotationens regler.
+ *
+ * | Skäl | Leadet |
+ * |---|---|
+ * | `SA_NEJ` | Vilar `noRestDays` (60 dagar), `lastOutcome = DM_NO` |
+ * | `BORTFALL` | Pensionerat **och** spärrlistat på org-numret |
+ * | `FEL_NUMMER` | Pensionerat, som `WRONG_NUMBER` |
+ * | `FELBOKAD` | Tillbaka i rotationen — det gamla beteendet |
+ *
+ * ## Inget samtal skrivs
+ *
+ * Ingen `CallAttempt`, med flit. Den tabellen är statistikens nämnare: en
+ * avbokning som blev ett samtal hade sänkt svarsfrekvensen, höjt dagsmålet och
+ * räknats i coachningen, för ett samtal som aldrig ringdes. Samma skäl som
+ * "Inget telefonnummer" ligger utanför `CallResult`. Spåret för en människa
+ * skrivs i stället i `Activity`, där lead-sidan läser det.
+ *
+ * ## `FELBOKAD` finns för att den måste finnas
+ *
+ * Ett skäl som betyder "inget besked om bolaget" måste vara ett av
+ * alternativen. Utan en ärlig utväg väljer säljaren ett falskt skäl för att
+ * komma vidare, och då är en obligatorisk fråga värre än ingen fråga alls:
+ * datan ser fullständig ut och är fel.
+ */
+export async function cancelCallback(id: string, input: CancelCallbackInput) {
+  const { user, cb } = await requireCallbackAccess(id);
+
+  const reason = input.reason;
+  // Ett nej utan anledning går inte att räkna på, och `noRestDays` behöver den
+  // för att veta om "vill inte prata med säljare" ska förlänga vilan.
+  const noReason = reason === "SA_NEJ" ? input.noReason ?? null : null;
+  if (reason === "SA_NEJ" && !noReason) {
+    throw new Error("Välj varför kunden sa nej");
+  }
+
+  const now = new Date();
+  const note = input.note?.trim() || null;
 
   await db.callback.update({
     where: { id },
-    data: { status: "CANCELLED", cancelledAt: new Date() },
+    data: {
+      status: "CANCELLED",
+      cancelledAt: now,
+      cancelReason: reason,
+      cancelNoReason: noReason,
+      cancelledById: user.id,
+    },
   });
 
+  // Terminalt: bolaget är ur spel, och då stängs allas löften på det — samma
+  // regel som `terminalReason` i dispositionen. En rad som låg kvar hade
+  // skickat en kollega till en stängd dörr.
+  const terminal = reason === "BORTFALL" || reason === "FEL_NUMMER";
+  if (terminal) {
+    await db.callback.updateMany({
+      where: { leadId: cb.leadId, status: "PENDING" },
+      data: {
+        status: "CANCELLED",
+        cancelledAt: now,
+        cancelReason: reason,
+        cancelledById: user.id,
+      },
+    });
+
+    // Spärren FÖRE pensioneringen, samma ordning som "Inget telefonnummer":
+    // `blockLead` läser org-numret ur leadet, och den nyckeln är den enda som
+    // överlever en omimport.
+    if (reason === "BORTFALL") {
+      await blockLead({
+        leadId: cb.leadId,
+        userId: user.id,
+        reason: note || "Bortfall — bolaget vill inte bli kontaktat",
+      });
+    }
+
+    await db.lead.update({
+      where: { id: cb.leadId },
+      data: {
+        retired: true,
+        retiredReason: reason === "BORTFALL" ? "bortfall" : "fel_nummer",
+        callbackAt: null,
+        nextActionAt: null,
+        claimedAt: null,
+      },
+    });
+    await logCancellation(cb.leadId, user.id, reason, noReason, note);
+    return { ok: true };
+  }
+
+  if (reason === "SA_NEJ") {
+    // Finns ett annat löfte kvar på bolaget vinner det. Ett lovat samtal
+    // rankar över vilan — samma prioritering som migration 022 höll när nej-
+    // vilan backfillades och de fyra med öppen återkomst lämnades orörda.
+    const remaining = await db.callback.findFirst({
+      where: { leadId: cb.leadId, status: "PENDING" },
+      select: { id: true },
+    });
+
+    if (!remaining) {
+      const [cfg, slots] = await Promise.all([
+        db.dialerConfig.findUnique({ where: { id: "singleton" } }),
+        db.callSlot.findMany({ where: { active: true }, orderBy: { order: "asc" } }),
+      ]);
+
+      // Saknas konfigurationen går vilan inte att räkna, och då skrivs den
+      // inte. `nextActionAt = NULL` betyder "aldrig ringt", inte "vilar" —
+      // och `ORDER BY nextActionAt ASC` sorterar NULL FÖRST i SQLite, så ett
+      // nej hade landat allra överst i hela golvets däck. Det är exakt felet
+      // `syncLeadFromCallbacks` gjorde fram till 2026-08-26. Hellre den gamla,
+      // kortare vilan än ett bolag i toppen av kön.
+      const config = cfg ? toSchedulerConfig(cfg) : null;
+      if (!config) {
+        await db.lead.update({
+          where: { id: cb.leadId },
+          data: { lastOutcome: "DM_NO", lastNoReason: noReason },
+        });
+        await syncLeadFromCallbacks(cb.leadId);
+        await logCancellation(cb.leadId, user.id, reason, noReason, note);
+        return { ok: true };
+      }
+
+      // Vilan räknas från NU, inte från `lastAttemptAt`. Nejet är ny
+      // information i det här ögonblicket — det kom inte i samtalet som bokade
+      // återkomsten, för då hade det registrerats där. Att räkna från det
+      // gamla samtalet hade gett en kortare vila ju längre löftet legat.
+      const rest = new Date(now);
+      rest.setDate(rest.getDate() + noRestDays(noReason, config));
+      const slot = pickNextSlot(slots as Slot[], [], rest);
+      const nextActionAt = alignToSlot(rest, slot, config.blockedDates);
+
+      await db.lead.update({
+        where: { id: cb.leadId },
+        data: {
+          callbackAt: null,
+          nextActionAt,
+          // Låset skyddar en relation, och ett nej är ingen relation.
+          claimedAt: null,
+          // Speglas hit av samma skäl som dispositionen speglar dem: däcket och
+          // mappvyn ska kunna säga "Sa nej" i stället för "Vilar", och
+          // `rotationResumeAt` ska kunna räkna om vilan utan att gå till
+          // CallAttempt-historiken. Utan raden nedan hade nästa avbokning på
+          // bolaget lagt det tillbaka på tjugo timmar.
+          lastOutcome: "DM_NO",
+          lastNoReason: noReason,
+        },
+      });
+      await logCancellation(cb.leadId, user.id, reason, noReason, note);
+      return { ok: true };
+    }
+  }
+
+  // FELBOKAD, och SA_NEJ med ett annat löfte kvar: det gamla beteendet.
   await syncLeadFromCallbacks(cb.leadId);
+  await logCancellation(cb.leadId, user.id, reason, noReason, note);
   return { ok: true };
+}
+
+/** Etiketterna som står i aktivitetsloggen. Samma ord som knapparna. */
+const CANCEL_LABELS: Record<CallbackCancelReason, string> = {
+  SA_NEJ: "Kunden sa nej",
+  BORTFALL: "Vill inte bli kontaktad",
+  FEL_NUMMER: "Fel nummer",
+  FELBOKAD: "Felbokad återkomst",
+};
+
+const NO_REASON_LABELS: Record<NoReason, string> = {
+  PRIS: "Pris",
+  TIMING: "Timing",
+  HAR_BYRA: "Har byrå",
+  HAR_INHOUSE: "Har inhouse",
+  INGET_BEHOV: "Inget behov",
+  NOJD_MED_ANNAN: "Nöjd med annan",
+  NEJ_INNAN_PITCH: "Sa nej innan pitch",
+  VILL_EJ_PRATA_SALJARE: "Vill inte prata med säljare",
+};
+
+/**
+ * Spåret en människa kan läsa.
+ *
+ * Lead-sidan renderar `Activity`, inte `Callback`. Utan den här raden var en
+ * släppt återkomst osynlig där: bolaget bytte bara tillstånd, och nästa
+ * säljare som öppnade det såg en vila utan att kunna se varför den fanns.
+ *
+ * Kastar aldrig. En logg som fallerar får inte fälla ett beslut som redan är
+ * skrivet — leadet är i så fall redan i rätt tillstånd, och det är det som
+ * skyddar kunden.
+ */
+async function logCancellation(
+  leadId: string,
+  userId: string,
+  reason: CallbackCancelReason,
+  noReason: NoReason | null,
+  note: string | null
+) {
+  const label = noReason
+    ? `${CANCEL_LABELS[reason]} — ${NO_REASON_LABELS[noReason]}`
+    : CANCEL_LABELS[reason];
+  try {
+    await db.activity.create({
+      data: {
+        type: "STATUS_CHANGE",
+        leadId,
+        actorId: userId,
+        // Samma form som CALL-raderna redan har — { status, notes } — så att
+        // LeadDetail och LeadHistory renderar den utan att veta att den finns.
+        // Svenska etiketter av samma skäl: loggen läses av människor.
+        metadata: JSON.stringify({
+          status: `Återkomst släppt: ${label}`,
+          notes: note,
+        }),
+      },
+    });
+  } catch {
+    // Se doc-kommentaren.
+  }
 }
 
 /** Slå på eller av mejlpåminnelsen i efterhand. */
