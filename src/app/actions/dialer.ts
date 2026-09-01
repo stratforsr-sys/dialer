@@ -7,7 +7,7 @@ import { canAccessList, claimCutoff, isAdminUser } from "@/lib/lists";
 import { computeNext, slotAt, toSchedulerConfig, type Slot } from "@/lib/scheduler";
 import { resolveScript, firstNameOf, type ResolverVariant } from "@/lib/script-resolver";
 import { getActiveScripts } from "@/app/actions/scripts";
-import { RESULT_LABELS, OUTCOME_OPTIONS, REASON_OPTIONS } from "@/lib/cockpit-flow";
+import { RESULT_LABELS, OUTCOME_OPTIONS, REASON_OPTIONS, isConnected } from "@/lib/cockpit-flow";
 import { findPendingCall, linkAttemptToCall } from "@/lib/telephony/link";
 import { hourOfDay, weekdayOf, formatTime, formatDate, formatWhen } from "@/lib/time";
 import type {
@@ -1367,21 +1367,60 @@ export async function recordAttempt(input: RecordAttemptInput) {
   // det såg återkomsten försvinna ur klockan utan att ha ringt. Åtta av nio
   // stängda återkomster i produktion stängdes så, sju av dem före utsatt tid.
   //
-  // Tre regler i stället:
+  // Fyra regler i stället:
   //
-  //   1. **Mitt samtal stänger mina förfallna löften.** Tiden var inne och jag
-  //      ringde — det är exakt vad raden bad om.
+  //   1. **Mitt samtal stänger mina förfallna löften — men bara om någon
+  //      svarade.** Se regel 4.
   //   2. **Bokar jag en ny stänger den mina övriga på bolaget**, oavsett tid.
   //      Två öppna löften på samma bolag är alltid ett fel.
   //   3. **Ett terminalt utfall stänger allas.** Sålt, fel nummer eller
   //      ogiltigt nummer — det finns inget kvar att ringa om, och en rad som
   //      låg kvar hade skickat en säljare till ett bolag som är ur spel.
+  //   4. **Svarade ingen är löftet inte infriat.** Det flyttas fram i stället
+  //      för att stängas.
   //
   // Kvar står: en kollegas samtal rör inte mitt löfte, och ett samtal före
   // utsatt tid rör inte ett löfte som fortfarande ligger i framtiden.
   //
+  // ## Regel 4 — varför den fanns inte, och vad det kostade (rättat 2026-09-01)
+  //
+  // Regel 1 stod tidigare utan förbehåll: "tiden var inne och jag ringde —
+  // det är exakt vad raden bad om." Men *ringde* är inte *nådde fram*. Ett
+  // `NO_ANSWER` på en förfallen återkomst stängde löftet som COMPLETED, och
+  // därifrån föll bolaget rakt ut i golvet:
+  //
+  //   - Raden blev COMPLETED och försvann ur klockan — och ur chefsvyn.
+  //     Löftesgivaren hade ingenting kvar som påminde om att ringa igen.
+  //   - `claimsLead(null)` är falsk, så `claimedAt` nollades i samma skrivning.
+  //     Låset som skyddade det personliga löftet försvann med löftet.
+  //   - Däckets återkomstvillkor (`NOT EXISTS … status='PENDING'`) släppte
+  //     bolaget fritt, och `nextActionAt` sattes till `retryHoursNoAnswer` —
+  //     tjugo timmar.
+  //
+  // Nettot: en kund som bett en namngiven säljare ringa tillbaka låg dagen
+  // efter i hela golvets däck, utan lås, utan löfte och utan spår i
+  // återkomstlistan. Precis det golvet rapporterade: *"en säljare har tryckt
+  // in ring igen och sen har en annan säljare fått upp det, och jag hittar
+  // inte kunden på golvets återkomster."*
+  //
+  // Mätt i produktionsdatan 2026-09-01: av 196 stängda återkomster stängdes
+  // **36 av ett samtal där ingen svarade** — 35 `NO_ANSWER` och en som fastnade
+  // i växeln. Alla 36 låg med `claimedAt = NULL` och en `nextActionAt` ett
+  // dygn senare, alltså tillbaka i den gemensamma rotationen.
+  //
+  // Löftet flyttas nu fram till `nextActionAt` i stället: samma tidpunkt som
+  // leadet ändå skulle ringts, men raden förblir PENDING och bunden till den
+  // som lovade. Bolaget stannar utanför däcket, ligger kvar i klockan, och
+  // `emailSentAt`/`seenAt` nollställs så att påminnelsen gäller den nya tiden
+  // — samma nollställning som `rescheduleCallback` gör.
+  //
+  // Ett löfte lämnar alltså fortfarande klockan på exakt två sätt: det ringdes
+  // *och någon svarade*, eller det avbokades. Ett signal i luren är ingen av
+  // dem.
+  //
   // Ordningen är avgörande: stäng gamla FÖRE den nya skapas, annars stänger
   // satsen omedelbart den återkomst som just bokades.
+  //
   // Dispositionen kan peka ut raden den svarar på (klockan gör det). Den
   // stängs då oavsett klockslag — men bara om den faktiskt hör till det här
   // leadet och till den som ringer. Ett id från klienten är ett önskemål,
@@ -1397,7 +1436,8 @@ export async function recordAttempt(input: RecordAttemptInput) {
     }
   }
 
-  const closeWhere: Prisma.CallbackWhereInput = decision.retired
+  /** Löftena det här samtalet svarar på — de som ska stängas eller flyttas. */
+  const touchedPromises: Prisma.CallbackWhereInput = decision.retired
     ? { leadId: input.leadId, status: "PENDING" }
     : {
         leadId: input.leadId,
@@ -1406,7 +1446,7 @@ export async function recordAttempt(input: RecordAttemptInput) {
           // Den utpekade raden.
           ...(answeredId ? [{ id: answeredId }] : []),
           // Mina egna som förfallit. Ringer jag bolaget efter att tiden gått
-          // ut är löftet infriat även om jag kom in via däcket.
+          // ut är det mitt löfte jag svarar på, även om jag kom in via däcket.
           {
             sellerId: user.id,
             ...(decision.callbackAt ? {} : { scheduledAt: { lte: now } }),
@@ -1414,16 +1454,50 @@ export async function recordAttempt(input: RecordAttemptInput) {
         ],
       };
 
-  writes.push(
-    db.callback.updateMany({
-      where: closeWhere,
-      data: {
-        status: "COMPLETED",
-        completedAt: now,
-        completedOnAttemptId: attempt.id,
-      },
-    })
-  );
+  /**
+   * Står löftet kvar efter det här samtalet?
+   *
+   * Bara när ingen svarade OCH ingen ny tid bokats OCH leadet inte
+   * pensionerats. Bokas en ny tid ersätter den den gamla (regel 2); ett
+   * terminalt utfall stänger allt (regel 3); svarade någon är löftet infriat
+   * (regel 1).
+   */
+  const keepPromise =
+    !decision.retired && !decision.callbackAt && !isConnected(input.result);
+
+  if (keepPromise) {
+    // Ingen svarade. Samma rader som annars hade stängts flyttas fram till den
+    // tid leadet ändå ska ringas — löftet är inte infriat, bara oringt.
+    //
+    // `nextActionAt` är null bara för terminala utfall och de är undantagna
+    // ovan, men fallbacken står kvar: hellre en timme fram än en rad som
+    // ligger kvar förfallen för alltid om beslutet någon gång ändras.
+    const pushTo =
+      decision.nextActionAt ?? new Date(now.getTime() + 3600_000);
+    writes.push(
+      db.callback.updateMany({
+        where: touchedPromises,
+        data: {
+          scheduledAt: pushTo,
+          // Ny tid, ny påminnelse och ny kvittering — annars kommer mejlet
+          // aldrig för den framflyttade tiden och raden ser redan sedd ut.
+          emailSentAt: null,
+          seenAt: null,
+        },
+      })
+    );
+  } else {
+    writes.push(
+      db.callback.updateMany({
+        where: touchedPromises,
+        data: {
+          status: "COMPLETED",
+          completedAt: now,
+          completedOnAttemptId: attempt.id,
+        },
+      })
+    );
+  }
 
   if (decision.callbackAt) {
     writes.push(
@@ -1498,11 +1572,24 @@ export async function recordAttempt(input: RecordAttemptInput) {
   // ligger i framtiden. Skrev vi då `callbackAt = null` skulle bolaget serveras
   // enligt rotationen i stället för på den lovade tiden, och löftet vore kvar
   // i klockan men borta ur däcket.
+  //
+  // Låset följer med löftet, åt båda hållen. `claimedAt` nollställdes i
+  // transaktionen ovan eftersom `claimsLead` bara känner till utfallet — den
+  // vet inte att en öppen återkomst finns kvar. Står ett löfte kvar ska
+  // bolaget vara låst till den som gav det, oavsett vad det här samtalet
+  // slutade i och oavsett vem som ringde det.
+  //
+  // Det är samma regel som `syncLeadFromCallbacks` i callbacks.ts tillämpar
+  // åt andra hållet: försvinner sista löftet försvinner låset. Utan den här
+  // halvan gällde den bara vid avbokning, och ett framflyttat löfte (regel 4
+  // ovan) hade legat kvar utan lås — skyddat av däckets återkomstvillkor, men
+  // osynligt som "någons bolag" i mappvyn, på lead-sidan och i varningen från
+  // `leaseSpecificLead`.
   if (!decision.callbackAt && !decision.retired) {
     const remaining = await db.callback.findFirst({
       where: { leadId: input.leadId, status: "PENDING" },
       orderBy: { scheduledAt: "asc" },
-      select: { scheduledAt: true },
+      select: { scheduledAt: true, sellerId: true },
     });
     if (remaining) {
       await db.lead.update({
@@ -1510,6 +1597,10 @@ export async function recordAttempt(input: RecordAttemptInput) {
         data: {
           callbackAt: remaining.scheduledAt,
           nextActionAt: remaining.scheduledAt,
+          // Löftesgivaren, inte den som råkade ringa. Ringde en kollega in i
+          // bolaget via sökningen ska det fortfarande vara löftesgivarens.
+          ownerId: remaining.sellerId,
+          claimedAt: now,
         },
       });
     }

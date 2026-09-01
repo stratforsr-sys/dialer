@@ -20,18 +20,33 @@ import { rotationResumeAt, toSchedulerConfig, type Slot } from "@/lib/scheduler"
  * flyttats i klockan men inte på leadet hade serverats på den gamla tiden.
  */
 
-/** Hur långt fram klockan tittar. Längre än så är inte en notis, det är en lista. */
-const HORIZON_DAYS = 7;
 /**
- * Missade har inget golv.
+ * Varken golv eller tak.
  *
- * Här låg tidigare en gräns på 30 dagar: äldre än så föll ur klockan. Den var
- * tänkt som ett skydd mot en lista som växer, men den gjorde samma sak som
- * buggen i dispositionen — den lät ett löfte försvinna av sig självt. En
- * återkomst lämnar klockan på två sätt: den ringdes, eller den avbokades.
- * Ingen tredje väg, och tiden är ingen av dem.
+ * Här låg först en gräns nedåt på 30 dagar: äldre än så föll ur klockan. Den
+ * togs bort — den lät ett löfte försvinna av sig självt, precis som buggen i
+ * dispositionen. En återkomst lämnar klockan på två sätt: den ringdes, eller
+ * den avbokades. Ingen tredje väg, och tiden är ingen av dem.
+ *
+ * Kvar stod ett tak: `scheduledAt <= nu + 7 dagar`. Samma fel, andra hållet,
+ * och det bet 2026-09-01. Chefsvyn ("golvets återkomster") delar den här
+ * frågan med klockan, och taket gjorde den ofullständig: **50 av 251 öppna
+ * återkomster gick inte att se någonstans i systemet** eftersom de låg mer än
+ * en vecka fram. En chef som söker efter ett bolag i den vyn och inte hittar
+ * det drar slutsatsen att löftet inte finns — vilket var precis vad som
+ * rapporterades.
+ *
+ * Taket ligger nu i klockorna i stället, där det hör hemma. Cockpitens klocka
+ * filtrerade redan lokalt på "dags inom fem minuter" och påverkas inte alls;
+ * sidomenyns klocka räknar bara missade och aktuella i sin siffra, så en
+ * längre "Kommande"-lista gör den inte högljuddare. Vyerna får välja vad de
+ * visar. Frågan ska svara sant.
+ *
+ * `MAX_ROWS` höjt från 200: med taket borta är 200 en tyst avhuggning av
+ * `ORDER BY scheduledAt ASC`, alltså av de löften som ligger längst fram —
+ * exakt de som taket redan dolde. 251 öppna idag.
  */
-const MAX_ROWS = 200;
+const MAX_ROWS = 500;
 
 export interface CallbackRow {
   id: string;
@@ -133,14 +148,11 @@ export async function listCallbacks(
   const admin = isAdminUser(user);
   const effective: "mine" | "floor" = scope === "floor" && admin ? "floor" : "mine";
 
-  const now = new Date();
-  const horizon = new Date(now.getTime() + HORIZON_DAYS * 86_400_000);
-
   const rows = await db.callback.findMany({
     where: {
       status: "PENDING",
-      // Bara ett tak, inget golv. Allt som förfallit ligger kvar.
-      scheduledAt: { lte: horizon },
+      // Varken golv eller tak — se MAX_ROWS. Allt som är öppet ligger kvar,
+      // hur långt fram eller hur långt tillbaka det än ligger.
       ...(effective === "mine" ? { sellerId: user.id } : {}),
     },
     select: ROW_SELECT,

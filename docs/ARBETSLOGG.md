@@ -13,7 +13,133 @@ Nyast först.
 
 ---
 
-## 2026-08-28 (sist) — Bortfall: spärrlistan får äntligen en skrivväg
+## 2026-09-01 (sist) — Ett obesvarat samtal räknades som ett infriat löfte
+
+Rapporterat från golvet: *"en säljare har tryckt in 'ring igen' och sen har en
+annan säljare fått upp det fast det inte är hans kund. När jag letar på
+återkomster 'golvets återkomster' hittar jag inte heller kunden där."*
+
+Båda halvorna stämde, och de var **två separata fel** som råkade ge samma bild.
+
+### 1. Löftet stängdes av att telefonen ringde, inte av att någon svarade
+
+`recordAttempt` stängde säljarens egna förfallna återkomster på varje samtal,
+med motiveringen *"tiden var inne och jag ringde — det är exakt vad raden bad
+om."* Men **ringde är inte nådde fram.** Ett `NO_ANSWER` på en förfallen
+återkomst markerade löftet som COMPLETED, och därifrån föll bolaget ut i golvet
+i tre steg som alla utlöstes av samma skrivning:
+
+- Raden blev COMPLETED och försvann ur klockan — och ur chefsvyn. Löftesgivaren
+  hade inget kvar som påminde om att ringa igen.
+- `claimsLead(null)` är falsk, så `claimedAt` nollades i samma `lead.update`.
+  Låset som fanns för att skydda just det personliga löftet försvann med det.
+- Däckets `NOT EXISTS (… status='PENDING')` släppte bolaget fritt, och
+  `nextActionAt` sattes till `retryHoursNoAnswer` — **20 timmar**.
+
+Nettot: en kund som bett en namngiven säljare ringa tillbaka låg dagen efter i
+hela golvets däck, utan lås, utan löfte och utan spår någonstans.
+
+Det lömska är att felet **bara triggas av misslyckade samtal**. Ringde säljaren
+och fick svar stängdes löftet korrekt. Ringde hen och ingen svarade — det
+vanligaste utfallet i hela systemet — förlorades bolaget. Buggen bet alltså
+hårdast på de löften som krävde flest försök.
+
+### Mätt i produktionsdatan
+
+| | |
+|---|---|
+| Stängda återkomster totalt | 196 |
+| — varav stängda av ett samtal **där ingen svarade** | **36** |
+| — varav `NO_ANSWER` | 35 |
+| — varav växeln kopplade vidare (korrekt stängd) | 1 |
+| Alla 36 med `claimedAt = NULL` efteråt | ja |
+| Alla 36 med `nextActionAt` ~ett dygn senare | ja |
+
+Fördelningen av hur de 196 stängdes säger var hålet satt: `CONNECTED_DM` 152
+(korrekt), `WRONG_NUMBER`/`BORTFALL` 8 (terminalt, korrekt), **`NO_ANSWER` 35**.
+
+Kontrollerat samtidigt, och rent: **0 återkomster stängda av fel säljare** (det
+var buggen 13 augusti, och migration 016 håller), **0 leads utlånade till någon
+annan än löftesgivaren medan löftet var öppet**, och **0 samtal där leadets
+uppdatering uteblivit** — transaktionen i `recordAttempt` har aldrig fallit
+halvvägs. Skyddet fungerar så länge löftet finns. Felet var att löftet
+försvann.
+
+### Lösningen: löftet flyttas fram, det stängs inte
+
+Ny regel 4 i återkomstavsnittet: svarade ingen (`!isConnected(result)`), bokades
+ingen ny tid och pensionerades inte leadet, så **flyttas** raden fram till
+leadets `nextActionAt` i stället för att stängas. Samma tidpunkt som bolaget
+ändå skulle ringts — men raden förblir PENDING, bunden till den som lovade, och
+bolaget ligger kvar utanför däcket. `emailSentAt` och `seenAt` nollas, samma
+nollställning som `rescheduleCallback` gör: ny tid, ny påminnelse.
+
+Ett löfte lämnar alltså fortfarande klockan på exakt två sätt — det ringdes
+**och någon svarade**, eller det avbokades. En signal i luren är ingen av dem.
+
+Låset fick samma behandling åt andra hållet. `claimsLead` ser bara utfallet och
+kan inte veta att en återkomst står kvar, så efterspelet i `recordAttempt` — det
+som redan läste kvarvarande PENDING-rader för att skriva om `callbackAt` —
+skriver nu också tillbaka `claimedAt` och `ownerId` till **löftesgivaren**.
+Strängt taget behövs det inte för att skydda bolaget (däckets filter gör redan
+det), men utan det ser bolaget oägt ut i mappvyn, på lead-sidan och i varningen
+från `leaseSpecificLead`. Invarianten "öppet löfte ⇒ låst till löftesgivaren"
+ska gälla i datan, inte bara i koden.
+
+### 2. Chefsvyn kunde inte visa det den frågades om
+
+`listCallbacks` hade `scheduledAt <= nu + 7 dagar`. Kommentaren sa *"bara ett
+tak, inget golv"* — golvet hade tagits bort en gång just för att det lät löften
+försvinna av sig självt. **Taket gjorde exakt samma sak, åt andra hållet**, och
+chefsvyn "golvets återkomster" delar frågan med klockan: **50 av 251 öppna
+återkomster gick inte att se någonstans i systemet.**
+
+En chef som söker efter ett bolag i den vyn och inte hittar det drar slutsatsen
+att löftet inte finns. Det var precis vad som rapporterades — och i det här
+fallet råkade det vara sant av den *andra* anledningen, vilket är varför de två
+felen såg ut som ett.
+
+Taket ligger nu i vyerna där det hör hemma: cockpitklockan filtrerade redan
+lokalt på "dags inom fem minuter" och påverkas inte alls, sidomenyns räknare
+räknar bara missade och aktuella, så en längre "Kommande"-lista gör den inte
+högljuddare. `MAX_ROWS` höjt 200 → 500: med taket borta hade 200 blivit en tyst
+avhuggning av `ORDER BY scheduledAt ASC`, alltså av precis de löften taket redan
+dolde.
+
+### Läkning av datan
+
+`024_lakning_obesvarade_aterkomster.sql` öppnade **33 av de 36** igen, på den
+tid dispositionen redan räknat fram (`Lead.nextActionAt`) — exakt vad den
+rättade koden hade skrivit. 31 av dem är förfallna och ligger nu överst i
+klockan hos sin säljare, vilket är rätt: löftet är försenat, inte borta.
+`ownerId` och `claimedAt` gick tillbaka till löftesgivaren.
+
+Tre lämnades med flit: två har ett **nyare samtal** bakom sig (att öppna ett
+löfte bakom ett senare samtal vore att skriva om historien) och ett ligger på
+ett **pensionerat** bolag.
+
+Efteråt: `Lead.callbackAt` ↔ öppen `Callback` stämmer i **båda** riktningarna,
+0 avvikelser, och alla tidsstämplar bär fortfarande formatet på 29 tecken.
+
+### Öppna punkter
+
+- **23 öppna löften saknar lås** (`claimedAt IS NULL`). Alla från 12–18 augusti,
+  de flesta lovade av en sedan dess borttagen användare. De är skyddade av
+  däckets återkomstfilter men syns inte som någons bolag i mappvyn. Gammal
+  skuld, inte ny — den nya koden skriver tillbaka låset vid nästa disposition.
+- **En avbruten bokningsruta lämnar inget spår.** Trycker säljaren `2 Ring
+  igen`, får upp tidsrutan och sedan backar, laddar om eller byter bolag med
+  ⌘K, skrivs ingenting alls — inget samtal, inget löfte, inget lås. Bolaget
+  ligger kvar i däcket för hela golvet och säljaren tror att hen registrerat
+  något. Går inte att mäta i efterhand (det finns per definition ingen rad), och
+  är den enda kvarvarande vägen till symptomet som rapporterades.
+- **Vlado avbokade 37 egna förfallna återkomster på fem minuter** i morse. Helt
+  legitimt, men värt att veta: en avbokning släpper bolaget till hela golvet
+  direkt (minus vilan). Det är avsiktligt.
+
+---
+
+## 2026-08-28 — Bortfall: spärrlistan får äntligen en skrivväg
 
 Beställt direkt efter nej-buggen: *"jag vill ha ett utfall som heter bortfall
 då spärras kunden helt, och gör 'inget nummer' samma sak som bortfall."*

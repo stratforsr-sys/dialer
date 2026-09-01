@@ -257,7 +257,12 @@ Rör man den ena måste man röra den andra (`syncLeadFromCallbacks` i
 `src/app/actions/callbacks.ts`).
 
 - **Missad är inget lagrat status.** Det är `PENDING` med en tid som passerat.
-  Den ligger kvar hur länge som helst — klockan har tak men inget golv.
+  Den ligger kvar hur länge som helst — `listCallbacks` har **varken tak eller
+  golv**. Taket på sju dagar togs bort 2026-09-01: chefsvyn ("golvets
+  återkomster") delar frågan med klockan, och taket gjorde den ofullständig —
+  50 av 251 öppna återkomster gick inte att se någonstans i systemet. Vyerna
+  filtrerar själva (cockpitklockan visar bara det som är dags inom fem minuter,
+  sidomenyns räknare bara missade och aktuella). Frågan ska svara sant.
 - **Bokningen sker i `recordAttempt`**, i samma transaktion som samtalet.
 - **`sellerId` är den som lovade**, inte `Lead.ownerId` — ägarskapet byter hand
   vid nästa disposition, påminnelsen ska ändå gå till rätt person.
@@ -270,11 +275,26 @@ försvinner löften tyst, och det är precis vad som hände fram till 2026-08-13
 åtta av nio stängda återkomster stängdes av fel person, sju av dem före utsatt
 tid. Två mekanismer håller regeln:
 
-- **`recordAttempt` stänger bara den ringande säljarens egna, förfallna rader.**
-  Bokas en ny stängs alla mina på bolaget oavsett tid (två löften på samma bolag
-  är alltid fel). Ett terminalt utfall — sålt, fel nummer, ogiltigt nummer —
-  stänger allas: det finns inget kvar att ringa om. En kollegas samtal rör
-  aldrig mitt löfte.
+- **`recordAttempt` stänger bara den ringande säljarens egna, förfallna rader —
+  och bara om någon svarade.** Bokas en ny stängs alla mina på bolaget oavsett
+  tid (två löften på samma bolag är alltid fel). Ett terminalt utfall — sålt,
+  fel nummer, ogiltigt nummer — stänger allas: det finns inget kvar att ringa
+  om. En kollegas samtal rör aldrig mitt löfte.
+- **Svarade ingen är löftet inte infriat.** Ett `NO_ANSWER` på en förfallen
+  återkomst **flyttar fram** raden till leadets `nextActionAt` i stället för att
+  stänga den; `emailSentAt` och `seenAt` nollas så att påminnelsen gäller den
+  nya tiden. Fram till 2026-09-01 stängdes den som COMPLETED, och då föll allt
+  ihop på en gång: raden försvann ur klockan *och* ur chefsvyn, `claimsLead`
+  nollade `claimedAt` eftersom utfallet var tomt, och däckets återkomstfilter
+  släppte bolaget fritt med 20 timmars vila. En kund som bett en namngiven
+  säljare ringa tillbaka låg dagen efter i hela golvets däck. **36 av 196
+  stängda återkomster hade stängts så**; migration 024 öppnade de 33 som gick
+  att laga.
+- **Ett öppet löfte är alltid låst till löftesgivaren.** `claimsLead` ser bara
+  utfallet och vet inte att en återkomst står kvar, så `recordAttempt` skriver
+  tillbaka `claimedAt` och `ownerId` efter transaktionen när det finns en
+  PENDING-rad kvar på leadet. Samma regel som `syncLeadFromCallbacks` tillämpar
+  åt andra hållet: försvinner sista löftet försvinner låset.
 - **Ett bolag med öppen återkomst ligger UTANFÖR däcket.** `leaseNextLeads`
   filtrerar bort det helt — inte "sist i kön", inte "bara till den som lovade".
   Ingen får det serverat av rotationen, inte löftesgivaren själv och inte en
