@@ -13,7 +13,79 @@ Nyast först.
 
 ---
 
-## 2026-09-01 (sist) — Affären är säljarens att skapa, inte att skriva om
+## 2026-09-03 (sist) — Manuset var byggt för en struktur ingen använde
+
+Beställt: *"När jag trycker på 'nytt utkast' så hoppar den mellan olika manusar.
+Sen måste jag också kunna ta bort manus, det finns ingen ta bort knapp. Sen är
+strukturen konstigt, vissa står inaktiva … och sen får de flera manusar på en
+ringlista."*
+
+Fyra fel, och de hängde ihop.
+
+**Hoppet.** Varje mutation i manusvyn slutade med `window.location.reload()`.
+Efter omladdningen initierades markeringen till `templates[0]?.id` — alltid
+*första* manuset i listan, aldrig det man arbetade i. "Skapa", "Publicera",
+"Nytt utkast" och byte av mapp hoppade därför alla till fel manus. Markeringen
+ligger nu i `?manus=<id>` och mutationerna kör `router.refresh()`, som hämtar ny
+serverdata utan att kasta klientens tillstånd. **Lägg aldrig tillbaka en
+`window.location.reload()` i en vy som har en markering.**
+
+**Ta bort-knappen fanns inte, och inte heller av/på.** `deleteTemplate` och
+`setTemplateActive` låg i `actions/scripts.ts` men anropades inte från någon
+komponent — död kod sedan de skrevs. Enda vägen in i `active = false` var
+`deleteList`, och det fanns ingen väg ut. Tre manus i produktion låg avstängda
+utan att någon kunde slå på dem.
+
+**De inaktiva var föräldralösa.** `deleteList` stänger av mappens manus innan
+mappen raderas, och FK:n nollar `listId`. Mapparna importerades sedan om under
+samma namn men med **nya id:n**, så manusen blev kvar med ett namn som pekade på
+en mapp som formellt inte fanns. `deleteList` arkiverar dem numera i stället, så
+de hamnar i arkivsektionen och går att läsa och ta fram.
+
+**Dubbletten på ringlistan var den verkliga strukturkrocken.** Verktyget är
+byggt för *ett stycke per ramverkssteg*; i praktiken skrivs *ett helt manus per
+kampanj*, som klistras in i en enda variant och hamnar under ett godtyckligt
+steg. Alla fyra manus i databasen började med "1. INTRO — Hej, du pratar med
+Adam", inklusive det som låg under steget `ROI`. Mappregeln matchade på steg, så
+en säljare i `hantverkare_5000_alla` fick mappens ROI-manus **och** det allmänna
+INTRO-manuset: samma text två gånger, under två rubriker.
+
+**Regeln är nu per mapp, inte per steg:** har mappen egna manus gäller bara de,
+annars gäller de allmänna. En mapp som bara vill ändra öppningen kopierar det
+allmänna manuset hit (`duplicateTemplate`) och redigerar kopian — ett steg mer
+att skriva, och till skillnad från steg-matchningen går det att förklara.
+`step` lever kvar som frivillig etikett men styr ingenting; cockpiten rubricerar
+på `name` och sorterar på `sortOrder`.
+
+**Cockpiten.** Första manuset låg permanent uppslaget utan knapp — det stämmer i
+sekund ett och slutar stämma i sekund trettio, och när ett helt manus ligger i
+det blocket är det en textvägg. Allt är fällbart nu. Öppet/stängt sparas i
+`localStorage` per templateId, eftersom `CockpitDb` monterar om panelen vid varje
+leadbyte (`key={lead.id + contactIndex}`, animationen) — ett `useState` där
+nollställdes 150 gånger om dagen. Listan nycklades dessutom på `step`, vilket ger
+dubblettnycklar och öppnar två manus samtidigt när en mapp har två.
+
+**Migration 026** lade `archived` och `sortOrder`, och städade de fem manusen:
+
+| Manus | Åtgärd | Varför |
+|---|---|---|
+| Växel (3 409 samtal) | arkiverat | Innehåller ett komplett manus för **PRP-behandling mot håravfall** — en avslutad kampanj, inget växelmanus. Låg redan avstängt |
+| Intro — leads_bygg_hantverk (402) | arkiverat | Äldre dubblett av nästa rad |
+| Intro — leads_bygg_hantverk (351) | döpt om till **Allmänt manus** | Hette efter en mapp men hade `listId NULL` och gick ut överallt. Fick medvetet förbli allmänt: knöts det till mappen (599 leads) hade Clicknet Lista 1, Utan hemsida lead, sokning_Clicknet2 och Nya bolag stått helt utan manus |
+| Intro — clicknet_leads_bokadirekt_import (0) | kopplat till mappens nya id, påslaget | Föräldralöst sedan mappen raderades och importerades om |
+| ROI — hantverkare_5000_alla (1 222) | döpt om till **Manus — hantverkare_5000_alla** | Namnet är rubriken säljaren ser nu, och "ROI" ljög om innehållet |
+
+Utfallet: varje mapp får exakt ett manus, ingen får två, ingen står utan.
+
+**Öppen punkt:** varje manus har exakt **en** variant. Hela varianthanteringen —
+prioritetsordning, datakrav, `minConfidence`, `lintVariants` — har aldrig
+använts skarpt. Den är inte trasig, men den kostar plats i redigeraren och i
+huvudet på den som ska skriva ett manus. Fråga innan nästa manusarbete om den
+ska bort eller om den ska säljas in.
+
+---
+
+## 2026-09-01 — Affären är säljarens att skapa, inte att skriva om
 
 Beställt: *"jag måste kunna gå in och ta bort affärer och ändra osv, dock ska
 inte säljare kunna göra det men jag ska kunna."*

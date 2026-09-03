@@ -235,17 +235,41 @@ kolumner hade innehåll i en av dem.
   en navigering, som hade delat ringsessionen i två). Cockpitens `listId` är
   därför `string | null`; ett bolag utan ringlista körs mot hela det egna
   däcket.
-- Manus per ramverkssteg, i prioritetsordnade varianter (`src/lib/script-resolver.ts`).
+- Manus i prioritetsordnade varianter (`src/lib/script-resolver.ts`).
   Manustexten visas ordagrant — radbrytningar och blankrader är en del av manuset,
   så alla vyer som renderar den måste ha `whitespace-pre-wrap`
+- **`ScriptTemplate.step` är en frivillig etikett, inte en struktur.** Modellen var
+  ett stycke per ramverkssteg; verkligheten är ett helt manus per kampanj, som
+  hamnar under ett godtyckligt steg. Cockpiten rubricerar därför på `name` och
+  sorterar på `sortOrder` (migration 026). Steget lever kvar för den som vill dela
+  upp, men inget beteende får hänga på det — det gjorde det, och rubriken "ROI"
+  stod över ett manus som började med öppningen
 - **Manus kan knytas till en enskild ringlista** (`ScriptTemplate.listId`, migration
-  019). `NULL` = gäller alla mappar. Ett mappmanus **ersätter** det allmänna för
-  sitt steg när säljaren ringer i mappen; steg mappen inte skrivit faller tillbaka
-  på det allmänna. Utan mapp — ett bolag öppnat med ⌘K eller `?leadId=` — gäller
-  bara de allmänna. Valet sker i `getActiveScripts(listId)`, och `listId` måste
-  vara samma mapp som cockpiten säger sig köra i. Raderas mappen nollas `listId`
-  av FK:n, så `deleteList` inaktiverar mappens manus först — annars hade ett
-  kampanjmanus blivit allmänt i samma sekund
+  019). `NULL` = gäller alla mappar. **Har mappen egna manus gäller bara de**;
+  annars gäller de allmänna. Ersättningen är alltså per mapp, inte per steg —
+  steg-matchningen (fram till 2026-09-03) gav säljaren i `hantverkare_5000_alla`
+  samma text två gånger, en gång som "Intro" och en gång som "ROI", eftersom båda
+  manusen var kompletta. En mapp som bara vill ändra öppningen kopierar det
+  allmänna manuset hit (`duplicateTemplate`) och redigerar kopian. Utan mapp — ett
+  bolag öppnat med ⌘K eller `?leadId=` — gäller bara de allmänna. Valet sker i
+  `getActiveScripts(listId)`, och `listId` måste vara samma mapp som cockpiten
+  säger sig köra i. Raderas mappen nollas `listId` av FK:n, så `deleteList`
+  **arkiverar** mappens manus först — annars hade ett kampanjmanus blivit allmänt
+  i samma sekund
+- **`archived` är vad "ta bort" betyder för ett manus som använts.** `active =
+  false` är pausat, `archived = true` är borta men läsbart. Ett manus vars version
+  ligger på en `CallAttempt` raderas aldrig: `scriptVersionId` är hela kopplingen
+  mellan ett utfall och texten som lästes upp. `deleteTemplate` raderar bara ett
+  manus utan ett enda samtal bakom sig
+- **Manusvyn får inte ladda om sidan.** `window.location.reload()` efter en
+  mutation kastade klientens tillstånd, och vyn valde då om till första manuset i
+  listan i stället för det man stod i — "Nytt utkast", "Publicera" och "Skapa"
+  hoppade alla till fel manus. Markeringen bor i `?manus=<id>` och mutationer
+  avslutas med `router.refresh()`
+- **Cockpitens manuspanel minns vad säljaren fällt upp** i `localStorage`
+  (`cockpit.scripts.open`, nyckel = templateId). `CockpitDb` monterar om panelen
+  vid varje leadbyte för animationens skull, så ett `useState` där nollställs 150
+  gånger om dagen
 - Uppföljningsmotorn: `CallAttempt` är append-only och all statistik läses därifrån
 
 ### Cron (vercel.json)

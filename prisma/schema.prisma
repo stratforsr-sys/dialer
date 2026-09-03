@@ -908,24 +908,50 @@ model CallObjection {
 
 // ==================== MANUS (Modul 3) ====================
 
-/// Ett manus per steg i ramverket. Skrivs av chefen, aldrig av en modell.
+/// Ett manus. Skrivs av chefen, aldrig av en modell.
+///
+/// `name` är det säljaren ser som rubrik. `step` är en frivillig etikett som
+/// bara påverkar sorteringen — den var tänkt att dela upp manuset i ett stycke
+/// per ramverkssteg, men i praktiken skrivs ett helt manus per kampanj och
+/// steget blir då en godtycklig hylla. Cockpiten rubricerar därför på namnet.
 model ScriptTemplate {
   id     String        @id @default(cuid())
   name   String
   step   FrameworkStep
   active Boolean       @default(true)
 
-  /// NULL = manuset gäller alla mappar. Satt = manuset gäller BARA den mappen
-  /// och ersätter det allmänna manuset för samma steg när säljaren ringer där.
+  /// Arkiverat = dolt överallt utom i arkivsektionen, aldrig utdelat till en
+  /// säljare. Skilt från `active` med flit: `active = false` är "pausat, ska
+  /// tillbaka", `archived = true` är "borta, men texten måste finnas kvar".
+  ///
+  /// En publicerad version kan ligga på tusentals CallAttempt-rader och bär
+  /// statistikens koppling till vad som faktiskt sades. Att radera den vore att
+  /// radera svaret på frågan "vilket manus sålde bäst". Arkivering är därför
+  /// vad "ta bort" betyder för ett manus som använts; ett oanvänt manus
+  /// raderas på riktigt.
+  archived Boolean @default(false)
+
+  /// Ordningen manusen visas i för säljaren, inom sin mapp. Lägst först.
+  /// Behövs sedan en mapp kan ha flera manus: `step` dög som ordning så länge
+  /// varje steg hade exakt ett manus, men inte när två manus delar steg.
+  sortOrder Int @default(0)
+
+  /// NULL = manuset gäller alla mappar. Satt = manuset gäller BARA den mappen.
   ///
   /// En mapp med bygg-leads och en med redovisningsbyråer öppnas inte likadant,
   /// och alternativet — att skriva om det allmänna manuset inför varje kampanj —
   /// river sönder statistiken varje gång.
   ///
+  /// **Mappens manus ersätter de allmänna helt**, inte steg för steg. Den
+  /// tidigare regeln matchade på `step`, och eftersom ett helt manus i
+  /// praktiken hamnar under ett godtyckligt steg fick säljaren då samma text
+  /// två gånger — en gång som "Intro" och en gång som "ROI". Har mappen skrivit
+  /// något är det mappens manus som gäller där, punkt.
+  ///
   /// SetNull och inte Cascade: en publicerad version kan ligga på hundratals
   /// CallAttempt-rader, och kaskaden hade tagit bort texten statistiken pekar
-  /// på. `deleteList` inaktiverar mappens manus innan mappen försvinner, så ett
-  /// manus som blir mappfritt här är redan avstängt och kan aldrig råka bli
+  /// på. `deleteList` arkiverar mappens manus innan mappen försvinner, så ett
+  /// manus som blir mappfritt här är redan borta och kan aldrig råka bli
   /// allmänt.
   listId String?
   list   CallList? @relation(fields: [listId], references: [id], onDelete: SetNull)
@@ -937,6 +963,7 @@ model ScriptTemplate {
   versions ScriptVersion[]
 
   @@index([step, active])
+  @@index([listId, archived, active])
   @@index([listId, step, active])
 }
 

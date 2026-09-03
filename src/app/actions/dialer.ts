@@ -619,6 +619,7 @@ async function hydrateLeads(
   return leads.map((lead) => ({
     ...lead,
     scripts: scripts.map((s) => ({
+      templateId: s.templateId,
       step: s.step,
       name: s.name,
       versionId: s.versionId,

@@ -1173,10 +1173,12 @@ export function CockpitDb({
         dialedE164: target.contacts[contactIndex]?.directPhoneE164 ?? null,
         // Vilken manusversion som faktiskt låg på skärmen. Utan den går det
         // inte att jämföra två formuleringar mot bokningsfrekvens.
-        scriptVersionId:
-          target.scripts.find((s) => s.step === "INTRO" && !s.resolved.empty)?.versionId ??
-          target.scripts.find((s) => !s.resolved.empty)?.versionId ??
-          null,
+        //
+        // Det första manuset i säljarens ordning, inte det som råkar ligga
+        // under steget INTRO. Steget är en frivillig etikett som i praktiken
+        // sätts godtyckligt — ett helt manus låg under "ROI" — medan ordningen
+        // är satt av chefen och är den panelen visar överst.
+        scriptVersionId: target.scripts.find((s) => !s.resolved.empty)?.versionId ?? null,
         // datetime-local ger lokal tid utan zon; new Date() tolkar den i
         // webbläsarens zon, vilket är säljarens. Det är rätt tolkning — hen
         // skrev klockslaget hen sa i luren.

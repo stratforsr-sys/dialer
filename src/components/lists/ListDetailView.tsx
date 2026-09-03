@@ -11,7 +11,6 @@ import type { ListDetail } from "@/app/actions/lists";
 import { releaseLead } from "@/app/actions/lists";
 import { claimState, CLAIM_TTL_DAYS } from "@/lib/claim";
 import { deckState, deckStateLabel, isOutOfRotation } from "@/lib/deck-state";
-import { FRAMEWORK_STEPS } from "@/lib/cockpit-flow";
 import { ShareListModal } from "./ShareListModal";
 
 type UserOption = { id: string; name: string; email: string; role: string };
@@ -147,10 +146,11 @@ export function ListDetailView({
             {list.scripts.length > 0 && (
               <p className="flex items-center gap-1.5 text-[12px] mt-1.5" style={{ color: "var(--text-muted)" }}>
                 <MessageSquare size={12} style={{ color: "var(--accent)" }} />
-                Eget manus:{" "}
-                {list.scripts
-                  .map((s) => FRAMEWORK_STEPS.find((f) => f.value === s.step)?.label ?? s.step)
-                  .join(", ")}
+                {/* Manusets namn, inte ramverkssteget. Steget är en frivillig
+                    etikett som sätts godtyckligt — ett helt manus låg under
+                    "ROI" — och namnet är dessutom det säljaren ser som rubrik
+                    i cockpiten, så raden och skärmen säger samma sak. */}
+                Eget manus: {list.scripts.map((s) => s.name).join(", ")}
                 {isAdmin && (
                   <Link href="/admin/scripts" className="underline underline-offset-2" style={{ color: "var(--text-muted)" }}>
                     ändra

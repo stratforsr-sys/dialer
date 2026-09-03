@@ -3,10 +3,10 @@
 import { useState, useTransition, useCallback, useEffect } from "react";
 import {
   Plus, Trash2, GripVertical, AlertTriangle, Check, Eye,
-  Lock, FileText, Loader2,
+  Lock, FileText, Loader2, History, X,
 } from "lucide-react";
 import {
-  saveVariants, publishVersion, createDraftVersion, previewVariants,
+  saveVariants, publishVersion, createDraftVersion, previewVariants, discardDraft,
 } from "@/app/actions/scripts";
 import { placeholdersIn } from "@/lib/script-resolver";
 
@@ -28,31 +28,60 @@ export function ScriptEditor({
   versionNumber,
   published,
   templateId,
+  versions,
   initialVariants,
   claimKeys,
   sampleLeadId,
+  onChanged,
+  onNotice,
 }: {
   versionId: string;
   versionNumber: number;
   published: boolean;
   templateId: string;
+  /** Hela historiken — driver versionsväljaren. Nyast först. */
+  versions: Array<{
+    id: string;
+    version: number;
+    published: boolean;
+    variants: EditableVariant[];
+  }>;
   initialVariants: EditableVariant[];
   claimKeys: Array<{ key: string; count: number }>;
   sampleLeadId: string | null;
+  /** Hämtar om serverdatan utan att kasta markeringen i vyn. */
+  onChanged: () => void;
+  onNotice: (message: string | null) => void;
 }) {
   const [variants, setVariants] = useState<EditableVariant[]>(initialVariants);
   const [saving, startSaving] = useTransition();
   const [saved, setSaved] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof previewVariants>> | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [publishError, setPublishError] = useState<string[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
 
   const readOnly = published;
 
   const update = useCallback((i: number, patch: Partial<EditableVariant>) => {
     setVariants((prev) => prev.map((v, idx) => (idx === i ? { ...v, ...patch } : v)));
     setSaved(false);
+    setDirty(true);
   }, []);
+
+  // Ett osparat utkast får inte försvinna för att någon råkar stänga fliken.
+  // Manustexten är det enda i den här vyn som inte går att skriva om på tio
+  // sekunder.
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
 
   const runPreview = useCallback(async () => {
     setPreviewing(true);
@@ -81,32 +110,51 @@ export function ScriptEditor({
         minConfidence: 60,
       },
     ]);
+    setDirty(true);
   }
 
   function save() {
     startSaving(async () => {
       await saveVariants(versionId, variants);
       setSaved(true);
+      setDirty(false);
       setTimeout(() => setSaved(false), 2200);
     });
   }
 
+  // Ingen `window.location.reload()` någonstans i den här filen längre. Den
+  // kastade klientens tillstånd, och vyn valde då om till första manuset i
+  // listan i stället för det man stod i — det var hela hoppet mellan manus.
+  // `onChanged` hämtar ny serverdata och behåller markeringen.
   function publish() {
     startSaving(async () => {
       await saveVariants(versionId, variants);
       const res = await publishVersion(versionId);
-      if (!res.ok) setPublishError(res.problems);
-      else {
-        setPublishError([]);
-        window.location.reload();
+      if (!res.ok) {
+        setPublishError(res.problems);
+        return;
       }
+      setPublishError([]);
+      setDirty(false);
+      onChanged();
     });
   }
 
   function newDraft() {
     startSaving(async () => {
       await createDraftVersion(templateId);
-      window.location.reload();
+      onChanged();
+    });
+  }
+
+  function discard() {
+    startSaving(async () => {
+      const res = await discardDraft(versionId);
+      if (!res.ok) onNotice(res.reason);
+      else {
+        setDirty(false);
+        onChanged();
+      }
     });
   }
 
@@ -127,6 +175,15 @@ export function ScriptEditor({
           </div>
 
           <div className="flex items-center gap-2">
+            {versions.length > 1 && (
+              <button onClick={() => setShowHistory((v) => !v)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded-md"
+                style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text-muted)" }}>
+                <History size={11} />
+                {versions.length} versioner
+              </button>
+            )}
+
             {readOnly ? (
               <button onClick={newDraft} disabled={saving}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold rounded-md"
@@ -136,10 +193,24 @@ export function ScriptEditor({
               </button>
             ) : (
               <>
+                {/* Ett utkast gick tidigare bara att ta sig ur genom att
+                    publicera det. Ett manus i produktion hade legat med ett
+                    hängande utkast i månader av just det skälet. */}
+                {versions.length > 1 && (
+                  <button onClick={discard} disabled={saving}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded-md"
+                    style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text-muted)" }}>
+                    <X size={11} /> Kasta utkast
+                  </button>
+                )}
                 <button onClick={save} disabled={saving}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded-md"
-                  style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text-muted)" }}>
-                  {saved ? <><Check size={11} /> Sparat</> : "Spara utkast"}
+                  style={{
+                    background: "var(--surface)",
+                    border: `1px solid ${dirty ? "var(--warning-border)" : "var(--border-strong)"}`,
+                    color: dirty ? "var(--warning)" : "var(--text-muted)",
+                  }}>
+                  {saved ? <><Check size={11} /> Sparat</> : dirty ? "Spara utkast •" : "Spara utkast"}
                 </button>
                 <button onClick={publish} disabled={saving}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold rounded-md"
@@ -151,6 +222,48 @@ export function ScriptEditor({
             )}
           </div>
         </div>
+
+        {/* Historiken. Publicerade versioner är oföränderliga, så det här är
+            enda vägen till vad som faktiskt stod i manuset när ett samtal
+            ringdes — och till att ta tillbaka en formulering som fungerade
+            bättre. */}
+        {showHistory && (
+          <div className="mb-3 rounded-lg overflow-hidden"
+            style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+            {versions.map((v) => (
+              <div key={v.id} className="px-3.5 py-2.5 border-b last:border-b-0" style={{ borderColor: "var(--border)" }}>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[11px] font-semibold" style={{ color: "var(--text)" }}>
+                    Version {v.version}
+                  </span>
+                  <span className="text-[10px]" style={{ color: v.published ? "var(--success)" : "var(--warning)" }}>
+                    {v.published ? "publicerad" : "utkast"}
+                  </span>
+                  {v.id === versionId && (
+                    <span className="text-[10px]" style={{ color: "var(--text-dim)" }}>· visas nu</span>
+                  )}
+                  {!readOnly && v.id !== versionId && (
+                    <button
+                      onClick={() => {
+                        setVariants(v.variants);
+                        setDirty(true);
+                        setShowHistory(false);
+                      }}
+                      className="ml-auto text-[11px] px-2 py-[3px] rounded-sm"
+                      style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text-muted)" }}
+                      title="Lägger texten i det öppna utkastet. Inget publiceras förrän du trycker Publicera."
+                    >
+                      Återanvänd texten
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11.5px] leading-snug line-clamp-2" style={{ color: "var(--text-muted)" }}>
+                  {v.variants.map((x) => x.body).join(" ").slice(0, 220) || "— tom —"}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
 
         {published && (
           <p className="text-[12px] mb-3 px-3 py-2 rounded-md"

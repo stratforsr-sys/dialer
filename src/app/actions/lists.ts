@@ -100,7 +100,12 @@ export async function getList(listId: string) {
         // utkast syns aldrig för säljaren, och en rad som påstår att mappen
         // har ett eget manus när ingen får se det är värre än ingen rad.
         scripts: {
-          where: { active: true, versions: { some: { publishedAt: { not: null } } } },
+          where: {
+            active: true,
+            archived: false,
+            versions: { some: { publishedAt: { not: null } } },
+          },
+          orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
           select: { id: true, step: true, name: true },
         },
       },
@@ -298,15 +303,20 @@ export async function deleteList(listId: string): Promise<DeleteListResult> {
 
   const toDelete = createdHere.filter((id) => !shared.has(id));
 
-  // Mappens egna manus inaktiveras FÖRE borttagningen. Texten får inte
+  // Mappens egna manus arkiveras FÖRE borttagningen. Texten får inte
   // kaskadera bort — publicerade versioner ligger på CallAttempt-rader och bär
   // statistikens koppling till vad som faktiskt sades. Men de får inte heller
   // bli kvar aktiva: FK:n nollar `listId` när mappen försvinner, och ett aktivt
   // manus utan mapp gäller alla mappar. Ett kampanjmanus hade alltså plötsligt
   // mött hela golvet i det ögonblick kampanjmappen raderades.
+  //
+  // Arkiverade och inte bara avstängda: de hamnar mappfria i listan "Alla
+  // mappar" med ett namn som pekar på en mapp som inte finns, och tre sådana
+  // låg och skräpade i produktion utan att någon kunde avgöra om de skulle
+  // slås på igen. I arkivet är de läsbara och går att ta fram med en knapp.
   await db.scriptTemplate.updateMany({
     where: { listId },
-    data: { active: false },
+    data: { active: false, archived: true },
   });
 
   await db.callList.delete({ where: { id: listId } });
