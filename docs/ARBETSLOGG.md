@@ -82,8 +82,49 @@ Kör tre varv.
 strömmen, och `/v3/deployments/.../events` gav en tom lista. Nätverksfliken i
 webbläsaren och direkta mätningar mot databasen var det som gav svar.
 
+### Samma dag: säljarna kunde inte lägga återkomster
+
+Symtomet var ett felmeddelande, inte en långsam sida — och det var **inte
+nätverket** (0 % paketförlust, 11 ms till Vercel, svar på 0,27–0,49 s).
+
+`recordAttempt` skrev samtalet **ensamt**, före transaktionen:
+
+    const attempt = await db.callAttempt.create({…})   // egen skrivning
+    const writes = [ lead.update(…), callback.create(…), … ]
+    await db.$transaction(writes)                      // faller den, står samtalet kvar
+
+Föll transaktionen var samtalet redan bokfört, men återkomsten, arbetslåset och
+schemaläggningen fanns inte. `useDispositionQueue` lägger tillbaka poster som
+fallit på **nätverksfel** men **kastar** dem som fallit på serverfel, så löftet
+försvann tyst medan säljaren fick remsan "kunde inte sparas" — och varje nytt
+tryck skrev ännu ett föräldralöst samtal.
+
+Mätt i produktionen: 59 samtal med `CALLBACK_BOOKED` den 4 september, men bara
+49 `Callback`-rader. Ett bolag samlade fem försök in i rad mellan 15:23 och
+15:25 medan säljaren tryckte om.
+
+**Lagat** genom att förgenerera `CallAttempt.id` med `randomUUID()` och flytta
+in skrivningen i samma `$transaction` som allt den hör ihop med. Prismas
+array-form kan inte referera ett id som skapas i samma batch — därför det egna
+id:t. Ordningen i arrayen spelar roll: `CallFrameworkProgress.callAttemptId` är
+en riktig FK, så samtalet måste ligga först.
+
+**Buggen är gammal** — 4 föräldralösa den 12 augusti, 2 den 6 augusti. Men 9 av
+dagens 10 låg mellan 14:45 och 15:25, alltså mitt i felsökningen ovan: `ANALYZE`
+och de kalla count-frågorna belastade databasen medan golvet dispositionerade.
+**Kör tunga frågor mot den här databasen utanför säljtid.**
+
+Två löften gick inte att rädda — S&M ELSERVICE AB och Morgan Bäck Bygg &
+Entreprenad AB. Tidpunkten kunden fick lovad fanns bara i transaktionen som
+föll, och båda leaden saknade dessutom `claimedAt` och låg alltså oskyddade i
+hela golvets däck.
+
 ### Öppna punkter
 
+- [ ] **Kön kastar fortfarande poster som fallerar på serverfel.** Atomiciteten
+      gör att ingenting blir halvskrivet, men säljaren måste själv trycka om.
+      Ett omförsök kräver att skrivningen är idempotent — `idempotencyKey`
+      finns redan i kön men används inte på serversidan.
 - [ ] **Kallstarten kvarstår.** Första sidladdningen efter en tyst stund tar
       fortfarande tiotals sekunder. Det är en Turso-plansfråga, inte en
       kodfråga — gratisnivåns cache är för liten för 18 000 leads och

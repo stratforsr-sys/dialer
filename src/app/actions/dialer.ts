@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { requireLeadAccess } from "@/lib/guard";
@@ -1160,35 +1161,55 @@ export async function recordAttempt(input: RecordAttemptInput) {
 
   const currentSlot = slotAt(slots as Slot[], now);
 
-  const attempt = await db.callAttempt.create({
-    data: {
-      leadId: input.leadId,
-      contactId: input.contactId ?? null,
-      sellerId: user.id,
-      listId: input.listId ?? null,
-      sessionId: input.sessionId ?? null,
-      attemptNo: lead.attemptCount + 1,
-      slotId: currentSlot?.id ?? null,
-      // Svensk väggklocka, inte serverns. Vercel kör i UTC, och fram till
-      // 2026-08-15 skrevs båda kolumnerna med getHours()/getDay() — alla 1 106
-      // rader som fanns då bär UTC-timmen och är två timmar fel sommartid.
-      // Rättade i efterhand ur startedAt av backfill-hour-weekday.mjs.
-      hourOfDay: hourOfDay(now),
-      weekday: weekdayOf(now),
-      result: input.result,
-      outcome: input.outcome ?? null,
-      noReason: input.noReason ?? null,
-      note: input.note ?? null,
-      idleBeforeSec: Math.max(0, Math.trunc(input.idleBeforeSec ?? 0)),
-      durationSec: Math.max(0, Math.trunc(input.durationSec ?? 0)),
-      dialedE164: input.dialedE164 ?? null,
-      scriptVersionId: input.scriptVersionId ?? null,
-      endedAt: now,
-    },
-    select: { id: true },
-  });
+  // Id:t genereras här i stället för av `@default(cuid())`, och skälet är att
+  // samtalet ska kunna ligga i SAMMA transaktion som allt det hör ihop med.
+  // Prismas array-form kan inte referera ett id som skapas i samma batch, så
+  // raden måste bära ett id vi redan känner till.
+  //
+  // Fram till 2026-09-04 skrevs samtalet ensamt, före transaktionen. Föll
+  // transaktionen stod samtalet kvar — utan sin återkomst, utan lås och utan
+  // schemaläggning. Och `useDispositionQueue` kastar en post som fallerar på
+  // serverfel (till skillnad från nätverksfel, som läggs tillbaka), så löftet
+  // försvann tyst medan säljaren fick remsan "kunde inte sparas". Den 4
+  // september bar 59 samtal `CALLBACK_BOOKED` men bara 49 hade en
+  // `Callback`-rad; ett bolag samlade fem försök i rad medan säljaren tryckte
+  // om. Två kunder blev lovade ett samtal som inte fanns någonstans.
+  //
+  // Nu skrivs allt eller ingenting, och ett omförsök börjar från rent bord.
+  //
+  // Formen blir uuid i stället för cuid. Ingenting sorterar på kolumnen, och
+  // `bookedOnAttemptId`/`completedOnAttemptId`/`callAttemptId` är rena
+  // strängkolumner utan FK — se schema.prisma.
+  const attemptId = randomUUID();
 
   const writes: Prisma.PrismaPromise<unknown>[] = [
+    db.callAttempt.create({
+      data: {
+        id: attemptId,
+        leadId: input.leadId,
+        contactId: input.contactId ?? null,
+        sellerId: user.id,
+        listId: input.listId ?? null,
+        sessionId: input.sessionId ?? null,
+        attemptNo: lead.attemptCount + 1,
+        slotId: currentSlot?.id ?? null,
+        // Svensk väggklocka, inte serverns. Vercel kör i UTC, och fram till
+        // 2026-08-15 skrevs båda kolumnerna med getHours()/getDay() — alla 1 106
+        // rader som fanns då bär UTC-timmen och är två timmar fel sommartid.
+        // Rättade i efterhand ur startedAt av backfill-hour-weekday.mjs.
+        hourOfDay: hourOfDay(now),
+        weekday: weekdayOf(now),
+        result: input.result,
+        outcome: input.outcome ?? null,
+        noReason: input.noReason ?? null,
+        note: input.note ?? null,
+        idleBeforeSec: Math.max(0, Math.trunc(input.idleBeforeSec ?? 0)),
+        durationSec: Math.max(0, Math.trunc(input.durationSec ?? 0)),
+        dialedE164: input.dialedE164 ?? null,
+        scriptVersionId: input.scriptVersionId ?? null,
+        endedAt: now,
+      },
+    }),
     db.lead.update({
       where: { id: input.leadId },
       data: {
@@ -1251,7 +1272,7 @@ export async function recordAttempt(input: RecordAttemptInput) {
           metadata: JSON.stringify({
             status: outcomeLabel ? `${resultLabel} — ${outcomeLabel}` : resultLabel,
             notes: note,
-            attemptId: attempt.id,
+            attemptId,
           }),
         },
       })
@@ -1397,7 +1418,7 @@ export async function recordAttempt(input: RecordAttemptInput) {
         data: {
           status: "COMPLETED",
           completedAt: now,
-          completedOnAttemptId: attempt.id,
+          completedOnAttemptId: attemptId,
         },
       })
     );
@@ -1413,7 +1434,7 @@ export async function recordAttempt(input: RecordAttemptInput) {
           // ögonblicket, men ägarskapet byter hand vid nästa disposition och
           // påminnelsen ska ändå gå till rätt telefon.
           sellerId: user.id,
-          bookedOnAttemptId: attempt.id,
+          bookedOnAttemptId: attemptId,
           scheduledAt: decision.callbackAt,
           note: input.callbackNote?.trim() || null,
           emailReminder: input.callbackEmailReminder === true,
@@ -1426,7 +1447,7 @@ export async function recordAttempt(input: RecordAttemptInput) {
     writes.push(
       db.callFrameworkProgress.create({
         data: {
-          callAttemptId: attempt.id,
+          callAttemptId: attemptId,
           leadId: input.leadId,
           sellerId: user.id,
           furthestStep: input.framework.furthestStep,
@@ -1531,13 +1552,13 @@ export async function recordAttempt(input: RecordAttemptInput) {
   });
   if (match) {
     await linkAttemptToCall({
-      attemptId: attempt.id,
+      attemptId,
       attemptDurationSec: Math.max(0, Math.trunc(input.durationSec ?? 0)),
       match,
     });
   }
 
-  return { attemptId: attempt.id, nextActionAt: decision.nextActionAt, retired: decision.retired };
+  return { attemptId, nextActionAt: decision.nextActionAt, retired: decision.retired };
 }
 
 /**
