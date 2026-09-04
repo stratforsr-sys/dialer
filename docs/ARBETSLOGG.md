@@ -13,7 +13,97 @@ Nyast först.
 
 ---
 
-## 2026-09-03 (sist) — Manuset var byggt för en struktur ingen använde
+## 2026-09-04 (sist) — Dialern "bara laddade": planeraren hade ingen statistik
+
+Beställt: *"när jag går in på dialern så stannar det helt och allt som händer är
+att den laddar"*.
+
+Ingenting var trasigt. Appen var för långsam, funktionerna hann inte klart, och
+`loading.tsx`-skelettet är det man ser när RSC-strömmen aldrig stängs. Flera
+rutter svarade **503** när sidomenyns länkar förhämtades samtidigt.
+
+**Två ändringar, båda i databasen. Ingen kod, ingen deploy.**
+
+| | före | efter |
+|---|---|---|
+| `/cockpit` | 37–44 s | 774 ms – 2,1 s |
+| `/lists` | 12–13 s | 404 ms – 2,6 s |
+| Däckfrågan i `leaseNextLeads` | 10 181 ms | 737 ms |
+
+### `ANALYZE` hade aldrig körts
+
+Det fanns ingen `sqlite_stat1` i databasen. Utan statistik gissar SQLites
+planerare på selektivitet, och den gissade fel på precis den fråga som betyder
+mest: däcket drevs på `Lead_retired_nextActionAt_idx (retired = ?)` — ett
+villkor som matchar **17 560 av 18 067** rader. Alltså vandrade den varenda
+icke-pensionerad lead, körde tre till fyra korrelerade underfrågor per rad,
+sorterade allt i ett temp-B-träd och tog sedan 20. Mappfiltret, det enda som
+verkligen skär, applicerades per rad i stället för att driva frågan.
+
+Bevisat före åtgärd genom att tvinga fram omvänd join-ordning på identisk fråga:
+`Lead` först 10 181 ms, `LeadOnList` först **728 ms**. Efter `ANALYZE` väljer
+planeraren den snabba vägen av sig själv, för både SELECT:en och UPDATE:en.
+
+**En full `ANALYZE` går inte igenom över Tursos HTTP.** Den timade ut efter fem
+minuter och rullades tillbaka. Kör per tabell i stället — `ANALYZE "LeadOnList"`
+tog 236 s ensam, `Lead` 92 s. Resultatet blev ändå fullständigt: 113 rader som
+täcker hela databasen.
+
+Statistiken blir inaktuell när beståndet växer. **Kör om den efter varje större
+import**, annars kryper felvalet tillbaka.
+
+### `leaseBlockSize` 25 → 8
+
+Cockpiten hämtade **25 leads komplett** — kontakter, historik, anteckningar,
+växelkontakt, dossier och alla claims — för att kunna ringa ett samtal.
+Payloaden gick från 179 KB till 61 KB.
+
+### Det som är golvet under alltihop
+
+Turso läser ungefär **3 400 rader per sekund** vid kall cache. Mätt:
+`count(*)` på `LeadClaim` (77 676 rader) tog **22 976 ms**, medan en ren rundtur
+är 88 ms och en skrivning ~80 ms. Lokal SQLite gör miljoner rader per sekund —
+skillnaden är att varje sida som inte ligger i cachen hämtas över nätet.
+Instansen går kall mellan anropen, så första träffen efter en tyst stund betalar
+hela priset igen. Det är därför felet var intermittent.
+
+### Fallgropar under felsökningen
+
+**Mät TTFB och strömmens slut var för sig.** `await fetch()` följt av
+`await r.text()` mätt som en siffra döljer vad som händer: TTFB var 140 ms hela
+tiden — servern svarar direkt med skalet — och det var sidans data som höll
+strömmen öppen i 40 s.
+
+**Den första mätningen efter en ändring ljuger.** Både `ANALYZE` och
+konfigändringen såg ut att inte hjälpa alls, för att första varvet var kallt.
+Kör tre varv.
+
+**`vercel logs` visar inte allt.** Rutter som tog 40 s dök aldrig upp i
+strömmen, och `/v3/deployments/.../events` gav en tom lista. Nätverksfliken i
+webbläsaren och direkta mätningar mot databasen var det som gav svar.
+
+### Öppna punkter
+
+- [ ] **Kallstarten kvarstår.** Första sidladdningen efter en tyst stund tar
+      fortfarande tiotals sekunder. Det är en Turso-plansfråga, inte en
+      kodfråga — gratisnivåns cache är för liten för 18 000 leads och
+      77 676 claims.
+- [ ] **`hydrateLeads` hämtar `dossier.claims` för hela blocket.** `LeadClaim`
+      är största tabellen (77 676 rader) och den dyraste läsningen. Claims
+      behövs bara för det lead säljaren står på — men `resolveScript` tar dem
+      som argument, så manusupplösningen måste flyttas till samma lata laddning.
+      Vald åtgärd, uppskjuten: ombyggnaden rör själva ringflödet och gjordes
+      inte mitt i ett säljpass.
+- [ ] **`take` på nästlade relationer ger en fråga per lead.** `callAttempts`,
+      `activities` och `gatekeepers` blir tre extra rundturer per lead i
+      `hydrateLeads`.
+- [ ] **`leaseBlockSize = 8` är satt utan mätning av rätt värde.** 25 var för
+      mycket, 8 fungerar. Om säljarna märker att kön tar slut mellan samtal är
+      det siffran att skruva på.
+
+---
+
+## 2026-09-03 — Manuset var byggt för en struktur ingen använde
 
 Beställt: *"När jag trycker på 'nytt utkast' så hoppar den mellan olika manusar.
 Sen måste jag också kunna ta bort manus, det finns ingen ta bort knapp. Sen är
