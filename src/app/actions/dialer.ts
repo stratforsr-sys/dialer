@@ -1105,6 +1105,33 @@ export interface RecordAttemptInput {
     closeAttempts?: number;
     objections?: Array<{ tag: string; atStep: FrameworkStep; handled?: boolean }>;
   } | null;
+  /**
+   * Nyckeln som gör tryckte-en-gång till skrivet-en-gång.
+   *
+   * Sätts av `useDispositionQueue` och är densamma genom varje omförsök av
+   * samma tryck. Utan den kan kön inte försöka igen — och gör den inte det
+   * försvinner samtalet när servern fallerar. Se migration 027.
+   */
+  idempotencyKey?: string | null;
+}
+
+/**
+ * Slog skrivningen i det unika indexet på `idempotencyKey`?
+ *
+ * Prisma svarar P2002 på en unikhetskrock, men pekar ut fältet olika beroende
+ * på adapter: `meta.target` kan vara fältnamnet, indexnamnet, eller saknas helt
+ * och bara stå i meddelandet. Därför matchas alla tre — en krock på någon
+ * ANNAN unik kolumn (`providerCallId`) får inte tolkas som "redan gjort".
+ */
+function isDuplicateIdempotencyKey(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const e = err as { code?: unknown; meta?: { target?: unknown }; message?: unknown };
+  if (e.code !== "P2002") return false;
+  const haystack = [
+    JSON.stringify(e.meta?.target ?? null),
+    typeof e.message === "string" ? e.message : "",
+  ].join(" ");
+  return haystack.includes("idempotencyKey");
 }
 
 /**
@@ -1113,9 +1140,28 @@ export interface RecordAttemptInput {
  * Allt som måste vara sant samtidigt ligger i en batchad transaktion — array-
  * formen, inte callback-formen. Callback-formen håller skrivlåset öppet över
  * nätverket mellan varje sats, vilket mot Turso ger timeout under belastning.
+ *
+ * Skrivningen är idempotent på `input.idempotencyKey`: samma tryck kan skickas
+ * hur många gånger som helst och ger ett enda samtal. Det är förutsättningen
+ * för att kön ska våga försöka igen i stället för att kasta posten.
  */
 export async function recordAttempt(input: RecordAttemptInput) {
   const user = await requireLeadAccess(input.leadId);
+
+  // Redan skrivet? Då är det här ett omförsök av samma tryck, och svaret är
+  // "ja, det gick bra" — inte ett andra samtal på bolaget.
+  //
+  // Uppslaget före allt annat, så att ett omförsök varken räknar upp
+  // attemptCount, bokar en andra återkomst eller lägger en dubblett i
+  // statistikens nämnare. Det unika indexet på kolumnen är backstoppet för två
+  // anrop som korsar varandra; se catch-satsen kring transaktionen.
+  if (input.idempotencyKey) {
+    const done = await db.callAttempt.findUnique({
+      where: { idempotencyKey: input.idempotencyKey },
+      select: { id: true },
+    });
+    if (done) return { attemptId: done.id, alreadyRecorded: true as const };
+  }
 
   const [cfg, slots, lead] = await Promise.all([
     db.dialerConfig.findUnique({ where: { id: "singleton" } }),
@@ -1186,6 +1232,7 @@ export async function recordAttempt(input: RecordAttemptInput) {
     db.callAttempt.create({
       data: {
         id: attemptId,
+        idempotencyKey: input.idempotencyKey ?? null,
         leadId: input.leadId,
         contactId: input.contactId ?? null,
         sellerId: user.id,
@@ -1472,7 +1519,22 @@ export async function recordAttempt(input: RecordAttemptInput) {
     );
   }
 
-  await db.$transaction(writes);
+  try {
+    await db.$transaction(writes);
+  } catch (err) {
+    // Två anrop med samma nyckel korsade varandra: uppslaget överst såg
+    // ingenting, men den andra skrivningen slår i det unika indexet. Den som
+    // förlorar loppet har alltså inte misslyckats — arbetet är gjort, av den
+    // som vann. Allt annat är ett riktigt fel och ska kastas vidare.
+    if (isDuplicateIdempotencyKey(err)) {
+      const done = await db.callAttempt.findUnique({
+        where: { idempotencyKey: input.idempotencyKey! },
+        select: { id: true },
+      });
+      if (done) return { attemptId: done.id, alreadyRecorded: true as const };
+    }
+    throw err;
+  }
 
   // Bortfall: bolaget ur registret för gott.
   //
@@ -1558,7 +1620,12 @@ export async function recordAttempt(input: RecordAttemptInput) {
     });
   }
 
-  return { attemptId, nextActionAt: decision.nextActionAt, retired: decision.retired };
+  return {
+    attemptId,
+    alreadyRecorded: false as const,
+    nextActionAt: decision.nextActionAt,
+    retired: decision.retired,
+  };
 }
 
 /**

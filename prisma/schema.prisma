@@ -681,6 +681,18 @@ model CallAttempt {
 
   /// Idempotensnyckel för telefoni-webhooks. Samma händelse levereras om.
   providerCallId String? @unique
+
+  /// Idempotensnyckel för cockpitens skrivkö. Klienten sätter den när säljaren
+  /// dispositionerar, och den följer med varje omförsök av samma tryck.
+  ///
+  /// Utan den kunde kön inte försöka igen: ett omförsök hade skrivit ett andra
+  /// samtal på samma bolag. Därför kastades en post som fallit på serverfel,
+  /// och därför försvann tio återkomster den 4 september medan säljarna fick
+  /// "kunde inte sparas" och tryckte om för hand.
+  ///
+  /// Nullbar för de 5 700 rader som skrevs innan nyckeln fanns, och för rader
+  /// som inte kommer från kön. SQLites unika index tillåter flera NULL.
+  idempotencyKey String? @unique
   recordingUrl   String?
   dialedE164     String?
 

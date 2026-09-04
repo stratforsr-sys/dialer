@@ -119,12 +119,49 @@ Entreprenad AB. Tidpunkten kunden fick lovad fanns bara i transaktionen som
 föll, och båda leaden saknade dessutom `claimedAt` och låg alltså oskyddade i
 hela golvets däck.
 
+### Och sedan: kön vågar försöka igen (migration 027)
+
+Atomiciteten stoppade halvskrivningarna, men kön **kastade** fortfarande varje
+post som fallit på serverfel — den lade bara tillbaka nätverksfel. Skillnaden
+var medveten och fel: ett serverfel kunde lika gärna vara en transaktion som
+timade ut under belastning, alltså precis det som går att försöka igen.
+
+Skälet till att den inte gjorde det var att skrivningen inte var idempotent. Ett
+omförsök hade skrivit ett andra samtal på bolaget, med nytt löpnummer, och
+dubblat raden i statistikens nämnare. Att kasta posten var det mindre onda.
+
+**`CallAttempt.idempotencyKey`**, nullbar och unik, bredvid `providerCallId` som
+är samma sorts nyckel för telefoni-webhooks. `recordAttempt` slår upp den före
+allt annat och returnerar `{ alreadyRecorded: true }` i stället för att skriva
+igen; det unika indexet fångar två anrop som korsar varandra (P2002 på just den
+kolumnen tolkas som "redan gjort", andra unikhetskrockar kastas vidare).
+
+Kolumnen är nullbar med flit — 5 844 befintliga rader har NULL, och **SQLites
+unika index tillåter flera NULL**. En backfill till tom sträng hade tvärtom
+kolliderat direkt.
+
+Rutten svarar nu `{ key, ok, error, retryable }`. `isRetryable` har **ja som
+förval**: ett onödigt omförsök kostar ett uppslag, ett uteblivet kostar ett
+samtal. Permanenta undantag är `ForbiddenError`, våra egna valideringskast
+("Lead not found", "Ogiltig tidpunkt", "Välj varför kunden sa nej",
+"DialerConfig saknas") och Prismas deterministiska P2002/P2003/P2025.
+
+Kön räknar försök per nyckel, ger upp efter sex och backar av 1→2→4→8→16→30
+sekunder. **Nätverksfel räknas inte mot taket** — ett serverfel kan vara
+felklassat och måste ha ett stopp, men ett tappat wifi är per definition
+övergående. Backoffen hoppas över vid `pagehide`: där är det sista chansen.
+
+**Nyckeln är `crypto.randomUUID()` per tryck.** Idempotensen skyddar alltså
+köns egna omförsök av samma tryck — inte en säljare som trycker om för hand
+efter att ha sett remsan. Det är avsiktligt: två tryck är två beslut.
+
 ### Öppna punkter
 
-- [ ] **Kön kastar fortfarande poster som fallerar på serverfel.** Atomiciteten
-      gör att ingenting blir halvskrivet, men säljaren måste själv trycka om.
-      Ett omförsök kräver att skrivningen är idempotent — `idempotencyKey`
-      finns redan i kön men används inte på serversidan.
+- [ ] **`noPhoneFound` skickas aldrig om.** Den raderar leadet och har ingen
+      idempotensnyckel att luta sig mot — ett omförsök efter en halvvägs lyckad
+      körning hade antingen kastat `Forbidden` (leadet är borta) eller lagt en
+      andra rad i den oföränderliga aktivitetsloggen. Den visar remsan direkt
+      vid fel, som förut.
 - [ ] **Kallstarten kvarstår.** Första sidladdningen efter en tyst stund tar
       fortfarande tiotals sekunder. Det är en Turso-plansfråga, inte en
       kodfråga — gratisnivåns cache är för liten för 18 000 leads och

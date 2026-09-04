@@ -27,14 +27,35 @@ export interface FailedDisposition {
   error: string;
 }
 
+/**
+ * Hur många gånger ett serverfel skickas om innan kön ger upp och visar remsan.
+ *
+ * Taket finns för att en felklassning inte ska bli en tyst loop. Nätverksfel
+ * räknas INTE mot det — se `flush`.
+ */
+const MAX_SERVERFORSOK = 6;
+
+/** Väntetid före nästa försök: 1, 2, 4, 8, 16, 30 sekunder. */
+function backoffMs(consecutiveFailures: number): number {
+  return Math.min(30_000, 1000 * 2 ** Math.max(0, consecutiveFailures - 1));
+}
+
 export function useDispositionQueue() {
   const queueRef = useRef<QueuedDisposition[]>([]);
   const flushingRef = useRef(false);
+  /** Antal serverförsök per idempotensnyckel. Nollställs aldrig — nyckeln dör med posten. */
+  const attemptsRef = useRef<Map<string, number>>(new Map());
+  /** Tidigast tillåtna nästa försök, satt av backoffen. */
+  const nextFlushAtRef = useRef(0);
+  const consecutiveFailuresRef = useRef(0);
   const [pending, setPending] = useState(0);
   const [failed, setFailed] = useState<FailedDisposition[]>([]);
 
   const flush = useCallback(async (useKeepalive = false) => {
     if (flushingRef.current || queueRef.current.length === 0) return;
+    // Backoffen hoppas över när fliken stängs: det här är sista chansen att få
+    // iväg samtalen, och att vänta ut en timer är att kasta dem.
+    if (!useKeepalive && Date.now() < nextFlushAtRef.current) return;
     flushingRef.current = true;
 
     // Max 50 per anrop — samma tak som endpointen.
@@ -73,23 +94,65 @@ export function useDispositionQueue() {
       if (!ct.includes("application/json")) throw new Error("Oväntat svar");
 
       const data = (await res.json()) as {
-        results: Array<{ key: string; ok: boolean; error?: string }>;
+        results: Array<{ key: string; ok: boolean; error?: string; retryable?: boolean }>;
       };
 
-      const bad = data.results.filter((r) => !r.ok);
-      if (bad.length > 0) {
-        setFailed((prev) => [
-          ...prev,
-          ...bad.map((r) => ({
-            companyName:
-              batch.find((b) => b.idempotencyKey === r.key)?.companyName ?? "Okänt lead",
-            error: r.error ?? "Okänt fel",
-          })),
-        ]);
+      // Posten är skriven — nyckeln behövs inte längre.
+      for (const r of data.results) {
+        if (r.ok) attemptsRef.current.delete(r.key);
       }
+
+      // En post som fallerat på något som kan gå över läggs tillbaka i stället
+      // för att kastas. Det är hela poängen med idempotensnyckeln: servern slår
+      // upp den och svarar "redan gjort" om skrivningen ändå gick igenom, så
+      // ett omförsök kan aldrig ge ett andra samtal på bolaget.
+      //
+      // Fram till 2026-09-04 kastades varje post som fallit på serverfel. En
+      // transaktion som timade ut under belastning såg då likadan ut som ett
+      // nekat lead: samtalet var borta och säljaren fick trycka om för hand.
+      const retry: QueuedDisposition[] = [];
+      const giveUp: FailedDisposition[] = [];
+
+      for (const r of data.results) {
+        if (r.ok) continue;
+        const item = batch.find((b) => b.idempotencyKey === r.key);
+        const companyName = item?.companyName ?? "Okänt lead";
+
+        if (!item || r.retryable !== true) {
+          attemptsRef.current.delete(r.key);
+          giveUp.push({ companyName, error: r.error ?? "Okänt fel" });
+          continue;
+        }
+
+        const n = (attemptsRef.current.get(r.key) ?? 0) + 1;
+        if (n >= MAX_SERVERFORSOK) {
+          attemptsRef.current.delete(r.key);
+          giveUp.push({ companyName, error: r.error ?? "Okänt fel" });
+        } else {
+          attemptsRef.current.set(r.key, n);
+          retry.push(item);
+        }
+      }
+
+      if (retry.length > 0) {
+        queueRef.current.unshift(...retry);
+        consecutiveFailuresRef.current += 1;
+        nextFlushAtRef.current = Date.now() + backoffMs(consecutiveFailuresRef.current);
+      } else {
+        consecutiveFailuresRef.current = 0;
+      }
+
+      if (giveUp.length > 0) setFailed((prev) => [...prev, ...giveUp]);
     } catch (err) {
       // Nätverksfel: lägg tillbaka först i kön och försök igen vid nästa tick.
+      //
+      // Räknas medvetet INTE mot `MAX_SERVERFORSOK`. Ett serverfel kan vara
+      // felklassat och måste ha ett tak, men ett nätverksfel är per definition
+      // övergående — säljaren sitter på ett tåg, eller wifit tappade. Att ge
+      // upp där vore att kasta samtalet just när det går att rädda.
       queueRef.current.unshift(...batch);
+      consecutiveFailuresRef.current += 1;
+      nextFlushAtRef.current = Date.now() + backoffMs(consecutiveFailuresRef.current);
       void err;
     } finally {
       flushingRef.current = false;

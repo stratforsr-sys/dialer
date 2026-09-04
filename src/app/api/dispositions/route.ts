@@ -73,6 +73,53 @@ interface QueuedItem {
   } | null;
 }
 
+/**
+ * Går felet att försöka igen?
+ *
+ * **Förvalet är ja**, och det är medvetet. Skrivningen är idempotent på
+ * `idempotencyKey` (migration 027), så ett omförsök av något som redan lyckats
+ * kostar ett uppslag och svarar "redan gjort". Ett omförsök som är onödigt är
+ * alltså billigt, medan ett uteblivet omförsök kostar ett samtal — och den 4
+ * september kostade det tio återkomster och två kundlöften.
+ *
+ * Undantagen är fel som aldrig kan bli något annat hur många gånger de än
+ * skickas. Att skicka om dem hade varit en tyst loop mot en vägg, och kön har
+ * ett tak på antal försök just för att en felklassning inte ska bli oändlig.
+ *
+ * `noPhoneFound` skickas aldrig om, oavsett fel: den raderar leadet och har
+ * ingen idempotensnyckel att luta sig mot. Ett omförsök efter en halvvägs
+ * lyckad körning hade antingen kastat `Forbidden` (leadet är borta) eller lagt
+ * en andra rad i aktivitetsloggen, som är oföränderlig.
+ */
+function isRetryable(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return true;
+  const e = err as { name?: unknown; code?: unknown; message?: unknown };
+
+  // Behörighet. Leadet är inte säljarens att skriva på, och blir det inte.
+  if (e.name === "ForbiddenError") return false;
+
+  const message = typeof e.message === "string" ? e.message : "";
+  if (message.startsWith("Forbidden:")) return false;
+
+  // Fel vi kastar själva när indata inte går ihop. Samma indata igen ger
+  // samma svar.
+  const PERMANENTA = [
+    "Lead not found",
+    "DialerConfig saknas",
+    "Ogiltig tidpunkt",
+    "Välj varför kunden sa nej",
+  ];
+  if (PERMANENTA.some((m) => message.includes(m))) return false;
+
+  // Prismas deterministiska fel: unikhet, främmande nyckel, rad saknas.
+  // (En krock på `idempotencyKey` når aldrig hit — `recordAttempt` tolkar den
+  // som "redan gjort" och returnerar normalt.)
+  if (e.code === "P2002" || e.code === "P2003" || e.code === "P2025") return false;
+
+  // Allt annat — timeout, tappad anslutning, okänt — är värt ett nytt försök.
+  return true;
+}
+
 export async function POST(req: Request) {
   const session = await getSession();
   if (!session?.user) {
@@ -95,7 +142,7 @@ export async function POST(req: Request) {
   // Sekventiellt, inte parallellt: varje post läser leadets aktuella
   // attemptCount och skriver tillbaka ett nytt. Parallella skrivningar mot
   // samma lead skulle ge två försök med samma löpnummer.
-  const results: Array<{ key: string; ok: boolean; error?: string }> = [];
+  const results: Array<{ key: string; ok: boolean; error?: string; retryable?: boolean }> = [];
 
   for (const item of items) {
     try {
@@ -104,6 +151,10 @@ export async function POST(req: Request) {
         results.push({ key: item.idempotencyKey, ok: true });
         continue;
       }
+
+      // Nyckeln följer med in i skrivningen. Den är hela skälet till att kön
+      // vågar skicka om posten: `recordAttempt` slår upp den först och svarar
+      // "redan gjort" i stället för att skriva ett andra samtal.
 
       const input: RecordAttemptInput = {
         leadId: item.leadId,
@@ -131,6 +182,7 @@ export async function POST(req: Request) {
             }
           : null,
         framework: item.framework ?? null,
+        idempotencyKey: item.idempotencyKey,
       };
 
       await recordAttempt(input);
@@ -138,10 +190,15 @@ export async function POST(req: Request) {
     } catch (err) {
       // En post som fallerar får inte stoppa resten av kön — säljaren är
       // redan flera leads längre fram och kan inte göra om den ändå.
+      //
+      // `retryable` avgör om kön skickar om posten eller ger upp och visar
+      // remsan. Ett omförsök av något som aldrig kan lyckas är en tyst loop;
+      // ett uppgivet försök på något som bara timade ut är ett förlorat samtal.
       results.push({
         key: item.idempotencyKey,
         ok: false,
         error: err instanceof Error ? err.message : "Okänt fel",
+        retryable: item.kind === "noPhoneFound" ? false : isRetryable(err),
       });
     }
   }
