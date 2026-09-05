@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bell, X, Check, AlarmClock } from "lucide-react";
-import { listCallbacks, markCallbacksSeen, type CallbackRow } from "@/app/actions/callbacks";
+import { markCallbacksSeen, type CallbackRow } from "@/app/actions/callbacks";
+import { fetchCallbacks } from "@/lib/callbacks-client";
 import { formatTime, formatWhen, formatRelative, isSameDay } from "@/lib/time";
 
 /**
@@ -104,7 +105,10 @@ export function CallbackBell({
   // ── Data ────────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
     try {
-      const res = await listCallbacks("mine");
+      // `/api/callbacks`, inte server actionen: den senare la sig i samma
+      // seriella åtgärdskö som allt säljaren trycker på. Se
+      // `src/lib/callbacks-client.ts`.
+      const res = await fetchCallbacks("mine");
       setRows(res.rows);
       setLoaded(true);
     } catch {

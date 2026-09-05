@@ -13,7 +13,114 @@ Nyast först.
 
 ---
 
-## 2026-09-04 (sist) — Dialern "bara laddade": planeraren hade ingen statistik
+## 2026-09-05 (sist) — Kön som stod still, och rutan som inte kunde försöka igen
+
+Beställt: *"det handlar inte bara om förfallna utan att det är något konstigt
+med dialern att det inte ens går att lägga till en återkomst ibland"*.
+
+Gårdagens två fixar (atomicitet + idempotens) var riktiga men täckte bara
+cockpitens skrivkö. Två saker låg kvar, och båda drabbade **lovade** samtal.
+
+### Bokningsrutan i klockan hade varken omförsök eller skydd mot utloggning
+
+`CallbackDisposition` är enda vägen att disponera en återkomst — bolaget ligger
+utanför däcket så länge löftet står öppet, så cockpiten kommer aldrig åt det.
+Rutan gjorde ett ensamt `fetch` utan omförsök. Tre fel följde:
+
+**Nyckeln genererades per försök, inte per ruta.** `crypto.randomUUID()` låg
+inne i `commit`, så varje nytt tryck fick en ny idempotensnyckel. Precis det
+migration 027 fanns för — att ett omförsök inte ska bli ett andra samtal —
+gällde alltså inte här. Det är samma mönster som lämnade fem försök i rad på ett
+bolag den 4 september.
+
+**Ett serverfel var slutstation.** En transaktion som timade ut gav "Kunde inte
+spara samtalet" och säljaren fick trycka om för hand. Kön fick omförsök igår;
+den här vägen fick det inte.
+
+**En utgången session räknades som en lyckad skrivning.** Utan
+`redirect: "manual"` följer webbläsaren middlewares omdirigering till
+inloggningen och får HTML tillbaka med **status 200**. `res.ok` blev sant,
+`res.json()` fallerade tyst till `null`, ingen post såg misslyckad ut — och
+rutan stängdes med `onDone()` som om löftet var infriat. Ingenting skrevs, och
+raden såg ringd ut. `useDispositionQueue` har en egen kommentar om exakt den
+fällan sedan länge; den här filen hade bara aldrig fått samma skydd.
+
+Lagat: en nyckel per ruta, fyra försök med 0,4–3 s backoff, `redirect: "manual"`
+plus kontroll av `content-type`, och besked om utloggning i stället för ett
+falskt kvitto.
+
+### Server actions delar en enda seriell kö — och pollningarna låg i den
+
+Det här är svaret på "allt tar tid", och det är inte samma sak som gårdagens
+långsamhet.
+
+App Routers klient har **en** `actionQueue`. Ligger en åtgärd och väntar läggs
+nästa sist och startar först när den föregående är klar
+(`next/dist/shared/lib/router/action-queue.js`). Kön är gemensam för alla server
+actions på sidan.
+
+I cockpiten stod alltså bakgrundens pollningar i samma kö som säljarens egna
+åtgärder:
+
+| Åtgärd | Intervall |
+|---|---|
+| `heartbeat` | var 15:e sekund |
+| `listCallbacks` × 2 klockor | var 60:e sekund |
+| `renewLeases` | var 5:e minut + varje `visibilitychange` |
+
+Bakom dem: `saveCockpitNote`, `createDeal`, `leaseSpecificLead` (⌘K och
+klockan) och påfyllningen av däcket. Turso går kall mellan anropen och läser
+~3 400 rader/s kall, så en pollning som landar kallt tar sekunder till tiotals
+sekunder — och under hela den tiden händer **ingenting** när säljaren trycker.
+Det är den frusna känslan, och den är intermittent av exakt samma skäl som
+kylan är det.
+
+Att dispositionerna redan låg i en route handler är därför också förklaringen
+till att just de fortsatte fungera medan resten kändes dött.
+
+Flyttade till route handlers: `/api/presence`, `/api/callbacks`, `/api/leases`.
+
+**Rättelse mot en hypotes som såg riktig ut.** Första förklaringen var att varje
+server action renderar om sidan — på `force-dynamic` alltså hela `leaseNextLeads`
+en gång i minuten. Den är **fel**. Next hoppar över flight-renderingen när
+åtgärden inte revaliderat en sökväg (`skipFlight` i `action-handler.js`), och
+ingen av pollningarna gör det. Kostnaden är kön, inte renderingen. Skillnaden
+spelar roll för nästa gång någon letar: leta efter vad som står i kö, inte efter
+vad som renderas om.
+
+### Tidsbudget i dispositionskön
+
+`/api/dispositions` skrev upp till 50 poster sekventiellt inom `maxDuration`
+30 s. En kö som vuxit under ett avbrott hann aldrig klart, hela anropet dödades
+mitt i, nästa försök började om på samma 50 — och efter sex varv gav kön upp med
+"kunde inte sparas" om samtal som gick alldeles utmärkt att skriva, bara inte
+alla på en gång.
+
+Rutten har nu en budget på 20 s och svarar med `unprocessed` för det den inte
+hann börja på. Kön lägger tillbaka dem **utan** att räkna ett försök och tömmer
+vidare direkt. Blocket är sänkt från 50 till 10. Minst en post per anrop alltid,
+så kön garanterat går framåt.
+
+### Mätt i produktionen före ändringen
+
+Gårdagens fix bekräftad: bokade återkomster mot faktiska `Callback`-rader
+stämmer exakt varje dag 25 augusti–3 september (35/35, 36/36, 31/31, 49/49,
+61/61, 50/50, 67/67, 56/56). Bara den 4 september skiljer: **61 bokade, 51
+sparade**. Alla tio låg mellan 14 och 16, åtta av dem inom timmen 15–16.
+
+`sqlite_stat1` har 113 rader — `ANALYZE` från igår ligger kvar.
+
+**Förfallna återkomster har tredubblats**: 51 vid nollmätningen 20 augusti,
+**160 idag** av 288 öppna. Cockpit-klockan räckte alltså inte. Se `ATT_GORA.md`
+punkt 3 — frågan den lämnade öppen är besvarad, och svaret är nej.
+
+Fixen är **oprövad i skarp drift**: den deployades en lördag och varenda
+`CallAttempt` har fortfarande `idempotencyKey = NULL`. Måndag 7 september är
+första riktiga provet.
+
+---
+
+## 2026-09-04 — Dialern "bara laddade": planeraren hade ingen statistik
 
 Beställt: *"när jag går in på dialern så stannar det helt och allt som händer är
 att den laddar"*.

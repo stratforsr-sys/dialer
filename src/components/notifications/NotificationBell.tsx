@@ -15,7 +15,6 @@ import {
   ClipboardCheck,
 } from "lucide-react";
 import {
-  listCallbacks,
   markCallbacksSeen,
   snoozeCallback,
   cancelCallback,
@@ -24,6 +23,7 @@ import {
 } from "@/app/actions/callbacks";
 import type { CallbackCancelReason, NoReason } from "@/generated/prisma/client";
 import { CallbackDisposition } from "@/components/notifications/CallbackDisposition";
+import { fetchCallbacks } from "@/lib/callbacks-client";
 import { formatTime, formatWhen, formatRelative, isSameDay } from "@/lib/time";
 
 /**
@@ -97,7 +97,11 @@ export function NotificationBell({
   // ── Data ────────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
     try {
-      const res = await listCallbacks(scope);
+      // `/api/callbacks`, inte server actionen. Klockan sitter i sidfältet och
+      // finns alltså på varje sida — som server action la sig varje pollning i
+      // samma seriella kö som sidans egna åtgärder, en gång i minuten, hela
+      // dagen. Se `src/lib/callbacks-client.ts`.
+      const res = await fetchCallbacks(scope);
       setRows(res.rows);
     } catch {
       // En misslyckad hämtning ska inte tömma listan som redan visas —

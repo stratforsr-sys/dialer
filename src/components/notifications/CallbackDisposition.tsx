@@ -52,6 +52,97 @@ import type {
  * en halv disposition är värre än ingen.
  */
 
+/** Hur många gånger skrivningen skickas om innan säljaren får ett besked. */
+const MAX_FORSOK = 4;
+/** Väntetid före nästa försök. Kort — säljaren står och tittar på knappen. */
+const BACKOFF_MS = [400, 1200, 3000];
+
+const SESSION_UTGANGEN = "Sessionen har gått ut — ladda om sidan och logga in igen.";
+
+/**
+ * Skickar dispositionen och väntar ut svaret, med omförsök.
+ *
+ * Rutan hade fram till 2026-09-05 ett ensamt `fetch` utan omförsök och utan
+ * skydd mot en utgången session. Två fel följde av det, och båda drabbade
+ * **lovade** samtal — alltså exakt de som inte får tappas:
+ *
+ * **Ett serverfel var slutstation.** En transaktion som timade ut under
+ * belastning gav "Kunde inte spara samtalet" och säljaren fick trycka om för
+ * hand. Cockpitens kö fick omförsök den 4 september; den här vägen fick det
+ * inte, trots att det är här återkomsterna dispositioneras.
+ *
+ * **En utgången session räknades som en lyckad skrivning.** Utan
+ * `redirect: "manual"` följer webbläsaren middlewares omdirigering till
+ * inloggningen och får HTML tillbaka med status 200. `res.ok` blev sant,
+ * `res.json()` fallerade tyst till `null`, ingen post såg misslyckad ut — och
+ * rutan stängdes med `onDone()` som om löftet var infriat. Ingenting skrevs.
+ * Det är samma fälla som `useDispositionQueue` har en egen kommentar om sedan
+ * länge; den här filen hade bara aldrig fått samma skydd.
+ */
+async function postDisposition(
+  item: Record<string, unknown>,
+  key: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  let lastError = "Kunde inte spara samtalet. Försök igen.";
+
+  for (let forsok = 0; forsok < MAX_FORSOK; forsok++) {
+    if (forsok > 0) {
+      await new Promise((r) => setTimeout(r, BACKOFF_MS[forsok - 1] ?? 3000));
+    }
+
+    const res = await fetch("/api/dispositions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items: [item] }),
+      redirect: "manual",
+    });
+
+    // Utgången session. Att skicka om löser ingenting — säljaren måste logga in.
+    if (
+      res.type === "opaqueredirect" ||
+      (res.status >= 300 && res.status < 400) ||
+      res.status === 401
+    ) {
+      return { ok: false, error: SESSION_UTGANGEN };
+    }
+
+    // 4xx som inte är 408/429 är vårt eget fel på indata och blir inte bättre
+    // av ett nytt försök.
+    if (!res.ok && res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) {
+      return { ok: false, error: `Servern nekade skrivningen (${res.status}).` };
+    }
+
+    if (!res.ok) {
+      lastError = `Servern svarade ${res.status}.`;
+      continue;
+    }
+
+    const ct = res.headers.get("content-type") ?? "";
+    if (!ct.includes("application/json")) {
+      // HTML tillbaka på en 200 betyder i praktiken inloggningssidan.
+      return { ok: false, error: SESSION_UTGANGEN };
+    }
+
+    const body = (await res.json()) as {
+      results?: Array<{ key: string; ok: boolean; error?: string; retryable?: boolean }>;
+    };
+    const result = body.results?.find((r) => r.key === key) ?? body.results?.[0];
+
+    // Inget resultat för nyckeln är inget kvitto. Hellre ett omförsök —
+    // skrivningen är idempotent och kostar ett uppslag om den redan gjorts.
+    if (!result) {
+      lastError = "Oväntat svar från servern.";
+      continue;
+    }
+    if (result.ok) return { ok: true };
+
+    lastError = result.error ?? lastError;
+    if (result.retryable !== true) return { ok: false, error: lastError };
+  }
+
+  return { ok: false, error: lastError };
+}
+
 export function CallbackDisposition({
   row,
   onDone,
@@ -75,6 +166,24 @@ export function CallbackDisposition({
 
   const panelRef = useRef<HTMLDivElement>(null);
 
+  /**
+   * Idempotensnyckeln för den här rutan — EN nyckel, inte en per försök.
+   *
+   * Fram till 2026-09-05 genererades den inne i `commit`, alltså på nytt vid
+   * varje tryck. Det gjorde nyckeln verkningslös i precis det läge den finns
+   * för: gick skrivningen igenom men svaret tappades på vägen, skrev nästa
+   * tryck ett andra samtal på bolaget i stället för att få "redan gjort"
+   * tillbaka. Det är samma mönster som lämnade fem försök i rad på ett bolag
+   * den 4 september.
+   *
+   * Nyckeln följer rutan, inte försöket. Ändrar säljaren sig om utfallet efter
+   * ett fel är det fortfarande rätt: hade det första verkligen fallerat finns
+   * ingen rad att krocka med, och hade det gått igenom är samtalet redan
+   * bokfört och ska inte skrivas två gånger.
+   */
+  const keyRef = useRef<string>("");
+  if (!keyRef.current) keyRef.current = crypto.randomUUID();
+
   // ── Skrivningen ─────────────────────────────────────────────────────────
   const commit = useCallback(
     async (opts: {
@@ -86,57 +195,51 @@ export function CallbackDisposition({
       setSaving(true);
       setError("");
       try {
-        const res = await fetch("/api/dispositions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            items: [
-              {
-                idempotencyKey: crypto.randomUUID(),
-                leadId: row.leadId,
-                contactId: row.contactId,
-                result: opts.result,
-                outcome: opts.outcome ?? null,
-                noReason: opts.noReason ?? null,
-                note: notes.trim() || null,
-                dialedE164: row.phone,
-                // Raden det här samtalet svarade på. Utan den stängs inte en
-                // återkomst som ringdes före utsatt tid.
-                answeredCallbackId: row.id,
-                callbackAt: callback.at ? new Date(callback.at).toISOString() : null,
-                callbackNote: callback.note.trim() || null,
-                callbackEmailReminder: callback.emailReminder,
-                framework:
-                  opts.withFramework && endedAtStep
-                    ? {
-                        furthestStep: endedAtStep,
-                        endedAtStep,
-                        closeAttempts,
-                        objections: objections.map((tag) => ({
-                          tag,
-                          atStep: endedAtStep,
-                          handled: false,
-                        })),
-                      }
-                    : null,
-              },
-            ],
-          }),
-        });
+        const res = await postDisposition(
+          {
+            idempotencyKey: keyRef.current,
+            leadId: row.leadId,
+            contactId: row.contactId,
+            result: opts.result,
+            outcome: opts.outcome ?? null,
+            noReason: opts.noReason ?? null,
+            note: notes.trim() || null,
+            dialedE164: row.phone,
+            // Raden det här samtalet svarade på. Utan den stängs inte en
+            // återkomst som ringdes före utsatt tid.
+            answeredCallbackId: row.id,
+            callbackAt: callback.at ? new Date(callback.at).toISOString() : null,
+            callbackNote: callback.note.trim() || null,
+            callbackEmailReminder: callback.emailReminder,
+            framework:
+              opts.withFramework && endedAtStep
+                ? {
+                    furthestStep: endedAtStep,
+                    endedAtStep,
+                    closeAttempts,
+                    objections: objections.map((tag) => ({
+                      tag,
+                      atStep: endedAtStep,
+                      handled: false,
+                    })),
+                  }
+                : null,
+          },
+          keyRef.current
+        );
 
-        const body = await res.json().catch(() => null);
-        const failed = body?.results?.find((r: { ok: boolean }) => !r.ok);
-        if (!res.ok || failed) {
-          // Till skillnad från cockpiten väntar vi på svaret innan rutan
-          // stängs. Där är kön hela poängen — säljaren är redan på nästa
-          // samtal och kan ändå inte göra om det. Här är det ett samtal i
-          // taget, och en tyst förlorad disposition på ett lovat samtal är
-          // precis den sortens tysta bortfall som hela ombygget handlade om.
-          setError(failed?.error ?? "Kunde inte spara samtalet. Försök igen.");
-          setSaving(false);
+        if (res.ok) {
+          onDone();
           return;
         }
-        onDone();
+
+        // Till skillnad från cockpiten väntar vi på svaret innan rutan stängs.
+        // Där är kön hela poängen — säljaren är redan på nästa samtal och kan
+        // ändå inte göra om det. Här är det ett samtal i taget, och en tyst
+        // förlorad disposition på ett lovat samtal är precis den sortens tysta
+        // bortfall som hela ombygget handlade om.
+        setError(res.error);
+        setSaving(false);
       } catch {
         setError("Kunde inte nå servern. Kontrollera uppkopplingen.");
         setSaving(false);

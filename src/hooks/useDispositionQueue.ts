@@ -47,6 +47,8 @@ export function useDispositionQueue() {
   const attemptsRef = useRef<Map<string, number>>(new Map());
   /** Tidigast tillåtna nästa försök, satt av backoffen. */
   const nextFlushAtRef = useRef(0);
+  /** `flush` kan inte referera sig själv i sin egen definition — ref:en är vägen. */
+  const flushRef = useRef<((useKeepalive?: boolean) => Promise<void>) | null>(null);
   const consecutiveFailuresRef = useRef(0);
   const [pending, setPending] = useState(0);
   const [failed, setFailed] = useState<FailedDisposition[]>([]);
@@ -58,8 +60,12 @@ export function useDispositionQueue() {
     if (!useKeepalive && Date.now() < nextFlushAtRef.current) return;
     flushingRef.current = true;
 
-    // Max 50 per anrop — samma tak som endpointen.
-    const batch = queueRef.current.splice(0, 50);
+    // Tio per anrop, inte femtio. Endpointen klarar femtio, men den skriver
+    // dem sekventiellt och en kall Turso-läsning kostar sekunder — ett fullt
+    // block hann inte klart inom `maxDuration` och dödades mitt i. Tio poster
+    // ryms med marginal, och det som ändå inte hinns med kommer tillbaka i
+    // `unprocessed` utan att räknas som ett misslyckat försök.
+    const batch = queueRef.current.splice(0, 10);
     setPending(queueRef.current.length + batch.length);
 
     try {
@@ -95,6 +101,7 @@ export function useDispositionQueue() {
 
       const data = (await res.json()) as {
         results: Array<{ key: string; ok: boolean; error?: string; retryable?: boolean }>;
+        unprocessed?: string[];
       };
 
       // Posten är skriven — nyckeln behövs inte längre.
@@ -134,12 +141,23 @@ export function useDispositionQueue() {
         }
       }
 
+      // Poster servern inte hann börja på. De har inte fallerat — de stod bara
+      // sist i ett block som slog i tidsbudgeten. Tillbaka först i kön, utan
+      // att räkna ett försök och utan backoff: nästa anrop tar dem direkt.
+      const skipped = data.unprocessed?.length
+        ? batch.filter((b) => data.unprocessed!.includes(b.idempotencyKey))
+        : [];
+
       if (retry.length > 0) {
-        queueRef.current.unshift(...retry);
+        queueRef.current.unshift(...retry, ...skipped);
         consecutiveFailuresRef.current += 1;
         nextFlushAtRef.current = Date.now() + backoffMs(consecutiveFailuresRef.current);
       } else {
+        queueRef.current.unshift(...skipped);
         consecutiveFailuresRef.current = 0;
+        // Tömningen fortsätter direkt i stället för att vänta ut nästa tick —
+        // fem sekunders paus per block hade gjort en lång kö långsam utan skäl.
+        if (skipped.length > 0) setTimeout(() => void flushRef.current?.(), 0);
       }
 
       if (giveUp.length > 0) setFailed((prev) => [...prev, ...giveUp]);
@@ -159,6 +177,8 @@ export function useDispositionQueue() {
       setPending(queueRef.current.length);
     }
   }, []);
+
+  flushRef.current = flush;
 
   const enqueue = useCallback(
     (item: QueuedDisposition) => {

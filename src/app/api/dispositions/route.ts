@@ -144,7 +144,33 @@ export async function POST(req: Request) {
   // samma lead skulle ge två försök med samma löpnummer.
   const results: Array<{ key: string; ok: boolean; error?: string; retryable?: boolean }> = [];
 
+  /**
+   * Poster vi inte hann börja på. Skickas tillbaka som en egen lista — inte
+   * som fallerade — så att kön kan lägga dem först igen UTAN att räkna ett
+   * försök mot dem.
+   *
+   * Utan den här gränsen kunde en kö som vuxit under ett avbrott aldrig
+   * tömmas: femtio poster à ett par sekunder mot en kall databas spränger
+   * `maxDuration`, hela anropet dödas mitt i, och nästa försök börjar om på
+   * samma femtio. Efter sex sådana varv gav kön upp och remsan sa "kunde inte
+   * sparas" — om samtal som var fullt möjliga att skriva, bara inte alla på
+   * en gång.
+   */
+  const unprocessed: string[] = [];
+
+  const startedAt = Date.now();
+  // Marginal mot `maxDuration` ovan. En påbörjad post ska hinna klart och
+  // svaret hinna ut; att bli dödad mitt i en transaktion är just det vi
+  // undviker.
+  const BUDGET_MS = 20_000;
+
   for (const item of items) {
+    // Alltid minst en post per anrop, annars går kön aldrig framåt.
+    if (results.length > 0 && Date.now() - startedAt > BUDGET_MS) {
+      unprocessed.push(item.idempotencyKey);
+      continue;
+    }
+
     try {
       if (item.kind === "noPhoneFound") {
         await markNoPhoneFound(item.leadId);
@@ -206,5 +232,6 @@ export async function POST(req: Request) {
   return NextResponse.json({
     written: results.filter((r) => r.ok).length,
     results,
+    unprocessed,
   });
 }

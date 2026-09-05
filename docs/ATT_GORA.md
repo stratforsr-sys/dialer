@@ -68,6 +68,27 @@ räknar fortfarande hållna löften per säljare, och admin kan inte se om de 51
 krympte. **Mät om siffrorna ovan efter någon vecka i drift.** Går de inte ner
 är problemet inte synlighet, och då är kolumnen i coachingvyn nästa steg.
 
+**Ommätt 2026-09-05: de gick inte ner. De tredubblades.**
+
+| Säljare | Öppna | Förfallna | Äldsta |
+|---|---|---|---|
+| Josef | 54 | 53 | 2026-08-13 |
+| Edvin | 42 | 30 | 2026-08-31 |
+| Zen Alsabti | 31 | 28 | 2026-08-10 |
+| Mick Corneliusson | 26 | 22 | 2026-08-27 |
+| Fredrik Pernehed | 90 | 21 | 2026-08-20 |
+| Vlado | 41 | 4 | 2026-08-24 |
+| Simon | 4 | 2 | 2026-09-03 |
+
+**160 förfallna av 288 öppna**, mot 51 av 130 den 20 augusti. Frågan ovan är
+alltså besvarad: problemet är inte synlighet, och kolumnen i coachingvyn är
+nästa steg. Men den mäter bara — högen som redan ligger behöver en egen
+genomgång, äldst först. Josefs äldsta löfte är från den 13 augusti, och det
+ringer man inte upp som om ingenting hänt.
+
+Punkt 1 nedan är sannolikt en del av förklaringen: morgonmejlet har aldrig
+skickats.
+
 ---
 
 ## P1 — mätning som är påbörjad men inte utläst

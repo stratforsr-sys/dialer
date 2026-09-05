@@ -10,9 +10,11 @@ import {
   Search, Star, Trophy, Tag,
 } from "lucide-react";
 import { startSession, endSession } from "@/app/actions/sessions";
-import { leaseNextLeads, releaseLeases, renewLeases, leaseSpecificLead, deckStatus, type OpenWarning, type DeckStatus } from "@/app/actions/dialer";
+import { leaseNextLeads, releaseLeases, leaseSpecificLead, deckStatus, type OpenWarning, type DeckStatus, type LostLease } from "@/app/actions/dialer";
 import type { LeadSearchHit } from "@/app/actions/leads";
-import { heartbeat, goOffline } from "@/app/actions/presence";
+// `heartbeat` går via `/api/presence` — se kommentaren vid `beat()`. `goOffline`
+// får förbli en server action: den körs en gång vid `pagehide`, inte på en timer.
+import { goOffline } from "@/app/actions/presence";
 import { saveCockpitNote } from "@/app/actions/activities";
 import { RegisterDealModal } from "@/components/deals/RegisterDealModal";
 import { DispositionBar } from "@/components/cockpit/DispositionBar";
@@ -771,15 +773,30 @@ export function CockpitDb({
       pendingCallsRef.current = 0;
       pendingSoldRef.current = 0;
       const current = leadsRef.current[indexRef.current];
-      void heartbeat({
-        status: "DIALING",
-        leadId: current?.id ?? null,
-        companyName: current?.companyName ?? null,
-        listId,
-        listName,
-        sessionId: sessionIdRef.current,
-        callsDelta: calls,
-        soldDelta: sold,
+      // Route handler, inte server action: server actions delar en enda seriell
+      // kö med allt annat säljaren gör, och ett hjärtslag var femtonde sekund
+      // som fastnar mot en kall databas blockerar då hela cockpiten. Se
+      // `/api/presence/route.ts`.
+      void fetch("/api/presence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: "DIALING",
+          leadId: current?.id ?? null,
+          companyName: current?.companyName ?? null,
+          listId,
+          listName,
+          sessionId: sessionIdRef.current,
+          callsDelta: calls,
+          soldDelta: sold,
+        }),
+      }).catch(() => {
+        // Ett tappat hjärtslag är en lucka i chefsvyn, inte ett fel säljaren
+        // ska se. Men räknarna nollställdes ovan — lägg tillbaka dem, annars
+        // äter ett enda tappat anrop upp samtalen som gjorts sedan förra
+        // slaget och dagssiffran i chefsvyn blir för låg resten av dagen.
+        pendingCallsRef.current += calls;
+        pendingSoldRef.current += sold;
       });
     }
     beat();
@@ -841,6 +858,26 @@ export function CockpitDb({
     const pending = leadsRef.current.slice(indexRef.current).map((l) => l.id);
     if (pending.length === 0) return;
 
+    // Route handler, inte server action — se `/api/leases/route.ts`. Som
+    // server action stod förnyelsen i samma seriella kö som säljarens egna
+    // åtgärder, och den körs vid `visibilitychange`, alltså precis när
+    // instansen är kall.
+    //
+    // Ett fallerat anrop är tyst med flit: nästa tick förnyar ändå, och leasen
+    // är satt att tåla två missade varv.
+    let allLost: LostLease[];
+    try {
+      const res = await fetch("/api/leases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadIds: pending }),
+      });
+      if (!res.ok) return;
+      ({ lost: allLost } = (await res.json()) as { lost: LostLease[] });
+    } catch {
+      return;
+    }
+
     // **Bara förluster med en innehavare räknas.** Ett id som kommer tillbaka
     // utan innehavare är inte en kollega som tagit bolaget — det är mitt eget
     // lås som släppts, av `recordAttempt`, av `passLead` eller av att leasen
@@ -848,7 +885,6 @@ export function CockpitDb({
     // hade ett bolag jag själv passerat och sedan gått tillbaka till med
     // "Föregående" mötts av bandet "En kollega har …" om en kollega som inte
     // finns.
-    const { lost: allLost } = await renewLeases(pending);
     const lost = allLost.filter((l) => l.holder !== null);
     if (lost.length === 0) return;
 
