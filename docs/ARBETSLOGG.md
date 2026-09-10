@@ -13,6 +13,106 @@ Nyast först.
 
 ---
 
+## 2026-09-10 (sist) — Ett manus kan riktas till en enskild säljare
+
+Beställt: *"jag vill kunna lägga ett manus till en speciell person, så att bara
+en person kan se det manuset som jag väljer då."*
+
+### Varför mappen inte räckte
+
+`ScriptTemplate.listId` finns sedan 019 och avgränsar ett manus till en mapp.
+Det räcker för en kampanj, men en mapp delas av alla som har åtkomst till den —
+den minsta grupp som gick att träffa var alltså "alla som ringer i bygg_5000".
+Ett manus skrivet åt en enskild säljare, för att han ska öva en viss öppning,
+hade ingen väg in i systemet.
+
+`assignedToId` (migration 028) är personnivån. NULL = alla säljare, satt = bara
+den säljaren.
+
+### Fyra nivåer, och den mest specifika ersätter de andra helt
+
+    1. mitt manus i den här mappen   assignedToId = jag,  listId = mappen
+    2. mitt manus, alla mappar       assignedToId = jag,  listId = NULL
+    3. mappens manus                 assignedToId = NULL, listId = mappen
+    4. det allmänna                  assignedToId = NULL, listId = NULL
+
+Nivå 3 och 4 är exakt regeln från 026. De två nya lägger sig ovanpå, och de
+**ersätter** av samma skäl som mappregeln gör det: två manus på skärmen
+samtidigt är samma sak som inget manus, för ingen läser två alternativ mitt i
+ett samtal. Beställaren fick frågan med det andra alternativet uppskrivet — ett
+extra block bredvid de vanliga — och valde ersättning.
+
+Person och mapp går att kombinera; det var också ett uttryckligt val. Priset är
+fyra nivåer att hålla isär när något inte visas som väntat, och motvikten är att
+räckvidden står i klartext i redigeraren (`scopeText`) i stället för att behöva
+läsas ut ur två rullistor.
+
+### Var gallringen ligger
+
+**Andras personliga manus filtreras bort i frågan mot databasen**, inte i
+utsorteringen efteråt. Texten ska aldrig lämna databasen till fel säljare
+oavsett vad koden ovanför gör med raderna.
+
+Två fällor i den frågan, båda undvikna med flit:
+
+- **Två `OR` på samma nivå i Prisma skriver över varandra.** Villkoren ligger
+  därför i en `AND`-array. Utan det hade personfiltret tyst försvunnit och
+  varenda säljare sett allas personliga manus.
+- **`assignedToId: { in: [null, user.id] }` fungerar inte.** `IN` matchar aldrig
+  NULL i SQL, så varje allmänt manus hade fallit bort — alltså motsatt fel, och
+  det syns direkt. Det första hade inte synts alls.
+
+### `valjNiva` ligger i script-resolver.ts
+
+Nivåvalet är bruten ur `getActiveScripts` till en ren funktion, och det är inte
+kosmetik: regeln avgör vad en säljare läser upp i ett skarpt samtal, och en tyst
+bugg där betyder antingen att någon tappar sitt manus eller att en text skriven
+åt en person möter hela golvet. Ingetdera syns förrän någon berättar det.
+
+Åtta prov i `scripts/test-script-resolver.ts`, bland dem ett som slår fast att
+funktionen skiljer **nivåer** och inte **personer** — så att nästa anropare inte
+tror att den är behörighetskontrollen.
+
+### Fällan i `on delete set null`
+
+Kolumnen har `on delete set null`, som `listId`, och den bär samma fälla: NULL
+betyder "gäller alla". Raderas en säljare skulle hans personliga manus alltså
+möta hela golvet i samma sekund kontot försvann — precis det som hände med
+kampanjmanus när en mapp raderades (026).
+
+`deleteUser` arkiverar därför säljarens personliga manus **innan** kontot tas
+bort, utanför transaktionen så att det är gjort före FK:n. Samma rad som
+`deleteList` bär, av samma skäl. Raderingsrutan räknar dem också: en knapp som
+tystar fyra manus ska säga det innan den gör det.
+
+`duplicateTemplate` ärver säljaren. "Kopiera till bygg-mappen" på Annas manus
+ger Annas manus i bygg-mappen — att tyst släppa kopian fri hade gett hela golvet
+en text skriven åt en person, vilket är det enda utfallet som är omöjligt att
+upptäcka innan någon läser upp det i ett samtal.
+
+`sortOrder` räknas per **nivå** och inte per mapp: nivån är kön manuset står i,
+eftersom två nivåer aldrig visas samtidigt.
+
+### Det den inte gör
+
+**Ingen notis till säljaren.** I dialern behövs ingen: manuset står på skärmen
+i nästa samtal, till skillnad från ett dokument i ett intranät som ingen
+öppnar av sig själv. Blir det ändå ett önskemål är det klockan (`Callback`)
+som är kanalen, inte e-post.
+
+**Ingen egen grupp i sidomenyn.** Personliga manus ligger kvar under sin mapp
+med en märkning (`bara Anna`). En femte grupperingsnivå i en lista som redan
+har två gjorde vyn svårare att läsa än vad märkningen kostar.
+
+### Prov
+
+`npx tsc --noEmit` rent. `scripts/test-script-resolver.ts` 24 godkända.
+**`scripts/test-scheduler.ts` har fyra röda som fanns före den här ändringen**
+— "vill ej prata med säljare" och "nej på pris" ger `NaN dagar`. Bekräftat med
+`git stash`. De är orörda här och hör till en egen genomgång.
+
+---
+
 ## 2026-09-10 (sist) — Admin kan sätta lösenord åt någon annan
 
 Beställt: *"sätt så att admin kan ändra lösenord på alla användare"*.

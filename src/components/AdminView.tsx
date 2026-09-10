@@ -46,6 +46,11 @@ function impactLines(i: UserDeletionImpact): string[] {
     );
   }
   if (i.leases) lines.push(`${nf(i.leases)} parkeringar i dialern släpps direkt.`);
+  if (i.scriptsAssigned) {
+    lines.push(
+      `${nf(i.scriptsAssigned)} manus är skrivna åt just den här säljaren och arkiveras. Texten finns kvar, men ingen får den — ett personligt manus utan person skulle annars gälla alla.`
+    );
+  }
 
   if (!lines.length) lines.push("Kontot har ingen historik. Det försvinner utan spår.");
   return lines;

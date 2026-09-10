@@ -1,7 +1,12 @@
 import { Suspense } from "react";
 import { requireAdmin } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { getScripts, getAvailableClaimKeys, getListsForScripts } from "@/app/actions/scripts";
+import {
+  getScripts,
+  getAvailableClaimKeys,
+  getListsForScripts,
+  getSellersForScripts,
+} from "@/app/actions/scripts";
 import { ScriptsView } from "@/components/scripts/ScriptsView";
 
 export const dynamic = "force-dynamic";
@@ -29,9 +34,10 @@ async function sampleLead() {
 export default async function ScriptsPage() {
   await requireAdmin();
 
-  const [templates, lists, claimKeys, sample] = await Promise.all([
+  const [templates, lists, sellers, claimKeys, sample] = await Promise.all([
     getScripts(),
     getListsForScripts(),
+    getSellersForScripts(),
     getAvailableClaimKeys(),
     sampleLead(),
   ]);
@@ -43,6 +49,7 @@ export default async function ScriptsPage() {
       <ScriptsView
         templates={templates}
         lists={lists}
+        sellers={sellers}
         claimKeys={claimKeys}
         sampleLeadId={sample?.id ?? null}
         sampleLeadName={sample?.companyName ?? null}

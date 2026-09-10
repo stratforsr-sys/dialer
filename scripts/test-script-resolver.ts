@@ -6,7 +6,7 @@
  */
 
 import {
-  resolveScript, lintVariants, placeholdersIn,
+  resolveScript, lintVariants, placeholdersIn, valjNiva,
   type ResolverVariant, type ResolverClaim,
 } from "../src/lib/script-resolver.ts";
 
@@ -115,6 +115,63 @@ console.log("\nlint");
   ];
   const problems = lintVariants(bad);
   check("oskyddad platshållare upptäcks", problems.some((p) => p.includes("utan att kräva")), problems.join(" | "));
+}
+
+// ── Nivåvalet: vem ser vilket manus (migration 028) ────────────────────────
+//
+// Regeln avgör vad en säljare läser upp i ett skarpt samtal. Går den fel
+// tappar antingen någon sitt manus, eller så möter en text skriven åt en enda
+// person hela golvet — och inget av det syns förrän någon berättar det.
+
+console.log("\nNivåvalet");
+{
+  type T = { id: string; listId: string | null; assignedToId: string | null };
+  const allmant: T   = { id: "allmänt", listId: null,   assignedToId: null };
+  const mappens: T   = { id: "mappens", listId: "L1",   assignedToId: null };
+  const minAlla: T   = { id: "min-alla", listId: null,  assignedToId: "U1" };
+  const minMapp: T   = { id: "min-mapp", listId: "L1",  assignedToId: "U1" };
+
+  const ids = (r: T[]) => r.map((t) => t.id).sort().join(",");
+
+  check("bara allmänt → allmänt", ids(valjNiva([allmant])) === "allmänt");
+
+  check(
+    "mappens ersätter det allmänna (regeln från 026)",
+    ids(valjNiva([allmant, mappens])) === "mappens"
+  );
+
+  check(
+    "mitt personliga ersätter mappens",
+    ids(valjNiva([allmant, mappens, minAlla])) === "min-alla"
+  );
+
+  check(
+    "mitt i mappen slår mitt allmänna",
+    ids(valjNiva([allmant, mappens, minAlla, minMapp])) === "min-mapp"
+  );
+
+  check(
+    "flera manus på vinnande nivå följs åt",
+    ids(valjNiva([allmant, mappens, minAlla, { ...minAlla, id: "min-alla-2" }])) ===
+      "min-alla,min-alla-2"
+  );
+
+  // Utan mapp faller nivå 1 och 3 bort redan i frågan mot databasen. Det som
+  // återstår ska då välja mitt personliga före det allmänna.
+  check(
+    "utan mapp: mitt personliga före det allmänna",
+    ids(valjNiva([allmant, minAlla])) === "min-alla"
+  );
+
+  check("tom lista ger tom lista", valjNiva([] as T[]).length === 0);
+
+  // Anroparen gallrar bort andras. Provet står här för att säga att funktionen
+  // INTE gör det — den som lägger till en ny anropare ska inte tro något annat.
+  const annans: T = { id: "annans", listId: null, assignedToId: "U2" };
+  check(
+    "funktionen skiljer nivåer, inte personer — gallringen ligger i frågan",
+    ids(valjNiva([allmant, annans])) === "annans"
+  );
 }
 
 console.log(`\n${pass} godkända, ${fail} misslyckade\n`);

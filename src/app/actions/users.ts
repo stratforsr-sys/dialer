@@ -49,6 +49,8 @@ export type UserDeletionImpact = {
   activities: number;
   lists: number;
   scripts: number;
+  /** Manus riktade till PERSONEN. De arkiveras — de gäller ingen längre. */
+  scriptsAssigned: number;
   /** Bolag där personen står som "senast bearbetad av". */
   leads: number;
   /** Av dem: bolag med levande claim, som släpps tillbaka i rotationen. */
@@ -68,7 +70,7 @@ async function loadDeletionImpact(id: string, adminId: string): Promise<UserDele
 
   const [
     calls, sessions, callbacksOpen, callbacksTotal, deals, activities,
-    lists, scripts, leads, claims, leases, otherAdmins,
+    lists, scripts, scriptsAssigned, leads, claims, leases, otherAdmins,
   ] = await Promise.all([
     db.callAttempt.count({ where: { sellerId: id } }),
     db.callSession.count({ where: { userId: id } }),
@@ -78,6 +80,7 @@ async function loadDeletionImpact(id: string, adminId: string): Promise<UserDele
     db.activity.count({ where: { actorId: id } }),
     db.callList.count({ where: { createdById: id } }),
     db.scriptTemplate.count({ where: { createdById: id } }),
+    db.scriptTemplate.count({ where: { assignedToId: id, archived: false } }),
     db.lead.count({ where: { ownerId: id } }),
     db.lead.count({ where: { ownerId: id, claimedAt: { not: null } } }),
     db.lead.count({ where: { leasedById: id, leasedUntil: { gt: now } } }),
@@ -92,7 +95,7 @@ async function loadDeletionImpact(id: string, adminId: string): Promise<UserDele
     isSystem: target.email === SYSTEM_USER_EMAIL,
     isLastAdmin: target.role === "ADMIN" && otherAdmins === 0,
     calls, sessions, callbacksOpen, callbacksTotal, deals, activities,
-    lists, scripts, leads, claims, leases,
+    lists, scripts, scriptsAssigned, leads, claims, leases,
   };
 }
 
@@ -114,6 +117,25 @@ export async function deleteUser(id: string) {
   }
 
   const ghost = await getOrCreateSystemUser();
+
+  /**
+   * Säljarens PERSONLIGA manus arkiveras före raderingen — utanför
+   * transaktionen nedan, så att det är gjort innan FK:n hinner nolla kolumnen.
+   *
+   * `ScriptTemplate.assignedToId` har `on delete set null` (028), och NULL
+   * betyder "gäller alla säljare". Utan det här steget hade alltså ett manus
+   * skrivet åt en enda person mött hela golvet i samma sekund hans konto togs
+   * bort. Exakt det hände med kampanjmanus när en mapp raderades, och
+   * `deleteList` bär samma rad av samma skäl.
+   *
+   * Arkiverade och inte raderade: publicerade versioner ligger på
+   * CallAttempt-rader och bär statistikens koppling till vad som faktiskt
+   * sades. Texten ska gå att läsa även när den som läste upp den är borta.
+   */
+  await db.scriptTemplate.updateMany({
+    where: { assignedToId: id },
+    data: { active: false, archived: true },
+  });
 
   // Ordningen är inte kosmetisk: claims letas upp på `ownerId`, så de måste
   // släppas innan `ownerId` byter hand. Samma sak med återkomsterna — de

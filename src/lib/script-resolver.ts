@@ -156,6 +156,41 @@ export function resolveScript(
 }
 
 /**
+ * Vilken NIVÅ av manus säljaren ska se, av de fyra som kan finnas.
+ *
+ * ===========================================================================
+ * MEST SPECIFIK VINNER, OCH ERSÄTTER DE ÖVRIGA HELT
+ *
+ *   1. mitt manus i den här mappen   assignedToId = jag,  listId = mappen
+ *   2. mitt manus, alla mappar       assignedToId = jag,  listId = NULL
+ *   3. mappens manus                 assignedToId = NULL, listId = mappen
+ *   4. det allmänna                  assignedToId = NULL, listId = NULL
+ *
+ * Ligger här och inte inne i `getActiveScripts` för att den ska gå att prova
+ * utan databas. Regeln avgör vad en säljare faktiskt läser upp i ett samtal;
+ * en tyst bugg här betyder antingen att någon tappar sitt manus eller att ett
+ * manus skrivet åt en person möter hela golvet, och inget av det syns förrän
+ * någon berättar det.
+ *
+ * ANROPAREN MÅSTE HA GALLRAT BORT ANDRAS PERSONLIGA MANUS. Funktionen ser bara
+ * `assignedToId !== null` och kan inte veta vems — den skiljer nivåer, den är
+ * inte behörighetskontrollen. Den ligger i frågan mot databasen, där den hör
+ * hemma.
+ * ===========================================================================
+ */
+export function valjNiva<T extends { listId: string | null; assignedToId: string | null }>(
+  kandidater: T[]
+): T[] {
+  const nivaer = [
+    kandidater.filter((t) => t.assignedToId !== null && t.listId !== null),
+    kandidater.filter((t) => t.assignedToId !== null && t.listId === null),
+    kandidater.filter((t) => t.assignedToId === null && t.listId !== null),
+    kandidater.filter((t) => t.assignedToId === null && t.listId === null),
+  ];
+  return nivaer.find((n) => n.length > 0) ?? [];
+}
+
+/**
  * Kontrollerar ett manus vid redigering — vilka varianter kan aldrig visas?
  * Utan det här är det lätt att skriva fem varianter där ingen har tomma krav,
  * och upptäcka först på ett skarpt samtal att inget renderas.

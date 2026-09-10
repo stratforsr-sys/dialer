@@ -7,9 +7,11 @@ import {
   resolveScript,
   lintVariants,
   firstNameOf,
+  valjNiva,
   type ResolverVariant,
   type ResolverClaim,
 } from "@/lib/script-resolver";
+import { SYSTEM_USER_EMAIL } from "@/lib/system-user";
 import type { FrameworkStep } from "@/generated/prisma/client";
 
 // ── Läsning ────────────────────────────────────────────────────────────────
@@ -31,6 +33,7 @@ export async function getScripts() {
     orderBy: [{ listId: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
     include: {
       list: { select: { id: true, name: true } },
+      assignedTo: { select: { id: true, name: true } },
       versions: {
         orderBy: { version: "desc" },
         include: { variants: { orderBy: { priority: "asc" } } },
@@ -42,36 +45,60 @@ export async function getScripts() {
 /**
  * De publicerade manusen säljaren ska se. Opublicerade utkast syns aldrig.
  *
- * `listId` är mappen säljaren ringer i, och regeln är:
+ * ===========================================================================
+ * FYRA NIVÅER, OCH DEN MEST SPECIFIKA ERSÄTTER DE ÖVRIGA HELT
  *
- *   **har mappen egna manus gäller BARA de, annars gäller de allmänna.**
+ * `listId` är mappen säljaren ringer i, `assignedToId` är säljaren själv:
  *
- * Ersätter, inte kompletterar. Fram till 2026-09-03 matchade ersättningen på
- * `step`: mappens intro-manus tog över det allmänna intro-manuset, medan
- * övriga steg föll tillbaka. Det förutsätter att steget beskriver innehållet,
- * och det gör det inte — i praktiken skrivs ett helt manus per kampanj och
- * hamnar under ett godtyckligt steg. Följden var att en säljare i
- * hantverkare_5000_alla fick samma text två gånger: en gång som "ROI" (mappens
- * manus) och en gång som "Intro" (det allmänna). Två manus på skärmen samtidigt
- * är samma sak som inget manus, för ingen läser två alternativ mitt i ett
- * samtal.
+ *   1. mitt manus i den här mappen   assignedToId = jag,  listId = mappen
+ *   2. mitt manus, alla mappar       assignedToId = jag,  listId = NULL
+ *   3. mappens manus                 assignedToId = NULL, listId = mappen
+ *   4. det allmänna                  assignedToId = NULL, listId = NULL
  *
- * En mapp som bara vill ändra öppningen kopierar därför det allmänna manuset
- * till sig först (`duplicateTemplate`) och redigerar kopian. Det är ett steg
- * mer att skriva, och till skillnad från steg-matchningen går det att förklara
- * för den som ska använda det.
+ * Första nivån som har något vinner, och de andra tre visas inte alls.
  *
- * Utan listId (ett bolag öppnat direkt i dialern, utan ringlista) gäller bara
- * de allmänna manusen: ett mappmanus är skrivet för mappens bolag och ska inte
- * läcka ut på ett godtyckligt lead.
+ * Nivå 3 och 4 är regeln som gällt sedan 2026-09-03. Fram till dess matchade
+ * ersättningen på `step`: mappens intro-manus tog över det allmänna
+ * intro-manuset, medan övriga steg föll tillbaka. Det förutsätter att steget
+ * beskriver innehållet, och det gör det inte — i praktiken skrivs ett helt
+ * manus per kampanj och hamnar under ett godtyckligt steg. Följden var att en
+ * säljare i hantverkare_5000_alla fick samma text två gånger: en gång som
+ * "ROI" (mappens manus) och en gång som "Intro" (det allmänna).
+ *
+ * **Två manus på skärmen samtidigt är samma sak som inget manus**, för ingen
+ * läser två alternativ mitt i ett samtal. Det är hela skälet till att de nya
+ * nivåerna också ersätter i stället för att lägga sig bredvid.
+ *
+ * En mapp — eller en säljare — som bara vill ändra öppningen kopierar därför
+ * det allmänna manuset till sig först (`duplicateTemplate`) och redigerar
+ * kopian. Det är ett steg mer att skriva, och till skillnad från
+ * steg-matchningen går det att förklara för den som ska använda det.
+ *
+ * Utan listId (ett bolag öppnat direkt i dialern, utan ringlista) faller
+ * nivå 1 och 3 bort: ett mappmanus är skrivet för mappens bolag och ska inte
+ * läcka ut på ett godtyckligt lead. Kvar står mitt eget och det allmänna.
+ * ===========================================================================
+ *
+ * ANNANS PERSONLIGA MANUS FILTRERAS BORT I FRÅGAN, inte i utsorteringen
+ * efteråt. Texten ska aldrig lämna databasen till fel säljare, oavsett vad
+ * koden under gör med raderna.
  */
 export async function getActiveScripts(listId?: string | null) {
-  await requireAuth();
+  const user = await requireAuth();
+
   const templates = await db.scriptTemplate.findMany({
     where: {
       active: true,
       archived: false,
-      ...(listId ? { OR: [{ listId: null }, { listId }] } : { listId: null }),
+      // Två villkor i AND och inte två `OR` på samma nivå — det senare hade
+      // skrivit över det förra och släppt fram andras personliga manus.
+      //
+      // `assignedToId: { in: [null, ...] }` duger inte heller: `IN` matchar
+      // aldrig NULL i SQL, så varenda allmänt manus hade fallit bort.
+      AND: [
+        { OR: [{ assignedToId: null }, { assignedToId: user.id }] },
+        listId ? { OR: [{ listId: null }, { listId }] } : { listId: null },
+      ],
     },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     include: {
@@ -86,16 +113,17 @@ export async function getActiveScripts(listId?: string | null) {
 
   const publishable = templates.filter((t) => t.versions.length > 0);
 
-  // Har mappen skrivit något eget är det mappens manus som gäller där. Bara
-  // när den inte gjort det faller säljaren tillbaka på de allmänna.
-  const own = publishable.filter((t) => t.listId !== null);
-  const effective = own.length > 0 ? own : publishable.filter((t) => t.listId === null);
+  // Frågan ovan har redan gallrat bort andras personliga manus. Kvar står bara
+  // att välja nivå, och den regeln ligger i script-resolver.ts för att gå att
+  // prova utan databas — se `valjNiva`.
+  const effective = valjNiva(publishable);
 
   return effective.map((t) => ({
     templateId: t.id,
     step: t.step,
     name: t.name,
     listId: t.listId,
+    assignedToId: t.assignedToId,
     versionId: t.versions[0].id,
     version: t.versions[0].version,
     variants: t.versions[0].variants,
@@ -164,22 +192,41 @@ export async function getScriptsForLead(leadId: string, listId?: string | null) 
 // ── Skrivning (endast admin) ───────────────────────────────────────────────
 
 /**
- * Sist i ordningen inom sin mapp. Ett nytt manus ska hamna under de befintliga,
- * inte mitt i dem — säljaren har lärt sig var de ligger.
+ * Sist i ordningen inom sin egen nivå. Ett nytt manus ska hamna under de
+ * befintliga, inte mitt i dem — säljaren har lärt sig var de ligger.
+ *
+ * Nivån och inte bara mappen: `getActiveScripts` visar aldrig två nivåer
+ * samtidigt, så ordningen betyder något bara mellan manus som kan stå bredvid
+ * varandra på skärmen. Räknades den per mapp skulle Annas första personliga
+ * manus i bygg-mappen ärva ett sortOrder ur mappens allmänna kö och hamna
+ * långt ner i sin egen.
  */
-async function nextSortOrder(listId: string | null) {
+async function nextSortOrder(listId: string | null, assignedToId: string | null) {
   const last = await db.scriptTemplate.findFirst({
-    where: { listId },
+    where: { listId, assignedToId },
     orderBy: { sortOrder: "desc" },
     select: { sortOrder: true },
   });
   return (last?.sortOrder ?? 0) + 10;
 }
 
+/** Finns säljaren, och är det en riktig säljare? Gravstenskontot nekas. */
+async function assertAssignee(userId: string) {
+  const target = await db.user.findUnique({
+    where: { id: userId },
+    select: { id: true, email: true },
+  });
+  if (!target) throw new Error("Säljaren finns inte");
+  if (target.email === SYSTEM_USER_EMAIL) {
+    throw new Error("Gravstenskontot bär historik och ringer inga samtal");
+  }
+}
+
 export async function createScriptTemplate(
   name: string,
   step: FrameworkStep,
-  listId?: string | null
+  listId?: string | null,
+  assignedToId?: string | null
 ) {
   const user = await requireAdmin();
 
@@ -190,13 +237,15 @@ export async function createScriptTemplate(
     const list = await db.callList.findUnique({ where: { id: listId }, select: { id: true } });
     if (!list) throw new Error("Mappen finns inte");
   }
+  if (assignedToId) await assertAssignee(assignedToId);
 
   const template = await db.scriptTemplate.create({
     data: {
       name: trimmed,
       step,
       listId: listId ?? null,
-      sortOrder: await nextSortOrder(listId ?? null),
+      assignedToId: assignedToId ?? null,
+      sortOrder: await nextSortOrder(listId ?? null, assignedToId ?? null),
       createdById: user.id,
       versions: {
         create: {
@@ -388,23 +437,77 @@ export async function setTemplateArchived(templateId: string, archived: boolean)
 }
 
 /**
- * Flyttar manuset ett steg upp eller ner i sin mapp — ordningen säljaren ser.
+ * Riktar manuset till en säljare, eller släpper det fritt igen.
+ *
+ * `null` betyder "alla säljare". Ett manus som varit personligt och släpps
+ * fritt möter alltså hela golvet — därför säger vyn vad valet innebär i
+ * klartext bredvid rutan, i stället för att bara ha ett namn i en lista.
+ *
+ * `sortOrder` räknas om: manuset byter nivå, och nivån är kön det står i.
+ * Utan det ärver det en plats ur den kö det just lämnade.
+ */
+export async function setTemplateAssignee(templateId: string, assignedToId: string | null) {
+  await requireAdmin();
+
+  const me = await db.scriptTemplate.findUnique({
+    where: { id: templateId },
+    select: { id: true, listId: true, assignedToId: true },
+  });
+  if (!me) throw new Error("Manuset finns inte");
+  if (me.assignedToId === assignedToId) return { ok: true as const };
+
+  if (assignedToId) await assertAssignee(assignedToId);
+
+  await db.scriptTemplate.update({
+    where: { id: templateId },
+    data: { assignedToId, sortOrder: await nextSortOrder(me.listId, assignedToId) },
+  });
+
+  revalidatePath("/admin/scripts");
+  revalidatePath("/lists");
+  return { ok: true as const };
+}
+
+/**
+ * Säljarna ett manus går att rikta till — driver rullistan i adminvyn.
+ *
+ * Gravstenskontot filtreras bort. Det bär historiken efter raderade konton och
+ * ringer inga samtal; ett manus riktat dit hade varit osynligt för alla utan
+ * att någonstans säga varför. `assertAssignee` nekar det också vid skrivning —
+ * en filtrerad lista är ingen behörighet.
+ */
+export async function getSellersForScripts() {
+  await requireAdmin();
+  const users = await db.user.findMany({
+    where: { email: { not: SYSTEM_USER_EMAIL } },
+    select: { id: true, name: true, email: true, role: true },
+    orderBy: [{ role: "asc" }, { name: "asc" }],
+  });
+  return users.map((u) => ({ id: u.id, name: u.name, email: u.email, isAdmin: u.role === "ADMIN" }));
+}
+
+/**
+ * Flyttar manuset ett steg upp eller ner i sin kö — ordningen säljaren ser.
  *
  * Byter plats på sortOrder med grannen i stället för att räkna om hela listan:
  * två skrivningar, och ordningen blir densamma oavsett hur många gånger någon
  * klickar.
+ *
+ * Grannarna är de som ligger på SAMMA NIVÅ — samma mapp och samma säljare.
+ * Bara de kan stå bredvid varandra på skärmen (`getActiveScripts`), så att
+ * byta plats med ett manus från en annan nivå hade flyttat något ingen ser.
  */
 export async function moveTemplateOrder(templateId: string, direction: "up" | "down") {
   await requireAdmin();
 
   const me = await db.scriptTemplate.findUnique({
     where: { id: templateId },
-    select: { id: true, listId: true, sortOrder: true, createdAt: true },
+    select: { id: true, listId: true, assignedToId: true, sortOrder: true, createdAt: true },
   });
   if (!me) throw new Error("Manuset finns inte");
 
   const siblings = await db.scriptTemplate.findMany({
-    where: { listId: me.listId, archived: false },
+    where: { listId: me.listId, assignedToId: me.assignedToId, archived: false },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     select: { id: true, sortOrder: true },
   });
@@ -471,12 +574,17 @@ export async function duplicateTemplate(templateId: string, listId: string | nul
 
   const variants = source.versions[0]?.variants ?? [];
 
+  // Kopian ärver säljaren. "Kopiera till bygg-mappen" på Annas manus ska ge
+  // Annas manus i bygg-mappen — att tyst släppa det fritt hade gett hela
+  // golvet en text skriven åt en person, vilket är det enda utfallet som är
+  // omöjligt att upptäcka innan någon läser upp den i ett samtal.
   const copy = await db.scriptTemplate.create({
     data: {
       name: `${source.name} (kopia)`,
       step: source.step,
       listId,
-      sortOrder: await nextSortOrder(listId),
+      assignedToId: source.assignedToId,
+      sortOrder: await nextSortOrder(listId, source.assignedToId),
       // Kopian är avstängd tills någon publicerat den. Ett halvfärdigt manus
       // som slår igång i mappen i samma sekund det skapas är inte en kopia,
       // det är en olycka.
@@ -552,12 +660,19 @@ export async function setTemplateList(templateId: string, listId: string | null)
     if (!list) throw new Error("Mappen finns inte");
   }
 
-  // Ordningen hör till mappen manuset ligger i. Följer den med över blir den
+  // Ordningen hör till nivån manuset ligger på. Följer den med över blir den
   // godtycklig i den nya mappen — sist är rätt gissning för något som just
-  // flyttat in.
+  // flyttat in. Säljaren står kvar: byter man mapp på Annas manus är det
+  // fortfarande Annas.
+  const me = await db.scriptTemplate.findUnique({
+    where: { id: templateId },
+    select: { assignedToId: true },
+  });
+  if (!me) throw new Error("Manuset finns inte");
+
   await db.scriptTemplate.update({
     where: { id: templateId },
-    data: { listId, sortOrder: await nextSortOrder(listId) },
+    data: { listId, sortOrder: await nextSortOrder(listId, me.assignedToId) },
   });
   revalidatePath("/admin/scripts");
   revalidatePath("/lists");

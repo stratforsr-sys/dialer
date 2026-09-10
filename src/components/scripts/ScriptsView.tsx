@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import {
   Plus, MessageSquare, Loader2, Globe, FolderOpen, Archive, ArchiveRestore,
-  Trash2, Copy, ArrowUp, ArrowDown, Power, PowerOff, Pencil, AlertTriangle, Check,
+  Trash2, Copy, ArrowUp, ArrowDown, Power, PowerOff, Pencil, AlertTriangle, Check, User,
 } from "lucide-react";
 import {
   createScriptTemplate,
@@ -15,6 +15,7 @@ import {
   duplicateTemplate,
   renameTemplate,
   moveTemplateOrder,
+  setTemplateAssignee,
   getSampleLeadForList,
 } from "@/app/actions/scripts";
 import { ScriptEditor, type EditableVariant } from "@/components/scripts/ScriptEditor";
@@ -31,6 +32,8 @@ type Template = {
   sortOrder: number;
   listId: string | null;
   list: { id: string; name: string } | null;
+  assignedToId: string | null;
+  assignedTo: { id: string; name: string } | null;
   versions: Array<{
     id: string;
     version: number;
@@ -53,6 +56,8 @@ type ListOption = {
   scriptCount: number;
   leadCount: number;
 };
+
+type SellerOption = { id: string; name: string; email: string; isAdmin: boolean };
 
 /** Sidomenyns grupper: det allmänna först, sedan en rubrik per mapp. */
 type Group = { key: string; name: string; listId: string | null; templates: Template[] };
@@ -80,12 +85,14 @@ function groupTemplates(templates: Template[], lists: ListOption[]): Group[] {
 export function ScriptsView({
   templates,
   lists,
+  sellers,
   claimKeys,
   sampleLeadId,
   sampleLeadName,
 }: {
   templates: Template[];
   lists: ListOption[];
+  sellers: SellerOption[];
   claimKeys: Array<{ key: string; count: number }>;
   sampleLeadId: string | null;
   sampleLeadName: string | null;
@@ -126,6 +133,7 @@ export function ScriptsView({
   const [newStep, setNewStep] = useState<FrameworkStep>("INTRO");
   const [newListId, setNewListId] = useState<string>("");
   const [newName, setNewName] = useState<string>("");
+  const [newAssignee, setNewAssignee] = useState<string>("");
 
   const template = templates.find((t) => t.id === selected) ?? null;
   const version = template?.versions[0] ?? null;
@@ -180,8 +188,9 @@ export function ScriptsView({
     // gäller var. Namnet går numera att ändra i efterhand.
     const name = newName.trim() || (listName ? `${stepLabel} — ${listName}` : stepLabel);
     startCreating(async () => {
-      const t = await createScriptTemplate(name, newStep, newListId || null);
+      const t = await createScriptTemplate(name, newStep, newListId || null, newAssignee || null);
       setNewName("");
+      setNewAssignee("");
       // Markera det nyskapade manuset — det är det man just bad om att få
       // skriva i. Innan låg ett reload här och man hamnade i ett annat.
       select(t.id);
@@ -286,6 +295,16 @@ export function ScriptsView({
                               {published ? "publicerat" : "utkast"}
                               {!t.active && " · avstängt"}
                             </p>
+                            {/* Vem manuset är riktat till står i listan och inte
+                                bara inne i manuset: annars går det inte att se
+                                vilket av fem manus i en mapp som är personligt
+                                utan att öppna vart och ett. */}
+                            {t.assignedTo && (
+                              <span className="inline-flex items-center gap-1 mt-[3px] text-[10px] px-1.5 py-[1px] rounded-full"
+                                style={{ background: "var(--accent-muted)", color: "var(--accent)", border: "1px solid var(--border)" }}>
+                                <User size={9} /> bara {t.assignedTo.name}
+                              </span>
+                            )}
                           </div>
                         </button>
 
@@ -347,6 +366,19 @@ export function ScriptsView({
               {lists.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name}{l.archived ? " (arkiverad)" : ""}
+                </option>
+              ))}
+            </select>
+            <select
+              value={newAssignee}
+              onChange={(e) => setNewAssignee(e.target.value)}
+              className="w-full px-2 py-1.5 text-[12px] rounded-md outline-none mb-2"
+              style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)" }}
+            >
+              <option value="">Alla säljare</option>
+              {sellers.map((u) => (
+                <option key={u.id} value={u.id}>
+                  Bara {u.name}{u.isAdmin ? " (admin)" : ""}
                 </option>
               ))}
             </select>
@@ -422,13 +454,24 @@ export function ScriptsView({
               <TemplateHeader
                 template={template}
                 lists={lists}
+                sellers={sellers}
                 stepLabel={stepLabelOf(template)}
                 pending={pending}
                 hidesGeneral={
-                  template.listId !== null && listsWithOwnScripts.has(template.listId)
+                  template.assignedToId === null &&
+                  template.listId !== null &&
+                  listsWithOwnScripts.has(template.listId)
                 }
                 onRename={(name) => run(() => renameTemplate(template.id, name).then(() => null))}
                 onMove={(listId) => run(() => setTemplateList(template.id, listId).then(() => null))}
+                onAssign={(userId) =>
+                  run(async () => {
+                    await setTemplateAssignee(template.id, userId);
+                    return userId
+                      ? null
+                      : "Manuset gäller nu alla säljare. Var det skrivet åt en person läser hela golvet det från och med nästa samtal.";
+                  })
+                }
                 onActive={(active) =>
                   run(() => setTemplateActive(template.id, active).then(() => null))
                 }
@@ -500,6 +543,18 @@ export function ScriptsView({
 }
 
 /**
+ * Räckvidden i klartext. Fyra kombinationer, och ingen av dem går att gissa
+ * sig till ur två rullistor — särskilt inte den tredje, där ett personligt
+ * manus utan mapp ändå tystar mappens manus för sin säljare.
+ */
+function scopeText(t: { listId: string | null; assignedTo: { name: string } | null }): string {
+  if (t.assignedTo && t.listId) return `Bara ${t.assignedTo.name}, och bara i den mappen.`;
+  if (t.assignedTo) return `Bara ${t.assignedTo.name} — i alla mappar hon ringer i.`;
+  if (t.listId) return "Visas bara för säljare som ringer i den mappen.";
+  return "Används i alla mappar som inte har egna manus.";
+}
+
+/**
  * Vem manuset gäller, och vad som går att göra med det.
  *
  * Ligger ovanför texten och inte i en inställningsruta någon annanstans:
@@ -507,16 +562,18 @@ export function ScriptsView({
  * skriver dem.
  */
 function TemplateHeader({
-  template, lists, stepLabel, pending, hidesGeneral,
-  onRename, onMove, onActive, onArchive, onDuplicate, onDelete,
+  template, lists, sellers, stepLabel, pending, hidesGeneral,
+  onRename, onMove, onAssign, onActive, onArchive, onDuplicate, onDelete,
 }: {
   template: Template;
   lists: ListOption[];
+  sellers: SellerOption[];
   stepLabel: string;
   pending: boolean;
   hidesGeneral: boolean;
   onRename: (name: string) => void;
   onMove: (listId: string | null) => void;
+  onAssign: (userId: string | null) => void;
   onActive: (active: boolean) => void;
   onArchive: (archived: boolean) => void;
   onDuplicate: (listId: string | null) => void;
@@ -612,15 +669,41 @@ function TemplateHeader({
             </option>
           ))}
         </select>
+        <select
+          value={template.assignedToId ?? ""}
+          disabled={pending}
+          onChange={(e) => onAssign(e.target.value || null)}
+          className="px-2 py-1.5 text-[12px] rounded-md outline-none"
+          style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)" }}
+        >
+          <option value="">Alla säljare</option>
+          {sellers.map((u) => (
+            <option key={u.id} value={u.id}>
+              Bara {u.name}{u.isAdmin ? " (admin)" : ""}
+            </option>
+          ))}
+        </select>
         <p className="text-[11.5px]" style={{ color: "var(--text-muted)" }}>
-          {template.listId
-            ? "Visas bara för säljare som ringer i den mappen."
-            : "Används i alla mappar som inte har egna manus."}
+          {scopeText(template)}
         </p>
         <span className="text-[10px] px-1.5 py-[2px] rounded-full" style={{ background: "var(--surface)", color: "var(--text-dim)", border: "1px solid var(--border)" }}>
           {stepLabel}
         </span>
       </div>
+
+      {/* Ett personligt manus ersätter — det står i rutan, inte bara i koden.
+          Den som skriver det ska veta att mappens och det allmänna manuset
+          försvinner för just den personen, inte upptäcka det när hon frågar
+          varför hon inte längre ser öppningen alla andra har. */}
+      {template.assignedTo && (
+        <p className="text-[11.5px] mb-3 px-2.5 py-2 rounded-md leading-snug"
+          style={{ background: "var(--accent-muted)", border: "1px solid var(--border-strong)", color: "var(--text)" }}>
+          Bara <strong>{template.assignedTo.name}</strong> ser det här, och det ersätter
+          {template.listId ? " mappens och det allmänna manuset" : " det allmänna manuset"} för
+          henne. Övriga säljare påverkas inte. Ska hon ha resten också: öppna dem och
+          välj <strong>Kopiera till</strong>, och rikta kopian till henne.
+        </p>
+      )}
 
       {hidesGeneral && (
         <p className="text-[11.5px] mb-3 px-2.5 py-2 rounded-md leading-snug"

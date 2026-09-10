@@ -28,6 +28,7 @@ model User {
 
   callAttempts CallAttempt[]    @relation("CallAttemptSeller")
   scripts      ScriptTemplate[] @relation("ScriptAuthor")
+  scriptsAssigned ScriptTemplate[] @relation("ScriptAssignee")
   dncAdded     DoNotCall[]      @relation("DncAddedBy")
   presence     SellerPresence?
   callbacks    Callback[]       @relation("CallbackSeller")
@@ -968,6 +969,21 @@ model ScriptTemplate {
   listId String?
   list   CallList? @relation(fields: [listId], references: [id], onDelete: SetNull)
 
+  /// NULL = manuset gäller alla säljare. Satt = BARA den säljaren ser det.
+  ///
+  /// Samma sorts avgränsning som `listId`, fast på person i stället för mapp,
+  /// och de går att kombinera: "Annas manus i bygg-mappen". Rangordningen när
+  /// flera passar står i `getActiveScripts` — mest specifika vinner, och den
+  /// vinnande nivån ERSÄTTER de andra helt. Två manus på skärmen samtidigt är
+  /// samma sak som inget manus.
+  ///
+  /// SetNull av samma skäl som `listId`, och med samma motgift: ett manus som
+  /// blir personlöst här skulle gälla ALLA. `deleteUser` arkiverar därför
+  /// säljarens personliga manus innan kontot försvinner, så ett manus som
+  /// nollas här är redan borta ur cockpiten och kan aldrig råka bli allmänt.
+  assignedToId String?
+  assignedTo   User?   @relation("ScriptAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+
   createdById String
   createdBy   User   @relation("ScriptAuthor", fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
@@ -977,6 +993,7 @@ model ScriptTemplate {
   @@index([step, active])
   @@index([listId, archived, active])
   @@index([listId, step, active])
+  @@index([assignedToId, archived, active])
 }
 
 /// Oföränderlig när den publicerats — en redigering skapar en ny version.

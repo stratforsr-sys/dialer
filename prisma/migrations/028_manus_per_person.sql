@@ -1,0 +1,61 @@
+-- 028_manus_per_person
+--
+-- Ett manus kan riktas till EN säljare.
+--
+-- Beställt: "jag vill kunna lägga ett manus till en speciell person, så att
+-- bara en person kan se det manuset som jag väljer då."
+--
+--
+-- VARFÖR MAPPEN INTE RÄCKTE
+--
+-- `listId` finns sedan 019 och avgränsar ett manus till en mapp. Det räcker
+-- för en kampanj — bygg-leads och redovisningsbyråer öppnas inte likadant —
+-- men inte för en person. En mapp delas av alla som har åtkomst till den, så
+-- den minsta grupp som gick att träffa var "alla som ringer i bygg_5000".
+-- Ett manus skrivet åt en enskild säljare, för att han behöver öva en viss
+-- öppning, hade ingen väg in i systemet alls.
+--
+--
+-- ASSIGNEDTOID
+--
+--   NULL     manuset gäller alla säljare
+--   satt     BARA den säljaren ser det
+--
+-- Kolumnen är fristående från `listId` och de går att kombinera. Fyra nivåer
+-- alltså, och regeln när flera passar är att den MEST SPECIFIKA vinner och
+-- ERSÄTTER de andra helt:
+--
+--   1. min + mappens        (assignedToId = jag  och listId = mappen)
+--   2. min, alla mappar     (assignedToId = jag  och listId är NULL)
+--   3. mappens              (assignedToId NULL   och listId = mappen)
+--   4. allmänt              (assignedToId NULL   och listId är NULL)
+--
+-- Nivå 3 och 4 är exakt den regel som redan gällde (026); de två nya lägger
+-- sig ovanpå. Ersätter och inte kompletterar, av samma skäl som mappregeln
+-- gör det: två manus på skärmen samtidigt är samma sak som inget manus, för
+-- ingen läser två alternativ mitt i ett samtal.
+--
+--
+-- SET NULL, OCH FÄLLAN I DET
+--
+-- `on delete set null` är samma val som `listId` har, och det bär samma fälla:
+-- ett manus som blir personlöst gäller ALLA. Raderas en säljare skulle hans
+-- personliga manus alltså möta hela golvet i samma sekund kontot försvann —
+-- precis det som hände med kampanjmanus när en mapp raderades (se 026).
+--
+-- Motgiftet är detsamma och ligger i koden: `deleteUser` arkiverar säljarens
+-- personliga manus INNAN kontot tas bort. Ett manus som nollas av den här
+-- FK:n är då redan arkiverat och kan inte komma tillbaka av sig självt.
+--
+-- Alternativet — `on delete cascade` — hade tagit bort texten, och publicerade
+-- versioner ligger på CallAttempt-rader som bär statistikens koppling till vad
+-- som faktiskt sades.
+--
+--
+-- Ingen befintlig rad ändras: kolumnen blir NULL överallt, vilket betyder
+-- "gäller alla säljare" — alltså precis som i dag.
+
+alter table "ScriptTemplate" add column "assignedToId" text references "User"("id") on delete set null;
+
+create index if not exists "ScriptTemplate_assignedToId_archived_active_idx"
+  on "ScriptTemplate" ("assignedToId", "archived", "active");

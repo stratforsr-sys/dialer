@@ -264,6 +264,19 @@ kolumner hade innehåll i en av dem.
   säger sig köra i. Raderas mappen nollas `listId` av FK:n, så `deleteList`
   **arkiverar** mappens manus först — annars hade ett kampanjmanus blivit allmänt
   i samma sekund
+- **Manus kan riktas till en enskild säljare** (`ScriptTemplate.assignedToId`,
+  migration 028). `NULL` = alla säljare. Kombineras fritt med `listId`, vilket ger
+  fyra nivåer, och **den mest specifika ersätter de andra helt**: mitt manus i
+  mappen → mitt manus överallt → mappens → det allmänna. Nivåvalet är en ren
+  funktion, `valjNiva` i `script-resolver.ts`, och är provad i
+  `scripts/test-script-resolver.ts`. **Gallringen av andras personliga manus
+  ligger i frågan** i `getActiveScripts`, inte i nivåvalet — `valjNiva` skiljer
+  nivåer, inte personer. Två `OR` på samma nivå i ett Prisma-`where` skriver över
+  varandra, och `assignedToId: { in: [null, id] }` matchar aldrig NULL; båda står
+  som kommentar i frågan. Raderas säljaren nollas kolumnen av FK:n, så
+  `deleteUser` **arkiverar** hans personliga manus först — annars hade en text
+  skriven åt en person blivit allmän i samma sekund kontot togs bort, exakt som
+  kampanjmanusen när en mapp raderades
 - **`archived` är vad "ta bort" betyder för ett manus som använts.** `active =
   false` är pausat, `archived = true` är borta men läsbart. Ett manus vars version
   ligger på en `CallAttempt` raderas aldrig: `scriptVersionId` är hela kopplingen
