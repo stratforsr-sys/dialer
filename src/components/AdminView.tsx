@@ -2,8 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Users, Plus, Trash2, Package, ToggleLeft, ToggleRight } from "lucide-react";
-import { createUser, deleteUser, updateUserRole, getUserDeletionImpact, type UserDeletionImpact } from "@/app/actions/users";
+import { Users, Plus, Trash2, Package, ToggleLeft, ToggleRight, KeyRound } from "lucide-react";
+import { createUser, deleteUser, updateUserRole, setUserPassword, getUserDeletionImpact, type UserDeletionImpact } from "@/app/actions/users";
 import { createProduct, updateProduct, deleteProduct } from "@/app/actions/products";
 
 type UserRow = { id: string; name: string; email: string; role: string; createdAt: Date };
@@ -50,6 +50,16 @@ function impactLines(i: UserDeletionImpact): string[] {
   if (!lines.length) lines.push("Kontot har ingen historik. Det försvinner utan spår.");
   return lines;
 }
+/** Ett lösenord som går att läsa upp i telefon. Inga tecken som förväxlas
+ *  (0/O, 1/l/I) och inga specialtecken — det här ska sägas högt en gång och
+ *  skrivas in rätt på andra sidan, inte bokstaveras. */
+function suggestPassword(): string {
+  const alphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const draw = new Uint32Array(14);
+  crypto.getRandomValues(draw);
+  return Array.from(draw, (n) => alphabet[n % alphabet.length]).join("");
+}
+
 type Product = { id: string; name: string; description: string | null; basePrice: number | null; isRecurring: boolean; unit: string | null; active: boolean };
 
 function Section({ title, icon: Icon, children }: { title: string; icon: React.ElementType; children: React.ReactNode }) {
@@ -74,10 +84,44 @@ export function AdminView({ users, products }: { users: UserRow[]; products: Pro
   const [error, setError] = useState("");
   const [confirm, setConfirm] = useState<UserDeletionImpact | null>(null);
   const [userError, setUserError] = useState("");
+  /** Vilken rad som har lösenordsrutan uppe, och vad som står i den. */
+  const [pw, setPw] = useState<{ id: string; value: string } | null>(null);
+  const [pwError, setPwError] = useState("");
+  /** Namnet på den som senast fick ett nytt lösenord. Kvittensen ligger kvar
+   *  tills något annat händer — admin ska hinna läsa den efter att rutan
+   *  fällts ihop. */
+  const [pwDone, setPwDone] = useState("");
+
+  function askPassword(id: string) {
+    setUserError("");
+    setPwError("");
+    setPwDone("");
+    setConfirm(null);
+    setPw({ id, value: "" });
+  }
+
+  function savePassword(e: React.FormEvent, id: string) {
+    e.preventDefault();
+    if (!pw) return;
+    setPwError("");
+    const value = pw.value;
+    startTransition(async () => {
+      try {
+        const { name } = await setUserPassword(id, value);
+        setPw(null);
+        setPwDone(name);
+      } catch (err) {
+        setPwError(err instanceof Error ? err.message : "Kunde inte byta lösenordet");
+      }
+    });
+  }
 
   function askDelete(id: string) {
     setUserError("");
     setConfirm(null);
+    setPw(null);
+    setPwError("");
+    setPwDone("");
     startTransition(async () => {
       try {
         setConfirm(await getUserDeletionImpact(id));
@@ -174,7 +218,10 @@ export function AdminView({ users, products }: { users: UserRow[]; products: Pro
                   <div className="flex flex-col gap-2 mb-4">
                     {users.map((u) => (
                       <div key={u.id} className="flex flex-col rounded-md overflow-hidden"
-                        style={{ background: "var(--surface-inset)", border: `1px solid ${confirm?.id === u.id ? "var(--danger)" : "var(--border)"}` }}>
+                        style={{
+                          background: "var(--surface-inset)",
+                          border: `1px solid ${confirm?.id === u.id ? "var(--danger)" : pw?.id === u.id ? "var(--border-strong)" : "var(--border)"}`,
+                        }}>
                         <div className="flex items-center gap-3 px-3 py-2">
                           <div className="w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-bold shrink-0"
                             style={{ background: "var(--accent)", color: "var(--on-accent)" }}>
@@ -192,6 +239,14 @@ export function AdminView({ users, products }: { users: UserRow[]; products: Pro
                             <option value="SELLER">Säljare</option>
                             <option value="ADMIN">Admin</option>
                           </select>
+                          <button onClick={() => (pw?.id === u.id ? setPw(null) : askPassword(u.id))}
+                            title="Sätt nytt lösenord"
+                            className="w-7 h-7 flex items-center justify-center rounded-full transition-colors"
+                            style={{ color: pw?.id === u.id ? "var(--text)" : "var(--text-dim)" }}
+                            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--text)")}
+                            onMouseLeave={(e) => (e.currentTarget.style.color = pw?.id === u.id ? "var(--text)" : "var(--text-dim)")}>
+                            <KeyRound size={13} />
+                          </button>
                           <button onClick={() => (confirm?.id === u.id ? setConfirm(null) : askDelete(u.id))}
                             title="Ta bort konto"
                             className="w-7 h-7 flex items-center justify-center rounded-full transition-colors"
@@ -203,6 +258,58 @@ export function AdminView({ users, products }: { users: UserRow[]; products: Pro
                         </div>
 
                         <AnimatePresence initial={false}>
+                          {pw && pw.id === u.id && (
+                            <motion.div key="pw" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+                              className="overflow-hidden">
+                              <form onSubmit={(e) => savePassword(e, u.id)}
+                                className="px-3 pb-3 pt-1 flex flex-col gap-2 border-t" style={{ borderColor: "var(--border)" }}>
+                                <p className="text-[11px] leading-[1.5]" style={{ color: "var(--text-muted)" }}>
+                                  Nytt lösenord för {u.name}. Det står i klartext — det ska vidare till en
+                                  människa, och ett dolt fält gör bara att det läses upp fel. {u.name} kan byta
+                                  det själv under Inställningar efteråt.
+                                </p>
+                                <div className="flex gap-2">
+                                  <input
+                                    autoFocus
+                                    type="text"
+                                    autoComplete="off"
+                                    spellCheck={false}
+                                    value={pw.value}
+                                    onChange={(e) => setPw({ id: u.id, value: e.target.value })}
+                                    placeholder="Minst 8 tecken"
+                                    className="flex-1 text-[13px] font-mono outline-none px-3 py-2 rounded-md"
+                                    style={{ background: "var(--surface)", border: "1px solid var(--border-strong)", color: "var(--text)" }} />
+                                  <button type="button" onClick={() => setPw({ id: u.id, value: suggestPassword() })}
+                                    className="px-3 text-[12px] rounded-md shrink-0"
+                                    style={{ background: "var(--surface)", color: "var(--text-muted)", border: "1px solid var(--border)" }}>
+                                    Slumpa
+                                  </button>
+                                </div>
+                                {pwError && (
+                                  <p className="text-[12px] px-3 py-2 rounded-md"
+                                    style={{ background: "var(--danger-bg)", color: "var(--danger)" }}>
+                                    {pwError}
+                                  </p>
+                                )}
+                                <div className="flex gap-2 pt-1">
+                                  <button type="button" onClick={() => setPw(null)} className="flex-1 py-[6px] text-[12px] rounded-md"
+                                    style={{ background: "var(--surface)", color: "var(--text-muted)", border: "1px solid var(--border)" }}>
+                                    Avbryt
+                                  </button>
+                                  <button type="submit" disabled={isPending || pw.value.length < 8}
+                                    className="flex-1 py-[6px] text-[12px] font-medium rounded-md"
+                                    style={{
+                                      background: "var(--accent)",
+                                      color: "var(--on-accent)",
+                                      opacity: isPending || pw.value.length < 8 ? 0.5 : 1,
+                                    }}>
+                                    {isPending ? "Sparar…" : "Sätt lösenord"}
+                                  </button>
+                                </div>
+                              </form>
+                            </motion.div>
+                          )}
+
                           {confirm && confirm.id === u.id && (
                             <motion.div key="confirm" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
                               className="overflow-hidden">
@@ -251,6 +358,14 @@ export function AdminView({ users, products }: { users: UserRow[]; products: Pro
                   {userError && (
                     <p className="text-[12px] px-3 py-2 rounded-md mb-4" style={{ background: "var(--danger-bg)", color: "var(--danger)" }}>
                       {userError}
+                    </p>
+                  )}
+
+                  {pwDone && (
+                    <p className="text-[12px] px-3 py-2 rounded-md mb-4"
+                      style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
+                      Nytt lösenord sparat för {pwDone}. Den som redan är inloggad blir inte utloggad — det
+                      gäller från nästa inloggning.
                     </p>
                   )}
 

@@ -174,6 +174,50 @@ export async function updateUserRole(id: string, role: "ADMIN" | "SELLER") {
   revalidatePath("/admin");
 }
 
+/** Admin sätter ett nytt lösenord åt någon annan.
+ *
+ *  Skiljer sig från `changeOwnPassword` på en enda punkt, och den är hela
+ *  poängen: inget nuvarande lösenord krävs. Säljaren som är utelåst kan per
+ *  definition inte visa upp sitt — utan den här vägen är enda utvägen att
+ *  radera kontot och skapa ett nytt, vilket flyttar samtalshistoriken till
+ *  gravstenen för att någon glömt sex tecken.
+ *
+ *  Priset är att funktionen aldrig får finnas utanför `requireAdmin`, och att
+ *  den aldrig får ta emot ett id från den egna sessionen: `changeOwnPassword`
+ *  frågar efter det gamla lösenordet just för att en obevakad skärm inte ska
+ *  räcka för att låsa ut kontots ägare, och det skyddet vore borta om admin
+ *  kunde skriva om sitt eget lösenord härifrån.
+ *
+ *  Observera att sessionen är en JWT utan spegling i databasen. Ett byte här
+ *  spärrar därför inte ut den som redan är inloggad — det stänger nästa
+ *  inloggning, inte den pågående. Ska ett kapat konto stängas *nu* är
+ *  raderingen vägen. */
+export async function setUserPassword(id: string, newPassword: string) {
+  const admin = await requireAdmin();
+
+  if (id === admin.id) {
+    throw new Error("Ditt eget lösenord byter du under Inställningar, där det nuvarande får kvittera bytet");
+  }
+  if (newPassword.length < 8) throw new Error("Lösenordet måste vara minst 8 tecken");
+
+  const target = await db.user.findUnique({
+    where: { id },
+    select: { name: true, email: true },
+  });
+  if (!target) throw new Error("Användaren finns inte");
+  if (target.email === SYSTEM_USER_EMAIL) {
+    throw new Error(`"${SYSTEM_USER_NAME}" är inget riktigt konto och går inte att logga in på`);
+  }
+
+  // Samma kostnad som createUser och changeOwnPassword. Avviker de åt går
+  // hashar från de tre vägarna att skilja åt på längden.
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  await db.user.update({ where: { id }, data: { passwordHash } });
+
+  revalidatePath("/admin");
+  return { name: target.name };
+}
+
 // ─── Säljarens egna inställningar ────────────────────────────────────────────
 // Skiljer sig från funktionerna ovan på en enda men avgörande punkt: de här
 // tar aldrig emot ett id. Vem som ändras avgörs av sessionen, inte av vad

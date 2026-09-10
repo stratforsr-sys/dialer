@@ -176,6 +176,14 @@ får bolaget, filtret styr *om* någon får det alls.
 ### User Roles
 - ADMIN: sees all leads, all stats, manages users and products
 - SELLER: sees only own leads, own stats
+- **Lösenord: tre vägar, tre olika krav.** `createUser` sätter det första,
+  `changeOwnPassword` kräver det nuvarande (annars räcker en obevakad skärm för
+  att låsa ut kontots ägare), och `setUserPassword` är admins väg åt någon
+  **annan** — utan nuvarande lösenord, eftersom den utelåsta säljaren per
+  definition inte har det. Admin når aldrig sitt eget konto den vägen. Alla tre
+  hashar med bcrypt-kostnad 12; håll dem lika. Sessionen är en JWT utan spegling
+  i databasen, så ett byte gäller från **nästa** inloggning — det loggar inte ut
+  den som redan är inne.
 - **Affärer: säljaren skapar, admin ändrar.** `createDeal` är säljarbete —
   affären föds i dispositionen. `updateDeal`, `cancelDeal` och `deleteDeal`
   ligger bakom `requireDealAdmin` (`src/lib/guard.ts`): ordervärdet är underlag

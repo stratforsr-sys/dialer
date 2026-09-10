@@ -13,7 +13,63 @@ Nyast först.
 
 ---
 
-## 2026-09-05 (sist) — Kön som stod still, och rutan som inte kunde försöka igen
+## 2026-09-10 (sist) — Admin kan sätta lösenord åt någon annan
+
+Beställt: *"sätt så att admin kan ändra lösenord på alla användare"*.
+
+Fram till nu fanns exakt två vägar till en lösenordshash: `createUser` när
+kontot föddes, och `changeOwnPassword` under Inställningar. Den senare kräver
+det **nuvarande** lösenordet, vilket är precis det den utelåsta säljaren inte
+har. Enda utvägen för en glömd inloggning var alltså att radera kontot och
+skapa ett nytt — och raderingen flyttar samtal, pass, affärer och återkomster
+till gravstenskontot. Sex glömda tecken kostade en säljares hela historik.
+
+**`setUserPassword(id, nyttLösenord)`** i `actions/users.ts` är vägen.
+`requireAdmin`, minst 8 tecken, bcrypt med kostnad 12 — samma kostnad som de
+två andra vägarna, så att hashar från olika håll inte går att skilja åt.
+Gravstenskontot nekas explicit trots att det redan filtreras bort ur listan i
+`/admin`: id:t kommer från klienten och en filtrerad vy är ingen behörighet.
+
+**Admin byter inte sitt eget lösenord här.** `changeOwnPassword` frågar efter
+det gamla för att en obevakad skärm inte ska räcka för att låsa ut kontots
+ägare, och det skyddet vore borta i samma sekund som admin kunde skriva om sig
+själv från adminvyn. Samma regel som `updateUserRole` redan har. Meddelandet
+pekar på Inställningar i stället för att bara neka.
+
+**Rutan visar lösenordet i klartext**, med en `Slumpa`-knapp som drar 14 tecken
+ur ett alfabet utan `0/O` och `1/l/I`. Det här är inget lösenord någon skriver
+in på sig själv — det ska läsas upp i telefon eller klistras in i ett chattfönster,
+och ett prickat fält gör bara att det läses upp fel. Nyckelikonen sitter bredvid
+papperskorgen på varje rad, och de två utfällda rutorna stänger varandra.
+
+### Det den inte gör
+
+**En redan inloggad session överlever bytet.** Sessionen är en JWT utan
+spegling i databasen (`session: { strategy: "jwt" }`), så det finns ingen rad
+att ogiltigförklara — hashen läses bara i `authorize`, alltså vid nästa
+inloggning. Kvittensen i vyn säger det rakt ut. Ska ett kapat konto stängas
+**nu** är raderingen fortfarande enda vägen.
+
+Att laga det på riktigt kräver en `passwordChangedAt` på `User` och en
+jämförelse i `jwt`-callbacken — men den callbacken körs vid varje anrop, och en
+databasläsning där lägger en fråga på varje sidladdning för hela golvet. Inte
+gjort, medvetet.
+
+**Ingen `Activity` skrivs.** `Activity.leadId` är obligatorisk och kaskadraderas
+med bolaget; ett lösenordsbyte hör inte till något lead. Vill man ha spår på
+kontonivå behövs en egen tabell — loggen som finns är bolagens, inte
+systemets.
+
+### Öppna punkter
+
+- [ ] **Ingen spårbarhet på lösenordsbyten.** Vem som satte vems lösenord, och
+      när, står ingenstans. Kräver en tabell som inte hänger på `leadId`.
+- [ ] **Ett byte loggar inte ut den som redan är inne.** Se ovan — kostnaden är
+      en databasläsning per anrop i `jwt`-callbacken.
+
+---
+
+## 2026-09-05 — Kön som stod still, och rutan som inte kunde försöka igen
 
 Beställt: *"det handlar inte bara om förfallna utan att det är något konstigt
 med dialern att det inte ens går att lägga till en återkomst ibland"*.
