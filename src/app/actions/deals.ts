@@ -14,9 +14,10 @@
  */
 
 import { db } from "@/lib/db";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, requireAdmin } from "@/lib/auth";
 import { requireLeadAccess, requireDealAccess, requireDealAdmin } from "@/lib/guard";
 import { visibleLeadWhere } from "@/lib/lists";
+import { SYSTEM_USER_EMAIL } from "@/lib/system-user";
 import { revalidatePath } from "next/cache";
 
 // ── Queries ────────────────────────────────────────────────────────────────
@@ -123,6 +124,44 @@ export async function getDeal(dealId: string) {
 
 export type DealDetail = NonNullable<Awaited<ReturnType<typeof getDeal>>>;
 
+/**
+ * Säljarna en affär går att skriva om till — rullistan i redigeringsläget.
+ *
+ * Admin är med i listan. En chef som stänger en affär själv är ovanligt men
+ * inte fel, och en lista som tyst utelämnar den som faktiskt sålde tvingar
+ * fram ett felaktigt val.
+ *
+ * Gravstenskontot är däremot inte med. Det bär historiken efter raderade
+ * konton, och att flytta en levande affär dit hade gömt den bakom "Borttagen
+ * användare" utan att någon kan ta tillbaka den — kontot går inte att logga in
+ * på och syns inte i någon säljarvy. `assertSeller` nekar det också vid
+ * skrivning; en filtrerad lista är ingen behörighet.
+ */
+export async function getDealSellers() {
+  await requireAdmin();
+  const users = await db.user.findMany({
+    where: { email: { not: SYSTEM_USER_EMAIL } },
+    orderBy: [{ role: "asc" }, { name: "asc" }],
+    select: { id: true, name: true, email: true, role: true },
+  });
+  return users.map((u) => ({ id: u.id, name: u.name, email: u.email, isAdmin: u.role === "ADMIN" }));
+}
+
+export type DealSeller = Awaited<ReturnType<typeof getDealSellers>>[number];
+
+/** Finns säljaren, och är det en riktig säljare? Gravstenskontot nekas. */
+async function assertSeller(userId: string) {
+  const target = await db.user.findUnique({
+    where: { id: userId },
+    select: { id: true, email: true, name: true },
+  });
+  if (!target) throw new Error("Säljaren finns inte");
+  if (target.email === SYSTEM_USER_EMAIL) {
+    throw new Error("Gravstenskontot bär historik och kan inte äga en affär");
+  }
+  return target;
+}
+
 // ── Mutations ──────────────────────────────────────────────────────────────
 
 export async function createDeal(data: {
@@ -175,6 +214,26 @@ export async function createDeal(data: {
   return deal;
 }
 
+/**
+ * Rättar uppgifterna på en affär.
+ *
+ * **`createdById` är inte ett fält bland andra.** Resten av rutan rättar vad
+ * som står om affären; säljarbytet flyttar den. Ett avslut registrerat på fel
+ * person är vanligare än det borde vara — en säljare lånar en inloggad skärm,
+ * en affär skrivs in i efterhand av en kollega, eller personen som sålde har
+ * slutat och affären ligger på gravstenskontot. Utan den här vägen var
+ * rättelsen att radera affären och skriva in den på nytt, vilket tappar
+ * `closedAt`, anteckningen och raden i loggen.
+ *
+ * Bytet skriver därför en egen `DEAL_SELLER_CHANGED` med båda namnen i
+ * metadata. `createdById` är vad `getDealsOverview` summerar per säljare, så
+ * ett byte flyttar ordervärde mellan två personers statistik — det ska gå att
+ * se vem som gjorde det och när.
+ *
+ * Vad som INTE flyttar med: `CallAttempt`-raden med utfallet `SOLD`. Samtalet
+ * ringdes av den som ringde det, och samtalsstatistiken (`getSellerStats`)
+ * räknar därifrån. Affären byter ägare, historien om samtalet gör det inte.
+ */
 export async function updateDeal(
   dealId: string,
   data: {
@@ -186,10 +245,45 @@ export async function updateDeal(
     value?: number | null;
     notes?: string | null;
     closedAt?: Date;
+    /** Säljaren affären ska stå på. Utelämnad = oförändrad. */
+    createdById?: string;
   }
 ) {
-  await requireDealAdmin(dealId);
-  const deal = await db.deal.update({ where: { id: dealId }, data });
+  const { user } = await requireDealAdmin(dealId);
+  const { createdById, ...fields } = data;
+
+  // Läses före skrivningen: efteråt går det inte att säga vem affären stod på.
+  const before = await db.deal.findUnique({
+    where: { id: dealId },
+    select: { createdById: true, title: true, value: true, valueType: true, createdBy: { select: { name: true } } },
+  });
+  if (!before) throw new Error("Affären finns inte");
+
+  const sellerChanged = !!createdById && createdById !== before.createdById;
+  const newSeller = sellerChanged ? await assertSeller(createdById!) : null;
+
+  const deal = await db.deal.update({
+    where: { id: dealId },
+    data: sellerChanged ? { ...fields, createdById } : fields,
+  });
+
+  if (sellerChanged && newSeller) {
+    await db.activity.create({
+      data: {
+        type: "DEAL_SELLER_CHANGED",
+        actorId: user.id,
+        leadId: deal.leadId,
+        metadata: JSON.stringify({
+          dealId,
+          title: deal.title,
+          value: deal.value,
+          valueType: deal.valueType,
+          from: { id: before.createdById, name: before.createdBy.name },
+          to: { id: newSeller.id, name: newSeller.name },
+        }),
+      },
+    });
+  }
 
   revalidatePath("/deals");
   revalidatePath(`/deals/${dealId}`);

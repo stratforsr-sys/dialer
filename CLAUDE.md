@@ -216,6 +216,13 @@ kolumner hade innehåll i en av dem.
   i metadata **innan** raden försvinner. Aktivitetsloggen rensas aldrig.
 - **Kontaktuppgifterna kopieras till affären**, de pekas inte ut med
   `contactId`. Vem som skrev på ska stå kvar även om kontakten byts på leadet.
+- **Säljaren går att byta i efterhand** — `updateDeal({ createdById })`, admin
+  bara, rullistan i redigeringsläget på `/deals/[id]`. `createdById` är vad
+  `getDealsOverview` räknar ordervärde per säljare på, så bytet flyttar pengar
+  och skriver därför en `DEAL_SELLER_CHANGED`-aktivitet med båda namnen.
+  **`CallAttempt`-raden med `SOLD` följer inte med** — samtalsstatistiken
+  beskriver den som ringde. Gravstenskontot går att flytta ifrån men aldrig
+  till (`assertSeller`).
 - **`/deals`** listar alla affärer, **`/deals/[id]`** är kunden. Historiken där
   är samma `LeadHistory` som i cockpiten — samtalen ligger kvar på leadet.
 - `/pipeline` redirectar till `/deals`. `ActivityType.DEAL_STAGE_CHANGE` står

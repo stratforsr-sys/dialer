@@ -516,6 +516,12 @@ enum ActivityType {
   /// den, så att raden går att läsa efter att Deal-raden är borta. Kolumnen är
   /// TEXT i SQLite — värdet krävde ingen migration, bara en ny klient.
   DEAL_DELETED
+  /// En admin skrev om vem som sålde affären. Metadata bär `{ dealId, title,
+  /// value, valueType, from: {id,name}, to: {id,name} }`. Raden är inte
+  /// kosmetisk: `createdById` är vad provisionen och `getDealsOverview` räknar
+  /// på, så ett byte flyttar pengar mellan två personer och måste gå att spåra
+  /// till den som gjorde det.
+  DEAL_SELLER_CHANGED
 }
 
 // ==================== CALL SESSIONS (Fluff-tracking) ====================

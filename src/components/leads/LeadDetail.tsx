@@ -26,6 +26,7 @@ const ACTIVITY_ICONS: Record<string, string> = {
   CONTACT_ADDED: "👥",
   STATUS_CHANGE: "🔁",
   LEAD_LEASE_LOST: "⚠️",
+  DEAL_SELLER_CHANGED: "💰",
 };
 
 function formatDate(d: Date | string) {
@@ -456,6 +457,10 @@ export function LeadDetail({
                               läses "X hade det, Y tog över". */}
                           {a.type === "LEAD_LEASE_LOST" &&
                             `Hade bolaget i ringkön när ${meta.takenByName ?? "en kollega"} tog över det`}
+                          {/* Aktören är admin som gjorde rättelsen, inte någon
+                              av säljarna — därför står båda namnen i texten. */}
+                          {a.type === "DEAL_SELLER_CHANGED" &&
+                            `Skrev om affären från ${meta.from?.name ?? "okänd"} till ${meta.to?.name ?? "okänd"}`}
                         </p>
                       </div>
                     </motion.div>

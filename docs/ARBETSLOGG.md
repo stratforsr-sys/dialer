@@ -13,6 +13,69 @@ Nyast först.
 
 ---
 
+## 2026-09-15 — Affären kan byta säljare
+
+Beställt: *"när man redigerar en affär så kan man också välja vilken säljare
+det var så att man kan byta ut säljaren."*
+
+### Vad som saknades
+
+`Deal.createdById` sattes vid registreringen och gick aldrig att röra igen.
+Den kolumnen är inte bokföring över vem som klickade — den är vad
+`getDealsOverview` summerar ordervärde per säljare på, alltså underlaget för
+provision. Stod den fel fanns exakt en utväg: radera affären och skriva in den
+på nytt. Det kostar `closedAt`, anteckningen, kontaktuppgifterna och lämnar en
+`DEAL_DELETED` i loggen som ser ut som en rättelse av något som var fel i
+grunden — vilket det inte var.
+
+Tre fall som gör det fel från början, alla sedda i datan: en säljare registrerar
+på en kollegas inloggade skärm, en affär skrivs in i efterhand av någon annan,
+och säljaren slutar varpå `deleteUser` flyttar affären till gravstenskontot.
+
+### Vad som flyttar och vad som inte gör det
+
+**Affären flyttar. Samtalet gör det inte.** `CallAttempt`-raden med utfallet
+`SOLD` står kvar hos den som ringde samtalet — `getSellerStats` räknar samtal,
+konverteringsgrad och fluff därifrån, och den statistiken beskriver ett arbete
+som en annan person faktiskt utförde. `getDealsOverview` räknar på
+`createdById` och följer alltså med bytet. Att de två säger olika saker efter
+en rättelse är avsiktligt och står skrivet under rullistan i gränssnittet, så
+att den som byter ser det innan hen sparar i stället för i en provisionsrapport
+i efterhand.
+
+### Beslut
+
+- **Admin, inte säljaren.** Ligger i `updateDeal` bakom `requireDealAdmin`
+  tillsammans med belopp och kontaktuppgifter. Samma skäl: ett underlag som den
+  som tjänar på siffran kan skriva om är inget underlag.
+- **Bytet skriver en egen rad**, `ActivityType.DEAL_SELLER_CHANGED`, med båda
+  namnen, beloppet och titeln i metadata. Aktören är admin som gjorde det, inte
+  någon av säljarna. Rättelsen ska gå att spåra — resten av `updateDeal` skriver
+  ingen aktivitet, men resten flyttar inte heller pengar mellan två personer.
+- **Ingen migration.** `Activity.type` är `TEXT NOT NULL` utan CHECK i SQLite
+  (`init.sql`), så det nya enumvärdet krävde bara `prisma generate`. Samma
+  förhållande som `noReason` och `outcome`.
+- **Gravstenskontot går att flytta ifrån, aldrig till.** `getDealSellers`
+  filtrerar bort det och `assertSeller` nekar det vid skrivning. Rullistan visar
+  det ändå som ett låst alternativ när affären står där **nu** — utan det
+  matchar `value` ingen `<option>` och webbläsaren visar första namnet i listan
+  som om affären redan bytt hand.
+- **Admin är med i listan.** En chef som stänger en affär själv är ovanligt men
+  inte fel, och en lista som utelämnar den som faktiskt sålde tvingar fram ett
+  felaktigt val.
+- **Avbryt nollställer valet.** Ett byte som ångrats låg annars kvar förvalt
+  nästa gång redigeringen öppnades och hade följt med på en sparning som gällde
+  kontaktuppgifter.
+
+### Var det inte syns
+
+Affärssidans historik (`LeadHistory`) hämtar bara `NOTE` — dess metadata-form
+är `{ note }` och komponenten delas med cockpiten. Säljarbytet syns därför på
+**leadsidan** (`/leads/[id]`), som är hela loggen. Att få in det i
+`LeadHistory` kräver att entry-formen bär fler typer än två; inte gjort.
+
+---
+
 ## 2026-09-10 (sist) — Ett manus kan riktas till en enskild säljare
 
 Beställt: *"jag vill kunna lägga ett manus till en speciell person, så att bara

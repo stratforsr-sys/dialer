@@ -10,7 +10,7 @@ import {
 import { LeadHistory } from "@/components/cockpit/LeadHistory";
 import { updateDeal, cancelDeal, deleteDeal } from "@/app/actions/deals";
 import { formatDate } from "@/lib/time";
-import type { DealDetail as DealDetailData } from "@/app/actions/deals";
+import type { DealDetail as DealDetailData, DealSeller } from "@/app/actions/deals";
 
 /**
  * En kund.
@@ -24,6 +24,11 @@ import type { DealDetail as DealDetailData } from "@/app/actions/deals";
  * Säljaren ser hela sidan men kan inte röra den. Rätta, ångra och radera är
  * admin — knapparna finns inte ens i DOM:en för en säljare, och grinden som
  * faktiskt håller ligger i `requireDealAdmin` på servern.
+ *
+ * Säljarvalet ligger överst i redigeringsläget och inte bland kontaktfälten:
+ * de rättar vad som står om affären, det flyttar den — och med den
+ * ordervärdet i statistiken. Därför står följden skriven under rullistan så
+ * fort valet ändras, i stället för att upptäckas i en provisionsrapport.
  */
 
 function money(n: number): string {
@@ -41,7 +46,16 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-export function DealDetail({ data, isAdmin }: { data: DealDetailData; isAdmin: boolean }) {
+export function DealDetail({
+  data,
+  isAdmin,
+  sellers = [],
+}: {
+  data: DealDetailData;
+  isAdmin: boolean;
+  /** Tom för en säljare — listan hämtas bara för admin. */
+  sellers?: DealSeller[];
+}) {
   const { deal, lead } = data;
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -56,8 +70,17 @@ export function DealDetail({ data, isAdmin }: { data: DealDetailData; isAdmin: b
   const [valueType, setValueType] = useState<"ONE_TIME" | "MONTHLY">(deal.valueType);
   const [amount, setAmount] = useState(deal.value != null ? String(deal.value) : "");
   const [notes, setNotes] = useState(deal.notes ?? "");
+  const [sellerId, setSellerId] = useState(deal.createdBy.id);
 
   const cancelled = deal.status === "LOST";
+
+  // Står affären på ett konto som inte går att välja — gravstenen efter en
+  // raderad säljare — måste det ändå finnas som alternativ. Utan det matchar
+  // `value` ingen option, och webbläsaren visar då första namnet i listan som
+  // om affären redan stod på den personen.
+  const currentIsSelectable = sellers.some((s) => s.id === deal.createdBy.id);
+  const sellerChanged = sellerId !== deal.createdBy.id;
+  const newSellerName = sellers.find((s) => s.id === sellerId)?.name;
 
   function save() {
     setError("");
@@ -70,6 +93,7 @@ export function DealDetail({ data, isAdmin }: { data: DealDetailData; isAdmin: b
           valueType,
           value: parseFloat(amount.replace(/\s/g, "").replace(",", ".")) || null,
           notes,
+          createdById: sellerId,
         });
         setEditing(false);
         router.refresh();
@@ -202,7 +226,11 @@ export function DealDetail({ data, isAdmin }: { data: DealDetailData; isAdmin: b
         {editing && (
           <>
             <button
-              onClick={() => { setEditing(false); setError(""); }}
+              // Säljarvalet nollställs, inte bara rutan. Ett byte som ångrats
+              // hade annars legat kvar förvalt nästa gång någon öppnar
+              // redigeringen och följt med på en sparning som gällde något helt
+              // annat.
+              onClick={() => { setEditing(false); setError(""); setSellerId(deal.createdBy.id); }}
               className="flex items-center gap-1.5 text-[12px] px-3 py-[6px] rounded-md shrink-0"
               style={{ background: "var(--surface-inset)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
             >
@@ -235,6 +263,36 @@ export function DealDetail({ data, isAdmin }: { data: DealDetailData; isAdmin: b
           <div className="rounded-lg p-5" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
             {editing ? (
               <div className="flex flex-col gap-4">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest mb-[5px]" style={{ color: "var(--text-dim)" }}>Såld av</p>
+                  <select
+                    value={sellerId}
+                    onChange={(e) => setSellerId(e.target.value)}
+                    style={{ ...inputStyle, maxWidth: "360px", cursor: "pointer" }}
+                  >
+                    {!currentIsSelectable && (
+                      // Går inte att välja tillbaka. Gravstenskontot ringer inga
+                      // samtal och servern nekar det ändå — det står här för att
+                      // rullistan ska säga sanningen om var affären ligger nu.
+                      <option value={deal.createdBy.id} disabled>
+                        {deal.createdBy.name}
+                      </option>
+                    )}
+                    {sellers.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}{s.isAdmin ? " (admin)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {sellerChanged && (
+                    <p className="text-[11px] mt-1.5" style={{ color: "var(--text-muted)", lineHeight: 1.5 }}>
+                      Ordervärdet räknas på <strong style={{ color: "var(--text)" }}>{newSellerName}</strong> i
+                      statistiken när du sparar. Samtalet ligger kvar hos {deal.createdBy.name} — det ringdes
+                      av den som ringde det. Bytet skrivs i bolagets historik.
+                    </p>
+                  )}
+                </div>
+
                 <div className="grid grid-cols-3 gap-3">
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-widest mb-[5px]" style={{ color: "var(--text-dim)" }}>Kontaktperson</p>
