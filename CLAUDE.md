@@ -449,18 +449,119 @@ där ingen svarade.** 636 bolag låg ringbara efter ett nej när det mättes.
 
 `rotationResumeAt` måste få `lastOutcome` — annars faller ett nej tillbaka på 20
 timmar när en återkomst avbokas. Därför speglas `Lead.lastOutcome` och
-`lastNoReason` vid varje disposition, som `lastResult` redan gjorde.
+`lastNoReason` vid varje disposition, som `lastResult` redan gjorde. Samma sak
+gäller `noAnswerStreak`, av samma skäl, sedan trappan nedan.
 
-### Spärrlistan — `BORTFALL` och "Inget telefonnummer"
+### "Svarar ej" trappas, och varvet tar slut (migration 030)
 
-`DoNotCall` var fram till 2026-08-28 ett filter utan skrivväg: 0 rader. Två
-knappar skriver den nu, båda via `blockLead` i `actions/dialer.ts`:
+Två hål som båda handlade om att det inte fanns någon gräns.
 
-- **`CallResult.BORTFALL`** — tangent 6 i resultatsteget. Ligger i `CallResult`
-  och inte i `ConversationOutcome` för att den ska vara ETT tryck oavsett vem
-  som svarade. Terminal via `terminalReason` → `retiredReason = 'bortfall'`.
-- **"Inget telefonnummer"** — skriver spärren **före** raderingen. Efteråt finns
-  inget lead att läsa org-numret ur.
+**`retryHoursNoAnswer` var en FAST vila.** 20 timmar valdes för att hamna i ett
+annat tidsfönster — men `alignToSlot` flyttar ändå in tiden i nästa ringpass, så
+20 timmar betyder "i morgon bitti". Med taket på åtta ringdes ett bolag som
+aldrig svarade åtta arbetsdagar i rad. Mätt på tre veckor 2026-09-15: **450
+omtagningar inom ett dygn och 296 inom två — 148 av de senare av en ANNAN
+säljare.** 128 `BORTFALL` på fjorton dagar är notan.
+
+`DialerConfig.retryBackoffFactor` (2,0) och `retryHoursMax` (336 h) ger nu
+20 h → 40 h → 3,3 d → 6,7 d → 13,3 d → tak. Åtta försök över ~54 dagar i
+stället för över åtta. **Trappan gäller bara obesvarade samtal** — ett besvarat
+nollställer `noAnswerStreak`, så `WRONG_DM` får grundvilan. Växel, röstbrevlåda
+och nej har egna tal som inte trappas.
+
+**Taket hade ingen utgång.** `computeNext` satte `attemptCount = 0` och lade på
+`cooldownDays`. Ingen räknare överlevde nollställningen, alltså ingen gräns: åtta
+försök, trettio dagars vila, åtta till, i evighet. Det är också varför en
+ringlista aldrig kunde bli färdig — nämnaren stod stilla medan samma bolag
+maldes om.
+
+`Lead.roundCount` är räknaren som saknades. Vid `roundCount + 1 >= maxRounds`
+(2) pensioneras bolaget med `retiredReason = 'uttomd'`. **Ingen spärr** —
+bolaget har inte bett om något, det har bara aldrig svarat.
+
+Trappan finns på tre ställen och de måste hållas lika: `retryHours` i
+`scheduler.ts`, förhandsvisningen `backoffSteps` i `DialerSettingsView`, och
+proven i `scripts/test-scheduler.ts`. Kalendergapen är inte strikt växande —
+`alignToSlot` hoppar över helger — så provet jämför två steg bakåt, inte ett.
+
+### Framsteg i en ringlista är RINGDA, inte låsta
+
+`getLists` räknade fram till 2026-09-15 `workedLeads`/`freeLeads` på
+`Lead.claimedAt`, och stapeln var `(total − free) / total`. Men `claimedAt` är
+ett ägarlås, och `claimsLead` släpper det på varje disposition utom
+`CALLBACK_BOOKED` och `SOLD`. Stapelns tak var alltså andelen öppna återkomster
+plus kunder — **6 242 ringda leads, varav 440 med lås**. `Clicknet Lista 1`
+visade 3 % när 47 % var ringt; `leads_bygg_hantverk` visade 8 % när allt var
+ringt.
+
+Nyckeln är **`lastAttemptAt IS NOT NULL`**, aldrig `attemptCount > 0`: taket
+nollställer `attemptCount` och glömmer då arbete som gjorts (133 leads skilde
+i Clicknet Lista 1). `lastAttemptAt` nollställs aldrig.
+
+Brädet visar `calledLeads` / `untouchedLeads` / `retiredLeads` / `claimedLeads`;
+mappvyn visar dessutom `ringbara` ur `deckState`. Låsräkningen finns kvar — den
+svarar på "hur många håller någon just nu" — men får aldrig vara stapeln, och
+aldrig låsa "Starta dialer".
+
+### Importen får inte tappa telefonkolumnen tyst
+
+`autoGuessMapping` gissar, människan bekräftar — och fram till 2026-09-15 fanns
+ingen spärr mellan gissningen och 5 000 skrivna rader. Fyra listor importerades
+utan telefonnummer och med `Contact.name` satt till tvåsiffriga tal, postnummer
+respektive tjänstekategorier ("Fönsterputs"). Se spärrlisteavsnittet för vad det
+kostade.
+
+`DbImportView` **blockerar** nu importen när mindre än halva filen bär ett
+nummer; att gå vidare kräver ett kryss. Varningen efteråt finns kvar men kom
+per definition för sent. Förhandsgranskningens kolumner **Kontakt** och
+**Telefon** är den andra halvan av skyddet: en mismappning syns där på tre
+sekunder.
+
+`resolveIndustry` låter filens fritextkolumn vinna över SNI-koden, och det är
+oftast rätt — "Elektriker" är mer användbart än huvudgruppen "Bygghantverk".
+Men leadverktygen skriver ofta **sökkategorin** där, samma värde på varje rad:
+alla 1 151 bolag i `Endast Städföretag (kanske)` bar `industry = 'Stadforetag'`
+medan koderna spände över **24 SNI-huvudgrupper** — en cykelhandel, en
+bemanningsfirma och ett måleri stod alla som städföretag på cockpitskärmen.
+
+Därför visas båda. `sniAside` i `lib/sni.ts` ger huvudgruppen när den säger
+något annat än filens text, och den renderas som en neutral bricka bredvid
+branschen i cockpiten och på `/leads/[id]`. Mappvyn har dessutom en
+SNI-fördelning som visas när en mapp spänner över mer än en grupp — det är
+verktyget som saknades när listan fylldes.
+
+### Spärrlistan är kundens besked, inte vår saknade uppgift
+
+`DoNotCall` var fram till 2026-08-28 ett filter utan skrivväg: 0 rader. Sedan
+dess skriver **`CallResult.BORTFALL`** den, via `blockLead` i
+`lib/donotcall.ts` — tangent 6 i resultatsteget, i `CallResult` och inte i
+`ConversationOutcome` för att den ska vara ETT tryck oavsett vem som svarade.
+Terminal via `terminalReason` → `retiredReason = 'bortfall'` **och** en
+permanent rad i spärrlistan. Bortfall är det enda i cockpiten som gör båda.
+
+**"Inget telefonnummer" gör det inte längre** (ändrat 2026-09-15). Den skrev
+tidigare en permanent spärr och raderade leadet, med motiveringen att spärren
+skulle överleva en omimport. Men knappen svarar på en fråga om VÅR data — "jag
+hittade inget nummer i dag" — inte om bolaget, och ett påstående om vår data
+ska gå att motbevisa i morgon.
+
+Fyra ringlistor importerades utan att telefonkolumnen var mappad
+(`hantverkare_5000_alla`: 74 nummer på 3 749 bolag). Säljarna hade ingen annan
+väg vidare, och tryckte ~147 gånger om dagen i arton dagar: **2 653 bolag
+raderades och spärrades permanent**, oåterkalleligt, eftersom org-nyckeln
+stoppade även en omimport med korrekta nummer. Migration 029 lyfte spärrarna;
+org-numren till de 2 413 vars lead var borta ligger i
+`backups/2026-09-15_raderade_utan_nummer_orgnr.csv`.
+
+`markNoPhoneFound` **pensionerar** nu i stället: `retired = true`,
+`retiredReason = 'inget_nummer'`, ingen spärr, ingen radering. Bolaget står
+kvar i mappen, nämnaren i framstegsmätaren står stilla, och tre saker lyfter
+det tillbaka: `AddNumberCard`, `liftDoNotCall` och **en import som bär ett
+nummer** — `/api/import-stream` häver just det skälet och inget annat.
+`fel_nummer`, `bortfall` och `sald` rörs aldrig av en import.
+
+**Regeln, i en mening:** raderar eller spärrar permanent gör bara ett besked
+från bolaget. Allt annat pensionerar.
 
 **Spärrfiltret matchar `leadId` ELLER `orgNumber`.** Det andra ledet är hela
 poängen: `leadId` nollas när leadet raderas, och ett omimporterat bolag får ett
@@ -493,9 +594,11 @@ struntar i däckets filter) öppnade dem villigt därifrån.
 `keepalive` när fliken stängs och en synlig remsa när det ändå inte gick.
 **"Inget telefonnummer" ligger i samma kö** (`kind: "noPhoneFound"`) trots att
 den inte skriver någon `CallAttempt`. Fram till 2026-08-26 var den ett
-direktanrop med `.catch(() => {})` — systemets enda oåterkalleliga åtgärd var
-alltså också dess enda oskyddade. Lägg aldrig tillbaka en skrivning från
-cockpiten utanför kön.
+direktanrop med `.catch(() => {})` — systemets då enda oåterkalleliga åtgärd var
+alltså också dess enda oskyddade. Åtgärden är återkallelig sedan 2026-09-15,
+men kön och femsekundersfristen står kvar: att hämta tillbaka ett bolag via
+mappen mitt i ett pass är fortfarande ett avbrott i rytmen. Lägg aldrig tillbaka
+en skrivning från cockpiten utanför kön.
 
 Utgående e-post finns, men gör exakt en sak: morgonmejlet med dagens
 återkomster. Det skickas **bara** för rader där säljaren kryssat i

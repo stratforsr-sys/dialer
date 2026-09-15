@@ -69,6 +69,14 @@ export const RETIRED_LABELS: Record<string, string> = {
   sald: "Såld",
   inget_nummer: "Inget nummer att hitta",
   bortfall: "Bortfall — spärrat",
+  /**
+   * Alla varv gjorda utan att någon svarat. Se `computeNext` steg 5.
+   *
+   * Skiljer sig från `bortfall` på att ingen spärr skrivs: bolaget har inte
+   * bett om något, det har bara aldrig svarat. En omimport eller
+   * `liftDoNotCall` ger det ett nytt liv.
+   */
+  uttomd: "Uttömd — alla försök gjorda",
 };
 
 /**

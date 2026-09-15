@@ -245,6 +245,7 @@ async function syncLeadFromCallbacks(leadId: string) {
         lastResult: true,
         lastOutcome: true,
         lastNoReason: true,
+        noAnswerStreak: true,
       },
     }),
     db.dialerConfig.findUnique({ where: { id: "singleton" } }),
@@ -261,6 +262,10 @@ async function syncLeadFromCallbacks(leadId: string) {
           // 2026-08-26 redan en gång lyfte bolag tillbaka i förtid.
           lastOutcome: lead.lastOutcome,
           lastNoReason: lead.lastNoReason,
+          // Och utan den här föll vilan tillbaka på trappans FÖRSTA steg: ett
+          // bolag som inte svarat sex gånger hade fått samma tjugo timmar som
+          // ett som inte svarat en gång. Samma hål, en trappa senare.
+          noAnswerStreak: lead.noAnswerStreak,
           slots: slots as Slot[],
           config: toSchedulerConfig(cfg),
         })

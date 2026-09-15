@@ -15,10 +15,13 @@ import { revalidatePath } from "next/cache";
 
 export async function updateDialerConfig(input: {
   maxAttempts: number;
+  maxRounds: number;
   cooldownDays: number;
   leaseMinutes: number;
   leaseBlockSize: number;
   retryHoursNoAnswer: number;
+  retryBackoffFactor: number;
+  retryHoursMax: number;
   retryHoursBusy: number;
   retryHoursVoicemail: number;
   retryHoursGatekeeper: number;
@@ -38,10 +41,27 @@ export async function updateDialerConfig(input: {
     create: { id: "singleton" },
     update: {
       maxAttempts: clamp(input.maxAttempts, 1, 30),
+      // Golvet är 1 varv och taket 10. Noll hade pensionerat varje bolag vid
+      // första taket; ett obegränsat värde hade återinfört evighetsmaskinen
+      // som `roundCount` finns för att stänga.
+      maxRounds: clamp(input.maxRounds, 1, 10),
       cooldownDays: clamp(input.cooldownDays, 1, 365),
       leaseMinutes: clamp(input.leaseMinutes, 2, 120),
       leaseBlockSize: clamp(input.leaseBlockSize, 5, 100),
       retryHoursNoAnswer: clamp(input.retryHoursNoAnswer, 1, 720),
+      // Faktorn är det ENDA fältet som inte är ett heltal — en trappa på 1,5
+      // är en rimlig inställning och `clamp` hade trunkerat den till 1, alltså
+      // stängt av trappan utan att säga något. Golvet 1 betyder "ingen
+      // trappa"; under 1 hade ringt OFTARE ju mindre bolaget svarar.
+      retryBackoffFactor: Math.max(1, Math.min(4, Number(input.retryBackoffFactor) || 1)),
+      // Taket för trappan. Golvet är `retryHoursNoAnswer` — ett tak under
+      // grundvilan hade gjort trappan meningslös och samtidigt kortat den
+      // första vilan.
+      retryHoursMax: clamp(
+        Math.max(input.retryHoursMax, input.retryHoursNoAnswer),
+        1,
+        8760
+      ),
       retryHoursBusy: clamp(input.retryHoursBusy, 1, 720),
       retryHoursVoicemail: clamp(input.retryHoursVoicemail, 1, 720),
       retryHoursGatekeeper: clamp(input.retryHoursGatekeeper, 1, 720),

@@ -13,6 +13,147 @@ Nyast först.
 
 ---
 
+## 2026-09-15 — Listan sa 5 %, säljarna fick cykelhandlare, kunderna ringdes varje dag
+
+Beställt: *"Jag lägger in listor. Dem ringer kanske 2000 kunder på 2 veckor.
+Men ändå står det att listan bara är tex 5% bearbetad, säljarna börjar då få
+andra branscher helt plötsligt och samma kunder kommer om och om igen."*
+
+Tre symptom, fyra oberoende fel. Alla räknade i produktionsdatan innan något
+rördes — kodläsningen gav flera lika troliga hypoteser, som vanligt.
+
+### 1. Framstegsmätaren mätte claim-lås
+
+`getLists` räknade `freeLeads` på `Lead.claimedAt`, och stapeln var
+`(total − free) / total`. Men `claimsLead` släpper låset på varje disposition
+utom `CALLBACK_BOOKED` och `SOLD`. Stapelns TAK var alltså andelen öppna
+återkomster plus kunder — den kunde aldrig visa arbete.
+
+    6 242  leads ringda minst en gång
+      440  av dem med lås kvar (384 öppna återkomster + 10 kunder + skräp)
+
+    Clicknet Lista 1        visade  3 %   faktiskt ringt  47 %
+    hantverkare_5000_alla   visade  4 %   faktiskt ringt  61 %
+    Endast Städföretag      visade  7 %   faktiskt ringt  80 %
+    leads_bygg_hantverk     visade  8 %   faktiskt ringt 100 %
+
+Nyckeln är `lastAttemptAt`, inte `attemptCount`: taket nollställer den senare
+och glömmer arbete. 133 leads skilde i Clicknet Lista 1. Samma fel styrde
+statusetiketten och låset på "Starta dialer" — `freeLeads === 0` inträffar
+efter migration 017 aldrig, så knappen låste aldrig fast den påstod sig kunna.
+
+### 2. "Andra branscher" var etiketten, inte däcket
+
+Däcket läcker inte mellan mappar — `leaseNextLeads` joinar alltid på
+`LeadOnList.listId` och cockpiten kräver ett `listId`. Det kontrollerades
+särskilt. Felet låg i datan: `resolveIndustry` låter filens fritextkolumn vinna
+över SNI-koden, och leadverktygen skriver **sökkategorin** där.
+
+Alla 1 151 bolag i `Endast Städföretag (kanske)` bar `industry = 'Stadforetag'`.
+Bara 679 hade SNI 81. Resten fördelade sig på **24 huvudgrupper**: 142
+bygghantverk, 73 landtransport, 65 husbyggnad, 27 bemanning, 22 detaljhandel.
+Ur Edvins pass 2026-09-11, alla serverade som städföretag: Firefox bikes AB
+(47632), Lighthouse Pingst AB (78201), Kärra VVS & Kakel AB (43221), LT Måleri
+AB (43341).
+
+SNI-koden fanns i databasen hela tiden och var rätt. Koden valde bort den.
+
+**Beslut: visa båda, välj inte.** `sniAside` ger huvudgruppen när den säger
+något annat än filens text. Att välja maskinellt går inte — "Elektriker" mot
+"Bygghantverk" är en precisering, "Städföretag" mot "Detaljhandel" är en
+motsägelse, och ingen regel skiljer dem utan en etikett-till-SNI-karta som
+ingen orkar underhålla. Att låta SNI vinna rakt av hade dessutom DEGRADERAT
+`hantverkare_5000_alla`, där filens text ("Elektriker", "Måleri", "VVS") är
+bättre än huvudgruppen.
+
+Det som saknades för admin var i stället en fördelning. Mappvyn har nu en
+SNI-uppdelning som visas när mappen spänner över mer än en grupp.
+
+### 3. Samma kunder: 20 timmar betyder "i morgon bitti"
+
+`retryHoursNoAnswer` var en fast vila. `alignToSlot` flyttar ändå in tiden i
+nästa ringpass, så åtta försök blev åtta arbetsdagar i rad. Tid mellan två
+samtal på samma bolag, tre veckor:
+
+    under 1 dygn   450 samtal   varav  40 av en ANNAN säljare
+    1–2 dygn       296 samtal   varav 148 av en ANNAN säljare
+    2–4 dygn       179 samtal   varav  59 av en ANNAN säljare
+
+128 `BORTFALL` på fjorton dagar — fyra procent av alla samtal var någon som bad
+att slippa bli kontaktad.
+
+Och taket hade ingen utgång: `attemptCount = 0` vid taket, ingen räknare som
+överlevde nollställningen, alltså åtta försök / trettio dagars vila / åtta
+försök, i evighet. Det är också varför en mapp aldrig kunde bli färdig.
+
+Migration 030 ger `retryBackoffFactor` (2,0), `retryHoursMax` (336 h) och
+`maxRounds` (2), plus `Lead.roundCount`. Trappan blir 20 h → 40 h → 3,3 d →
+6,7 d → 13,3 d → tak: ~54 dagar i stället för åtta. Vid sista varvets tak
+pensioneras bolaget som `uttomd` — **utan spärr**, eftersom det inte bett om
+något, det har bara aldrig svarat.
+
+**Ingen läkning av `nextActionAt`**, till skillnad från migration 022. Där var
+vilan direkt skadlig (ett nej ringdes om dagen efter); här är 20 timmar bara
+för kort. Att skjuta 3 000 bolag framåt hade tömt däcket över en natt mitt i
+ett säljpass.
+
+### 4. Det dyraste: importen tappade numren, knappen brände bolagen
+
+Hittades under jakten på nummer tre.
+
+    hantverkare_5000_alla          3 749 bolag,  74 med telefonnummer
+    Blandad lista (städ/verkstad)  1 702 bolag,  10 med telefonnummer
+    Endast Städföretag (kanske)    1 151 bolag,  23 med telefonnummer
+    leads_bygg_hantverk              599 bolag,  16 med telefonnummer
+
+Kontaktraderna fanns men bar fel kolumn: `Contact.name` var tvåsiffriga tal
+(hantverkare), femsiffriga postnummer (bygg) och tjänstekategorier —
+"Fönsterputs", "Flyttstäd", "Byggstäd" — i städlistan. Ingen validering fanns
+mellan `autoGuessMapping`s gissning och 5 000 skrivna rader.
+
+Säljarna hade en enda väg vidare: "Inget telefonnummer". Den skrev en
+**permanent** `DoNotCall` och raderade leadet.
+
+    2 653  permanenta spärrar, 2026-08-28 → 2026-09-15, ~147 per dag
+    2 413  av dem på org-nummer som inte längre finns som lead
+      237  på org-nummer som FINNS — bolagen låg i en mapp, syntes i vyn,
+           och delades aldrig ut eftersom spärren matchar på org-nummer
+       29  på sitt eget lead (de hade historik och pensionerades i stället)
+
+Org-nyckeln var vald med flit för att överleva en omimport — och stoppade
+därmed även omimporten med korrekta nummer. Bolagen var oåterkalleligt borta.
+
+**Felet var att två olika saker delade utgång.** "Bolaget vill inte bli
+kontaktat" är ett besked från kunden och ska vara permanent. "Jag hittade inget
+nummer i dag" är ett påstående om vår egen data och ska gå att motbevisa i
+morgon.
+
+`markNoPhoneFound` pensionerar nu i stället, utan spärr och utan radering.
+`/api/import-stream` häver `inget_nummer` när filen bär ett nummer — och bara
+det skälet; `fel_nummer`, `bortfall` och `sald` rörs aldrig av en import.
+Migration 029 lyfte de 2 653 spärrarna (`expiresAt` satt, raden kvar som spår).
+`DbImportView` blockerar nu import när mindre än halva filen har ett nummer.
+
+### Att göra härnäst
+
+- **Importera om de 2 413 raderade.** Org-numren ligger i
+  `backups/2026-09-15_raderade_utan_nummer_orgnr.csv`. Filerna måste hämtas på
+  nytt från leadkällan med telefonkolumnen med.
+- **Importera om de fyra listorna med telefonnummer.** 7 200 bolag saknar
+  fortfarande nummer. Importen häver nu pensioneringen automatiskt, så en
+  omimport lyfter dem tillbaka i rotationen utan handpåläggning.
+- **Rensa `Endast Städföretag (kanske)`.** 472 av 1 151 är inte städföretag.
+  SNI-fördelningen i mappvyn visar vilka; det finns ännu ingen massradering.
+- **`Contact.name` är skräp på ~7 000 rader.** Inget publicerat manus använder
+  `{kontakt}`/`{förnamn}` i dag, så det är latent — men den dagen någon skriver
+  "Hej {förnamn}" säger cockpiten "Hej Fönsterputs". Städas vid omimporten.
+- **Fyra prov var röda på `main`** sedan migration 022 utan att någon märkte
+  det: `CFG` i `scripts/test-scheduler.ts` saknade `retryDaysNo`, så
+  `noRestDays` räknade NaN. `scripts/` är undantaget från `tsc`, så typen
+  fångade det inte. Lagade i det här passet — kör `npm test`.
+
+---
+
 ## 2026-09-15 — Affären kan byta säljare
 
 Beställt: *"när man redigerar en affär så kan man också välja vilken säljare

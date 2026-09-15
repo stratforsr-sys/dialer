@@ -16,17 +16,26 @@ type UserOption = { id: string; name: string; email: string; role: string };
 
 type StatusFilter = "all" | "idle" | "active" | "done";
 
+/**
+ * Mappens läge, avgjort på RINGDA — inte på claim-lås.
+ *
+ * Fram till 2026-09-15 hette villkoren `workedLeads === 0` och
+ * `freeLeads === 0`, alltså "har någon ett ägarlås" respektive "är alla
+ * låsta". Eftersom låset släpps av varje disposition utom bokad återkomst och
+ * sålt stod en mapp med 915 ringda av 1 151 bolag som "Ej startad", och
+ * "Slut på leads" gick i praktiken aldrig att nå. Se `getLists`.
+ */
 function listStatus(l: ListSummary): "idle" | "active" | "done" {
   if (l.totalLeads === 0) return "idle";
-  if (l.workedLeads === 0) return "idle";
-  if (l.freeLeads === 0) return "done";
+  if (l.calledLeads === 0) return "idle";
+  if (l.untouchedLeads === 0) return "done";
   return "active";
 }
 
 const STATUS_BADGE: Record<"idle" | "active" | "done", { label: string; bg: string; color: string }> = {
   idle: { label: "Ej startad", bg: "var(--surface-inset)", color: "var(--text-dim)" },
   active: { label: "Pågående", bg: "var(--accent-muted)", color: "var(--accent)" },
-  done: { label: "Slut på leads", bg: "var(--success-bg)", color: "var(--success)" },
+  done: { label: "Alla ringda", bg: "var(--success-bg)", color: "var(--success)" },
 };
 
 function StatusBadge({ status }: { status: "idle" | "active" | "done" }) {
@@ -136,7 +145,8 @@ export function ListsBoard({
   const totals = useMemo(
     () => ({
       leads: lists.reduce((s, l) => s + l.totalLeads, 0),
-      free: lists.reduce((s, l) => s + l.freeLeads, 0),
+      called: lists.reduce((s, l) => s + l.calledLeads, 0),
+      untouched: lists.reduce((s, l) => s + l.untouchedLeads, 0),
     }),
     [lists]
   );
@@ -182,8 +192,9 @@ export function ListsBoard({
             <p className="text-[13px] mt-1" style={{ color: "var(--text-muted)" }}>
               {lists.length} {lists.length === 1 ? "mapp" : "mappar"} ·{" "}
               {totals.leads.toLocaleString("sv-SE")} leads ·{" "}
+              {totals.called.toLocaleString("sv-SE")} ringda ·{" "}
               <span style={{ color: "var(--accent)" }}>
-                {totals.free.toLocaleString("sv-SE")} lediga att ringa
+                {totals.untouched.toLocaleString("sv-SE")} aldrig ringda
               </span>
             </p>
           </div>
@@ -295,7 +306,7 @@ export function ListsBoard({
             {filtered.map((list, i) => {
               const status = listStatus(list);
               const pct = list.totalLeads > 0
-                ? Math.round(((list.totalLeads - list.freeLeads) / list.totalLeads) * 100)
+                ? Math.round((list.calledLeads / list.totalLeads) * 100)
                 : 0;
               const isEditing = editingId === list.id;
 
@@ -423,12 +434,12 @@ export function ListsBoard({
                       )}
                     </div>
 
-                    {/* Framsteg */}
+                    {/* Framsteg — ringda, inte låsta. Se listStatus och getLists. */}
                     <div className="mt-4">
                       <div className="flex items-center justify-between mb-1.5">
                         <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-                          {(list.totalLeads - list.freeLeads).toLocaleString("sv-SE")} av{" "}
-                          {list.totalLeads.toLocaleString("sv-SE")} tagna
+                          {list.calledLeads.toLocaleString("sv-SE")} av{" "}
+                          {list.totalLeads.toLocaleString("sv-SE")} ringda
                         </span>
                         <StatusBadge status={status} />
                       </div>
@@ -444,6 +455,27 @@ export function ListsBoard({
                           }}
                         />
                       </div>
+                      {/* Andra raden svarar på "vad står kvar" och "vad är
+                          förbrukat" — två frågor stapeln ensam inte kan svara
+                          på. Bara det som är sant för mappen visas; en rad
+                          full av nollor är brus. */}
+                      {(list.untouchedLeads > 0 || list.retiredLeads > 0 || list.claimedLeads > 0) && (
+                        <p className="mt-1.5 text-[11px] tabular-nums" style={{ color: "var(--text-dim)" }}>
+                          {[
+                            list.untouchedLeads > 0
+                              ? `${list.untouchedLeads.toLocaleString("sv-SE")} aldrig ringda`
+                              : null,
+                            list.retiredLeads > 0
+                              ? `${list.retiredLeads.toLocaleString("sv-SE")} ur rotationen`
+                              : null,
+                            list.claimedLeads > 0
+                              ? `${list.claimedLeads.toLocaleString("sv-SE")} hos säljare`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -463,21 +495,35 @@ export function ListsBoard({
                         Öppna
                         <ChevronRight size={12} />
                       </button>
-                      <button
-                        onClick={() => router.push(`/cockpit?listId=${list.id}`)}
-                        disabled={list.freeLeads === 0}
-                        title={list.freeLeads === 0 ? "Inga lediga leads kvar i mappen" : undefined}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-semibold transition-opacity"
-                        style={{
-                          background: "var(--accent)",
-                          color: "var(--bg)",
-                          opacity: list.freeLeads === 0 ? 0.4 : 1,
-                          cursor: list.freeLeads === 0 ? "not-allowed" : "pointer",
-                        }}
-                      >
-                        {list.freeLeads === 0 ? <Lock size={11} /> : <Play size={11} fill="currentColor" />}
-                        Starta dialer
-                      </button>
+                      {/* Låset går på "finns det något kvar i rotationen
+                          överhuvudtaget", inte på claim-lås. Villkoret var
+                          `freeLeads === 0` — alltså "alla bolag är låsta av
+                          någon", vilket efter migration 017 aldrig inträffar
+                          och därför aldrig låste. Att ett bolag vilar eller är
+                          taget betyder inte att mappen är slut; den frågan
+                          svarar `deckStatus` på inne i cockpiten, räknat, med
+                          skäl. */}
+                      {(() => {
+                        const spent =
+                          list.totalLeads === 0 || list.retiredLeads >= list.totalLeads;
+                        return (
+                          <button
+                            onClick={() => router.push(`/cockpit?listId=${list.id}`)}
+                            disabled={spent}
+                            title={spent ? "Alla bolag i mappen är ur rotationen" : undefined}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-semibold transition-opacity"
+                            style={{
+                              background: "var(--accent)",
+                              color: "var(--bg)",
+                              opacity: spent ? 0.4 : 1,
+                              cursor: spent ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            {spent ? <Lock size={11} /> : <Play size={11} fill="currentColor" />}
+                            Starta dialer
+                          </button>
+                        );
+                      })()}
                     </div>
                   </div>
                 </motion.div>

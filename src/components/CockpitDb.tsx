@@ -16,6 +16,7 @@ import type { LeadSearchHit } from "@/app/actions/leads";
 // får förbli en server action: den körs en gång vid `pagehide`, inte på en timer.
 import { goOffline } from "@/app/actions/presence";
 import { saveCockpitNote } from "@/app/actions/activities";
+import { sniAside } from "@/lib/sni";
 import { RegisterDealModal } from "@/components/deals/RegisterDealModal";
 import { DispositionBar } from "@/components/cockpit/DispositionBar";
 import { GatekeeperPanel, EMPTY_GATEKEEPER, type GatekeeperDraft } from "@/components/cockpit/GatekeeperPanel";
@@ -1258,10 +1259,12 @@ export function CockpitDb({
     // den skriver CallAttempt-rader, och det här ska aldrig bli ett samtal i
     // statistiken.
     //
-    // Raderingen skickas inte direkt utan efter fem sekunder, med en
+    // Pensioneringen skickas inte direkt utan efter fem sekunder, med en
     // ångra-knapp under tiden. Tangenten är en femma i ett flöde där säljaren
-    // trycker siffror hundrafemtio gånger om dagen, och raderingen har ingen
-    // väg tillbaka — ett feltryck skulle annars kosta bolaget för alltid.
+    // trycker siffror hundrafemtio gånger om dagen, och ett feltryck ska inte
+    // kosta ett bolag ur passet. Sedan 2026-09-15 raderas inget och inget
+    // spärras — men ångerfristen står kvar: att hämta tillbaka bolaget via
+    // mappen mitt i ett pass är fortfarande ett avbrott i rytmen.
     // Kön går vidare direkt ändå: fördröjningen är en ångerfrist, inte en
     // väntan säljaren ska stå i.
     if (result === NO_PHONE_FOUND) {
@@ -1650,6 +1653,24 @@ export function CockpitDb({
                           {lead.industrySource === "name" && (
                             <span style={{ opacity: 0.65 }}> ?</span>
                           )}
+                        </span>
+                      )}
+                      {/* Bolagets egen registrering, när den säger något annat
+                          än filen. Neutral bricka och inte accentfärgad: den
+                          ska läsas, inte konkurrera med branschen säljaren tar
+                          sin vinkel ur. Se `sniAside` för varför båda står
+                          kvar i stället för att den ena väljs bort. */}
+                      {sniAside(lead.industry, lead.industryCode) && (
+                        <span
+                          className="text-[11px] px-2 py-[2px] rounded-full whitespace-nowrap"
+                          style={{
+                            background: "var(--surface-inset)",
+                            color: "var(--text-muted)",
+                            border: "1px solid var(--border)",
+                          }}
+                          title={`Bolagets registrerade verksamhet enligt SNI ${lead.industryCode}`}
+                        >
+                          {sniAside(lead.industry, lead.industryCode)}
                         </span>
                       )}
                       {lead.attemptCount > 0 && (
@@ -2203,9 +2224,9 @@ function UnsavedCallbackGuard({
  * Ångerfristen på "Inget telefonnummer".
  *
  * Egen komponent för att den måste renderas på TVÅ ställen: i cockpiten och i
- * tomläget. Raderar säljaren sitt sista bolag i kön byter skärmen till "kön är
- * slut" i samma ögonblick — och låg toasten bara i den ena vyn hade
- * ångerfristen försvunnit osedd i exakt det läget där felet är dyrast.
+ * tomläget. Tar säljaren sitt sista bolag i kön ur rotationen byter skärmen
+ * till "kön är slut" i samma ögonblick — och låg toasten bara i den ena vyn
+ * hade ångerfristen försvunnit osedd i exakt det läget där felet är dyrast.
  *
  * Toast är enda platsen designsystemet tillåter skuggnivå 4: den ligger i
  * handen, över allt annat, och försvinner av sig själv. Bolagsnamnet står med
@@ -2236,7 +2257,7 @@ function UndoDeleteToast({
           }}
         >
           <span className="text-[13px]" style={{ color: "var(--text)" }}>
-            <span className="font-semibold">{pending.companyName}</span> raderas
+            <span className="font-semibold">{pending.companyName}</span> tas ur rotationen
           </span>
           <button
             onClick={onUndo}

@@ -42,7 +42,12 @@ export interface FlowOption<T> {
  * samtal, och en uppslagning som gick i stäv hade blivit ett samtal i varje
  * mätvärde vi har, från dagsmålet till svarsfrekvensens nämnare.
  * `markNoPhoneFound` i `actions/dialer.ts` tar hand om det i stället, och
- * raderar leadet: ett bolag ingen kan ringa ska inte ligga kvar i mappen.
+ * **pensionerar** leadet: bolaget lämnar rotationen men står kvar i mappen.
+ *
+ * Fram till 2026-09-15 raderade den bolaget och spärrade org-numret permanent.
+ * Det gjorde en saknad uppgift i vår egen data till ett besked från kunden —
+ * 2 653 bolag försvann oåterkalleligt på arton dagar för att fyra importer
+ * hade tappat telefonkolumnen. Se `markNoPhoneFound` för hela historien.
  */
 // `as const` är inte kosmetik: utan den blir typen `string`, `ResultChoice`
 // kollapsar till `string` och kompilatorn slutar hålla isär ett samtalsresultat
@@ -66,7 +71,7 @@ export const RESULT_OPTIONS: FlowOption<ResultChoice>[] = [
   { key: "2", label: "Fel nummer", value: "WRONG_NUMBER", color: "#EF4444", hint: "Spärrar leadet" },
   { key: "3", label: "Kom till växeln", value: "CONNECTED_GATEKEEPER", color: "#3B82F6", hint: "Vem svarade?" },
   { key: "4", label: "Nådde beslutsfattaren", value: "CONNECTED_DM", color: "#10B981", hint: "Vad hände?" },
-  { key: "5", label: "Inget telefonnummer", value: NO_PHONE_FOUND, color: "#8B5CF6", hint: "Raderar leadet" },
+  { key: "5", label: "Inget telefonnummer", value: NO_PHONE_FOUND, color: "#8B5CF6", hint: "Ur rotationen" },
   // Sist, och medvetet längst från fingrarna på 1–4: den är oåterkallelig och
   // ska inte gå att råka trycka på vägen till "Nådde beslutsfattaren".
   { key: "6", label: "Bortfall", value: "BORTFALL", color: "#B91C1C", hint: "Spärrar bolaget permanent" },

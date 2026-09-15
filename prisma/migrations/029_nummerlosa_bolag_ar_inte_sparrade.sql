@@ -1,0 +1,63 @@
+-- 029 — "Inget telefonnummer" är inte ett besked från kunden
+--
+-- ## Vad som var fel
+--
+-- `markNoPhoneFound` gjorde två saker: raderade leadet och skrev en PERMANENT
+-- rad i `DoNotCall`, nycklad på org-numret. Nyckelvalet var medvetet — spärren
+-- skulle överleva en omimport så att nästa säljare slapp göra om samma
+-- resultatlösa uppslagning.
+--
+-- Men knappen svarar på en fråga om VÅR data, inte om bolaget. "Jag hittade
+-- inget nummer i dag" är ett påstående som kan motbevisas i morgon. Bara
+-- `BORTFALL` är ett besked från kunden, och bara det hör hemma i en permanent
+-- spärr.
+--
+-- Fyra ringlistor importerades utan att telefonkolumnen var mappad. Mätt
+-- 2026-09-15:
+--
+--   hantverkare_5000_alla       3 749 bolag,  74 med telefonnummer
+--   Blandad lista (städ/verkstad) 1 702 bolag,  10 med telefonnummer
+--   Endast Städföretag (kanske)  1 151 bolag,  23 med telefonnummer
+--   leads_bygg_hantverk            599 bolag,  16 med telefonnummer
+--
+-- Säljarna hade ingen annan väg vidare än knappen, och tryckte på den ~147
+-- gånger om dagen i arton dagar:
+--
+--   2 653  permanenta spärrar med skälet "Inget telefonnummer gick att hitta"
+--          (2026-08-28 → 2026-09-15; hela beståndet av den sorten)
+--   2 413  av dem pekar på ett org-nummer som INTE längre finns som lead —
+--          bolaget är raderat och spärren hindrar att det importeras tillbaka
+--     237  pekar på ett org-nummer som FINNS som ett levande lead just nu:
+--          bolagen ligger i en ringlista, syns i mappvyn, och delas aldrig ut
+--          av däcket eftersom spärrfiltret matchar på org-nummer
+--      29  pekar fortfarande på sitt eget lead (de hade samtalshistorik och
+--          pensionerades i stället för att raderas)
+--       2  saknar både lead och org-nummer och skyddar därmed ingenting
+--
+-- ## Vad migrationen gör
+--
+-- Sätter `expiresAt` på de 2 653 raderna till körningens tidpunkt. Därmed:
+--
+--   * Däckets spärrfilter (`expiresAt IS NULL OR expiresAt > now`) släpper
+--     igenom dem — de 237 levande bolagen blir ringbara igen, och en omimport
+--     av de 2 413 raderade går igenom.
+--   * Raden står kvar. Den är ett spår av vad som hände och av vem, och
+--     aktivitetsloggen-principen gäller i anda även här: vi tar bort
+--     verkningen, inte historien.
+--
+-- Raderna rörs INTE om skälet är något annat. `BORTFALL`-spärrarna (155 st
+-- 2026-09-15) är beslut om bolaget och är fortsatt permanenta.
+--
+-- De 29 leaden lämnas pensionerade med `retiredReason = 'inget_nummer'`. Det
+-- är fortfarande sant — ingen har hittat ett nummer — och de kommer tillbaka
+-- när någon gör det: `AddNumberCard`, `liftDoNotCall` eller en import som bär
+-- ett nummer (se `/api/import-stream`, som häver just det skälet och inget
+-- annat).
+--
+-- Org-numren till de 2 413 raderade ligger i
+-- `backups/2026-09-15_raderade_utan_nummer_orgnr.csv` för omimport.
+
+UPDATE "DoNotCall"
+SET "expiresAt" = strftime('%Y-%m-%dT%H:%M:%S.000+00:00', 'now')
+WHERE "reason" = 'Inget telefonnummer gick att hitta'
+  AND "expiresAt" IS NULL;

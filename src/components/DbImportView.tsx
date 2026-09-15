@@ -22,6 +22,8 @@ type ProgressState = {
   merged?: number;
   /** Leads utan ett enda telefonnummer — de kommer aldrig att delas ut i cockpit */
   withoutPhone?: number;
+  /** Bolag som låg pensionerade utan nummer och som filen gav ett. */
+  revived?: number;
   errors: string[];
   listId?: string | null;
   listName?: string;
@@ -91,6 +93,8 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
   const [fileName, setFileName] = useState("");
   const [listName, setListName] = useState("");
   const [assignees, setAssignees] = useState<Set<string>>(new Set());
+  /** Kvitterad varning om att filen saknar telefonnummer. Se `phoneRisk`. */
+  const [ackNoPhone, setAckNoPhone] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -274,8 +278,48 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
     }
   }
 
-  const previewRows = buildRows().slice(0, 5);
-  const totalRows = buildRows().length;
+  // ETT anrop, inte två: `buildRows` går igenom hela filen och kördes förut
+  // en gång för förhandsvisningen och en gång för räknaren — på en fil med
+  // 5 000 rader, vid varje omritning.
+  const builtRows = buildRows();
+  const previewRows = builtRows.slice(0, 5);
+  const totalRows = builtRows.length;
+
+  /**
+   * Hur många av raderna som faktiskt bär ett telefonnummer.
+   *
+   * ## Varför den här spärren finns
+   *
+   * Fyra ringlistor importerades mellan 2026-08-04 och 2026-08-28 utan att
+   * telefonkolumnen var mappad. Ingenting sa ifrån — importen rapporterade
+   * "3 749 skapade", mappen såg full ut, och felet kom fram först i luren.
+   * Mätt 2026-09-15:
+   *
+   *   hantverkare_5000_alla          3 749 bolag,  74 med nummer
+   *   Blandad lista (städ/verkstad)  1 702 bolag,  10 med nummer
+   *   Endast Städföretag (kanske)    1 151 bolag,  23 med nummer
+   *   leads_bygg_hantverk              599 bolag,  16 med nummer
+   *
+   * Säljarna fick bolag utan nummer och hade en enda väg vidare: knappen
+   * "Inget telefonnummer". Den raderade leadet och spärrade org-numret
+   * permanent — **2 653 bolag försvann oåterkalleligt på arton dagar**, tills
+   * knappen gjordes om (se `markNoPhoneFound`).
+   *
+   * Varningen EFTER importen fanns redan och räckte inte: då är raderna
+   * skrivna, mappen delad och passet igång. Den här spärren ligger före.
+   *
+   * Kontaktnamnet visas i förhandsgranskningen av samma skäl. I de fyra
+   * filerna blev `Contact.name` tvåsiffriga tal, postnummer och
+   * tjänstekategorier ("Fönsterputs") — en mismappning som hade synts direkt
+   * i tabellen ovan om någon hade haft anledning att titta på den.
+   */
+  const rowsWithPhone = builtRows.reduce(
+    (n, r) => n + (r.directPhone || r.switchboard ? 1 : 0),
+    0
+  );
+  /** Under halva filen utan nummer är alltid en mappning värd att kolla om. */
+  const phoneRisk = totalRows > 0 && rowsWithPhone / totalRows < 0.5;
+
   const progressPct = progress && progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
 
   const STEPS: Step[] = ["upload", "mapping", "preview", "done"];
@@ -523,14 +567,51 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                 </p>
               </div>
 
-              <button
-                onClick={handleImport}
-                disabled={totalRows === 0}
-                className="w-full py-3 text-[14px] font-semibold rounded-lg"
-                style={{ background: "var(--accent)", color: "var(--on-accent)", opacity: totalRows === 0 ? 0.5 : 1 }}
-              >
-                Importera {totalRows} leads →
-              </button>
+              {/* Spärren mot en tappad telefonkolumn — se `phoneRisk`. */}
+              {phoneRisk && (
+                <div
+                  className="p-4 rounded-lg mb-4"
+                  style={{ background: "var(--warning-bg)", border: "1px solid var(--warning-border)" }}
+                >
+                  <p className="text-[13px] font-semibold mb-1.5 flex items-center gap-1.5" style={{ color: "var(--warning)" }}>
+                    <AlertCircle size={14} />
+                    {rowsWithPhone === 0
+                      ? "Ingen av raderna har ett telefonnummer"
+                      : `Bara ${rowsWithPhone.toLocaleString("sv-SE")} av ${totalRows.toLocaleString("sv-SE")} rader har ett telefonnummer`}
+                  </p>
+                  <p className="text-[12px] leading-relaxed mb-3" style={{ color: "var(--text-secondary)" }}>
+                    Kontrollera att en kolumn är mappad till <strong>Direkttelefon</strong> eller{" "}
+                    <strong>Växel</strong>, och att kontaktnamnet i tabellen ovan ser ut som ett
+                    namn. Fyra listor importerades så här i augusti: säljarna fick 7 200 bolag utan
+                    nummer, och 2 653 av dem gick förlorade innan felet hittades.
+                  </p>
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={ackNoPhone}
+                      onChange={(e) => setAckNoPhone(e.target.checked)}
+                      className="mt-[2px]"
+                    />
+                    <span className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
+                      Jag har kollat mappningen — filen har inga nummer och det är avsiktligt
+                    </span>
+                  </label>
+                </div>
+              )}
+
+              {(() => {
+                const blocked = totalRows === 0 || (phoneRisk && !ackNoPhone);
+                return (
+                  <button
+                    onClick={handleImport}
+                    disabled={blocked}
+                    className="w-full py-3 text-[14px] font-semibold rounded-lg"
+                    style={{ background: "var(--accent)", color: "var(--on-accent)", opacity: blocked ? 0.5 : 1, cursor: blocked ? "not-allowed" : "pointer" }}
+                  >
+                    Importera {totalRows} leads →
+                  </button>
+                );
+              })()}
             </motion.div>
           )}
 
@@ -617,6 +698,23 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                   ringa, och det är en helt annan sorts pass. Den som laddar upp
                   filen ska veta det när den laddas upp, inte när säljaren
                   sitter där. */}
+              {/* Bolag som låg pensionerade med "inget nummer" och som den här
+                  filen gav ett nummer. De är tillbaka i rotationen — oftast
+                  hela poängen med en omimport, och därför värt en egen rad i
+                  stället för att gömmas i "uppdaterade". */}
+              {(progress.revived ?? 0) > 0 && (
+                <div className="text-left p-4 rounded-lg mb-6" style={{ background: "var(--success-bg)", border: "1px solid var(--border)" }}>
+                  <p className="text-[12px] font-semibold mb-1 flex items-center gap-1" style={{ color: "var(--success)" }}>
+                    <Check size={13} />
+                    {progress.revived!.toLocaleString("sv-SE")} bolag tillbaka i rotationen
+                  </p>
+                  <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>
+                    De låg som ”Inget nummer att hitta”. Filen hade ett nummer, alltså är
+                    påståendet motbevisat och bolagen delas ut igen.
+                  </p>
+                </div>
+              )}
+
               {(progress.withoutPhone ?? 0) > 0 && (
                 <div className="text-left p-4 rounded-lg mb-6" style={{ background: "var(--warning-bg)", border: "1px solid var(--warning-border)" }}>
                   <p className="text-[12px] font-semibold mb-1 flex items-center gap-1" style={{ color: "var(--warning)" }}>
@@ -648,6 +746,7 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                   onClick={() => {
                     setCsvData(null); setMapping({}); setProgress(null);
                     setFileName(""); setListName(""); setAssignees(new Set());
+                    setAckNoPhone(false);
                     setStep("upload");
                   }}
                   className="px-5 py-2 text-[13px] font-medium rounded-md"

@@ -19,7 +19,43 @@ export type ListDetail = NonNullable<Awaited<ReturnType<typeof getList>>>;
 
 /**
  * Alla mappar användaren har tillgång till, med räknare för framsteg.
- * Framsteg = andel leads i mappen som någon har ringt.
+ *
+ * ## Framsteg är RINGDA, inte låsta (rättat 2026-09-15)
+ *
+ * Fram till dess räknades `workedLeads` och `freeLeads` på `Lead.claimedAt`,
+ * och stapeln i `ListsBoard` ritades som `(total − free) / total`. Men
+ * `claimedAt` är inte "bearbetad" — det är ett ÄGARLÅS, och `recordAttempt`
+ * nollar det på varje disposition utom två:
+ *
+ *     claimedAt: decision.claimsLead ? now : null   // CALLBACK_BOOKED | SOLD
+ *
+ * Ett "svarar ej", ett "sa nej", ett "fel nummer" släpper alltså låset. Taket
+ * för stapeln var därmed andelen öppna återkomster plus kunder, oavsett hur
+ * mycket som ringts. Mätt i produktionen 2026-09-15:
+ *
+ *   6 242  leads har ringts minst en gång
+ *     440  av dem bar ett lås — resten räknades som "lediga"
+ *     384  öppna återkomster + 10 kunder ≈ hela låsbeståndet
+ *
+ *   Clicknet Lista 1        5 666 leads:  visade 3 %,  faktiskt ringda 47 %
+ *   hantverkare_5000_alla   3 749 leads:  visade 4 %,  faktiskt ringda 61 %
+ *   Endast Städföretag      1 151 leads:  visade 7 %,  faktiskt ringda 80 %
+ *   leads_bygg_hantverk       599 leads:  visade 8 %,  faktiskt ringda 100 %
+ *
+ * Nyckeln är `lastAttemptAt IS NOT NULL` och inte `attemptCount > 0`: taket i
+ * `computeNext` nollställer `attemptCount` när ett varv är slut, så den
+ * kolumnen glömmer arbete som faktiskt gjorts. Skillnaden var 133 leads i
+ * Clicknet Lista 1 samma dag. `lastAttemptAt` nollställs aldrig.
+ *
+ * Låsräkningen finns kvar som `claimedLeads` — den svarar på "hur många håller
+ * någon just nu", vilket är en riktig fråga. Den får bara inte vara stapeln.
+ *
+ * ## En fråga, inte tre
+ *
+ * Aggregaten körs som EN rå sats i stället för tre `groupBy`. Turso läser
+ * ~3 400 rader/sekund kall och `LeadOnList` är 22 000 rader — tre svep är tre
+ * gånger notan för samma svar. Alla tre villkoren är kolumner på `Lead`, så
+ * ett svep räcker.
  */
 export async function getLists() {
   const user = await requireAuth();
@@ -42,42 +78,60 @@ export async function getLists() {
 
   if (lists.length === 0) return [];
 
-  const cutoff = claimCutoff();
   const listIds = lists.map((l) => l.id);
 
-  // De två aggregaten är oberoende av varandra — kör dem samtidigt
-  const [claimed, free] = await Promise.all([
-    db.leadOnList.groupBy({
-      by: ["listId"],
-      where: { listId: { in: listIds }, lead: { claimedAt: { not: null } } },
-      _count: { leadId: true },
-    }),
-    db.leadOnList.groupBy({
-      by: ["listId"],
-      where: {
-        listId: { in: listIds },
-        lead: { OR: [{ claimedAt: null }, { claimedAt: { lt: cutoff } }] },
-      },
-      _count: { leadId: true },
-    }),
-  ]);
+  // Placeholders i stället för interpolerade id:n — `$queryRawUnsafe` utan
+  // bindning hade varit en injektionsväg även om id:na kommer från vår egen
+  // fråga ovan.
+  const placeholders = listIds.map(() => "?").join(",");
 
-  const claimedByList = new Map(claimed.map((c) => [c.listId, c._count.leadId]));
-  const freeByList = new Map(free.map((f) => [f.listId, f._count.leadId]));
+  // `retired` och `hasActiveDeal` är de två tillstånd som betyder "ur
+  // rotationen för gott" och är kolumner på `Lead` — inga subfrågor, ett svep.
+  // Spärrlistan räknas INTE in här: den matchar på org-nummer också och kräver
+  // en korrelerad subfråga per rad. Mappvyn (`getList` + `deckState`) är
+  // fortfarande den som svarar exakt; brädet svarar snabbt.
+  const stats = await db.$queryRawUnsafe<
+    { listId: string; called: number | bigint; retired: number | bigint; claimed: number | bigint }[]
+  >(
+    `SELECT lol."listId" AS "listId",
+            SUM(CASE WHEN l."lastAttemptAt" IS NOT NULL THEN 1 ELSE 0 END) AS "called",
+            SUM(CASE WHEN l."retired" = 1 OR l."hasActiveDeal" = 1 THEN 1 ELSE 0 END) AS "retired",
+            SUM(CASE WHEN l."claimedAt" IS NOT NULL AND l."claimedAt" >= ? THEN 1 ELSE 0 END) AS "claimed"
+     FROM "LeadOnList" lol
+     JOIN "Lead" l ON l."id" = lol."leadId"
+     WHERE lol."listId" IN (${placeholders})
+     GROUP BY lol."listId"`,
+    claimCutoff().toISOString(),
+    ...listIds
+  );
 
-  return lists.map((l) => ({
-    id: l.id,
-    name: l.name,
-    description: l.description,
-    sourceFile: l.sourceFile,
-    isSystem: l.isSystem,
-    createdAt: l.createdAt,
-    createdBy: l.createdBy,
-    totalLeads: l._count.leads,
-    workedLeads: claimedByList.get(l.id) ?? 0,
-    freeLeads: freeByList.get(l.id) ?? 0,
-    members: l.access.map((a) => a.user),
-  }));
+  const byList = new Map(stats.map((s) => [s.listId, s]));
+
+  return lists.map((l) => {
+    const s = byList.get(l.id);
+    const total = l._count.leads;
+    const calledLeads = Number(s?.called ?? 0);
+    const retiredLeads = Number(s?.retired ?? 0);
+    return {
+      id: l.id,
+      name: l.name,
+      description: l.description,
+      sourceFile: l.sourceFile,
+      isSystem: l.isSystem,
+      createdAt: l.createdAt,
+      createdBy: l.createdBy,
+      totalLeads: total,
+      /** Ringda minst en gång. Stapeln. */
+      calledLeads,
+      /** Aldrig ringda — arbetet som står kvar orört i mappen. */
+      untouchedLeads: Math.max(0, total - calledLeads),
+      /** Pensionerade eller kunder: kommer aldrig tillbaka i rotationen. */
+      retiredLeads,
+      /** Håller någon just nu (öppet löfte eller kund). Inte framsteg. */
+      claimedLeads: Number(s?.claimed ?? 0),
+      members: l.access.map((a) => a.user),
+    };
+  });
 }
 
 /** En mapp med sina leads. Returnerar null om användaren saknar åtkomst. */

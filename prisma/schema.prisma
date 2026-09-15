@@ -98,6 +98,15 @@ model Lead {
   nextActionAt   DateTime? // tidigast ringbar igen (vila mellan försök)
   nextSlotId     String? // vilket ringpass som står på tur
   attemptCount   Int       @default(0) // mot taket i DialerConfig
+  /// Hur många hela varv om `maxAttempts` försök bolaget redan gjort.
+  ///
+  /// `attemptCount` nollställs vid taket för att rotationen ska börja om, och
+  /// glömmer därmed allt som hänt. Utan en räknare som ÖVERLEVER
+  /// nollställningen finns ingen väg ut: bolaget ringdes åtta gånger, vilade
+  /// trettio dagar och ringdes åtta gånger igen, i evighet. Vid
+  /// `roundCount + 1 >= maxRounds` pensioneras det i stället, med
+  /// `retiredReason = 'uttomd'`.
+  roundCount     Int       @default(0)
   noAnswerStreak Int       @default(0) // nollställs så fort någon svarar
   triedSlotsJson String    @default("[]") // pass som redan prövats detta varv
   lastAttemptAt  DateTime?
@@ -748,12 +757,45 @@ model DialerConfig {
   leaseMinutes  Int @default(15) // hur länge cockpit håller ett lead
   leaseBlockSize Int @default(25) // antal leads en säljare hämtar åt gången
 
+  /// Hur många VARV om `maxAttempts` försök ett bolag får innan det pensioneras
+  /// för gott (`retiredReason = 'uttomd'`).
+  ///
+  /// Fanns inte fram till 2026-09-15, och det var ingen förbiseelse utan ett
+  /// hål: `computeNext` nollställde `attemptCount` vid taket och lade på
+  /// `cooldownDays`. Ett bolag som aldrig svarade kom alltså tillbaka i
+  /// evighet — åtta försök, trettio dagars vila, åtta försök igen. Det fanns
+  /// ingen väg ut ur rotationen som inte krävde att en människa tryckte på en
+  /// knapp, och ingen mapp kunde därför någonsin bli färdig.
+  maxRounds Int @default(2)
+
   // Timmar mellan försök per resultat. Ett upptaget nummer ringer man om
   // snart; en gatekeeper som blockat är inte mer mottaglig imorgon.
   retryHoursNoAnswer  Int @default(20)
   retryHoursBusy      Int @default(2)
   retryHoursVoicemail Int @default(44)
   retryHoursGatekeeper Int @default(68)
+
+  /// Hur mycket vilan växer för varje obesvarat samtal i rad. 2 = dubblas.
+  ///
+  /// `retryHoursNoAnswer` ensam är en FAST vila, och 20 timmar betyder i
+  /// praktiken "i morgon bitti" — `alignToSlot` flyttar ändå in tiden i nästa
+  /// ringpass. Med taket på åtta försök ringdes ett bolag som aldrig svarade
+  /// alltså åtta arbetsdagar i rad. Mätt på tre veckor i produktionen
+  /// 2026-09-15: **450 omtagningar inom ett dygn och 296 inom två — 148 av de
+  /// senare av en ANNAN säljare.** Från kundens stol ringer samma företag
+  /// varje dag.
+  ///
+  /// Med 2,0 blir stegen 20 h, 40 h, 3,3 d, 6,7 d, 13,3 d och sedan taket:
+  /// åtta försök sprids över ~54 dagar i stället för över åtta.
+  ///
+  /// Gäller bara obesvarade samtal. Ett besvarat samtal nollställer
+  /// `noAnswerStreak`, och vilan efter ett nej respektive en växel har egna
+  /// tal som inte ska trappas.
+  retryBackoffFactor Float @default(2)
+
+  /// Tak för den trappade vilan, i timmar. 336 = fjorton dygn. Utan tak
+  /// växer dubblingen till månader på ett bolag som råkat ha fel nummer.
+  retryHoursMax Int @default(336)
 
   /// Vila i DAGAR efter "vill inte prata med säljare". I dagar och inte timmar
   /// eftersom det inte är en rotationspaus utan en helt annan tidsskala: en

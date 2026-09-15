@@ -11,6 +11,7 @@ import type { ListDetail } from "@/app/actions/lists";
 import { releaseLead } from "@/app/actions/lists";
 import { claimState, CLAIM_TTL_DAYS } from "@/lib/claim";
 import { deckState, deckStateLabel, isOutOfRotation } from "@/lib/deck-state";
+import { sniLabel } from "@/lib/sni";
 import { ShareListModal } from "./ShareListModal";
 
 type UserOption = { id: string; name: string; email: string; role: string };
@@ -59,15 +60,42 @@ export function ListDetailView({
   }, [list.leads, list.maxAttempts, viewerId]);
 
   const counts = useMemo(() => {
-    let free = 0, mine = 0, taken = 0, ringbar = 0, urRotation = 0;
-    for (const { claim, deck } of withState) {
+    let free = 0, mine = 0, taken = 0, ringbar = 0, urRotation = 0, ringda = 0;
+    for (const { lead, claim, deck } of withState) {
       if (claim.state === "free") free++;
       else if (claim.state === "mine") mine++;
       else taken++;
       if (deck.state === "callable") ringbar++;
       if (isOutOfRotation(deck)) urRotation++;
+      // Samma nyckel som framstegsmätaren på brädet: `lastAttemptAt` glömmer
+      // inte ett varv som taket nollställt, vilket `attemptCount` gör.
+      if (lead.lastAttemptAt) ringda++;
     }
-    return { free, mine, taken, ringbar, urRotation, total: withState.length };
+    return { free, mine, taken, ringbar, urRotation, ringda, total: withState.length };
+  }, [withState]);
+
+  /**
+   * Hur mappens bolag fördelar sig på SNI-huvudgrupper.
+   *
+   * Det här är verktyget som saknades när `Endast Städföretag (kanske)` fylldes
+   * med 472 bolag som inte var städföretag. Alla 1 151 bar etiketten
+   * "Stadforetag" — den kom från filens sökkategori, inte från bolagen — och
+   * ingenstans i systemet gick det att se att koderna under etiketten spände
+   * över 24 huvudgrupper. Säljarna upptäckte det i luren, ett bolag i taget.
+   *
+   * Visas bara när det finns mer än en grupp: en enhetlig mapp behöver ingen
+   * utredning, och en rad som alltid syns slutar läsas.
+   */
+  const sniMix = useMemo(() => {
+    const byDivision = new Map<string, number>();
+    let utan = 0;
+    for (const { lead } of withState) {
+      const label = sniLabel(lead.industryCode);
+      if (!label) { utan++; continue; }
+      byDivision.set(label, (byDivision.get(label) ?? 0) + 1);
+    }
+    const rows = Array.from(byDivision, ([label, n]) => ({ label, n })).sort((a, b) => b.n - a.n);
+    return { rows, utan };
   }, [withState]);
 
   const rows = useMemo(() => {
@@ -131,11 +159,52 @@ export function ListDetailView({
                 Clicknet Lista 1 den 26 augusti 2026. */}
             <p className="text-[13px] mt-1" style={{ color: "var(--text-muted)" }}>
               {counts.total.toLocaleString("sv-SE")} leads ·{" "}
+              {/* "Ringda" är mappens framsteg och samma tal som stapeln på
+                  brädet. Det stod inte här alls tidigare: vyn kunde svara på
+                  vad som är kvar men inte på vad som gjorts, och brädets
+                  procent räknade claim-lås — se `getLists`. */}
+              {counts.ringda.toLocaleString("sv-SE")} ringda ·{" "}
               <span style={{ color: "var(--accent)" }}>{counts.ringbar.toLocaleString("sv-SE")} ringbara</span>
               {counts.urRotation > 0 && ` · ${counts.urRotation.toLocaleString("sv-SE")} ur rotationen`}
               {counts.mine > 0 && ` · ${counts.mine} dina`}
               {list.sourceFile ? ` · ${list.sourceFile}` : ""}
             </p>
+
+            {/* Branschfördelning — se `sniMix`. */}
+            {sniMix.rows.length > 1 && (
+              <details className="mt-1.5 group/sni">
+                <summary
+                  className="text-[12px] cursor-pointer list-none inline-flex items-center gap-1.5"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  <Building2 size={12} />
+                  {sniMix.rows.length} branscher enligt SNI
+                  <span style={{ color: "var(--text-dim)" }}>
+                    — störst {sniMix.rows[0].label} ({sniMix.rows[0].n.toLocaleString("sv-SE")})
+                  </span>
+                </summary>
+                <div className="mt-2 flex flex-wrap gap-1.5 max-w-3xl">
+                  {sniMix.rows.map((r) => (
+                    <span
+                      key={r.label}
+                      className="text-[11px] px-2 py-[2px] rounded-full tabular-nums"
+                      style={{
+                        background: "var(--surface-inset)",
+                        border: "1px solid var(--border)",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      {r.label} {r.n.toLocaleString("sv-SE")}
+                    </span>
+                  ))}
+                  {sniMix.utan > 0 && (
+                    <span className="text-[11px] px-2 py-[2px]" style={{ color: "var(--text-dim)" }}>
+                      {sniMix.utan.toLocaleString("sv-SE")} utan SNI-kod
+                    </span>
+                  )}
+                </div>
+              </details>
+            )}
 
             {/* Eget manus. Säljaren ska veta att öppningen hen möter i
                 cockpiten hör till just den här mappen och inte är husets

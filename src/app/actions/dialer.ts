@@ -223,12 +223,49 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
 // ── Inget nummer att hitta ─────────────────────────────────────────────────
 
 /**
- * Säljaren letade och hittade inget nummer. Bolaget lämnar kön.
+ * Säljaren letade och hittade inget nummer. Bolaget lämnar **rotationen** —
+ * inte registret, och inte mappen.
  *
  * Sedan filtret på kontaktrad togs bort delas bolag utan nummer ut som vilka
  * andra som helst, med `AddNumberCard` för att slå upp numret. Det som saknades
  * var vägen ut när uppslagningen inte gav något: utan den kommer bolaget
  * tillbaka i nästa block, och nästa säljare gör om exakt samma sökning.
+ *
+ * ## Vad knappen gjorde fram till 2026-09-15, och vad det kostade
+ *
+ * Den raderade leadet och skrev en **permanent** rad i `DoNotCall`, nycklad på
+ * org-numret så att spärren skulle överleva en omimport.
+ *
+ * I praktiken blev den en kvarn. Fyra ringlistor importerades utan att
+ * telefonkolumnen var mappad — `hantverkare_5000_alla` fick 74 nummer på
+ * 3 749 bolag, `Endast Städföretag` 23 på 1 151 — och säljarna hade ingen
+ * annan väg vidare än den här knappen. Mellan 2026-08-28 och 2026-09-15 skrevs
+ * **2 653 permanenta spärrar** med skälet "Inget telefonnummer gick att
+ * hitta", ungefär 147 per dag, och lika många bolag raderades. De gick inte
+ * att få tillbaka: spärren är nycklad på org-numret *med flit*, så en omimport
+ * av samma fil — nu med numren — hade stoppats av den.
+ *
+ * Felet var att två olika saker delade utgång. **"Bolaget vill inte bli
+ * kontaktat" är ett besked från bolaget** och ska vara permanent. **"Jag
+ * hittade inget nummer i dag" är ett påstående om vår egen data** och ska gå
+ * att motbevisa i morgon. Bara det första hör hemma i spärrlistan; det är vad
+ * `BORTFALL` är till för.
+ *
+ * ## Vad den gör nu
+ *
+ * Leadet **pensioneras**: `retired = true`, `retiredReason = 'inget_nummer'`.
+ * Det är samma tillstånd som "fel nummer" ger och räcker för att däcket ska
+ * sluta dela ut bolaget — `leaseNextLeads` filtrerar på `retired = 0`. Ingen
+ * rad i `DoNotCall`, ingen radering.
+ *
+ * Följden är att bolaget står kvar i mappen med etiketten "Inget nummer att
+ * hitta" (`RETIRED_LABELS`), går att söka upp, går att berika och går att
+ * lyfta tillbaka på tre sätt: `liftDoNotCall` (admin), `AddNumberCard` när
+ * säljaren hittar numret ändå, och **en import som faktiskt bär ett nummer**
+ * (se `/api/import-stream`, som häver just den här pensioneringen och ingen
+ * annan). Mappens nämnare står dessutom stilla — 3 749 bolag är fortfarande
+ * 3 749 bolag, vilket är en förutsättning för att framstegsmätaren i
+ * `getLists` ska gå att lita på.
  *
  * **Skrivs inte som ett samtal.** Det ligger nära till hands — knappen sitter
  * bland dispositionerna — men inget samtal ringdes. Statistiken räknar rader i
@@ -236,83 +273,40 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
  * dagsmålet, i coachingvyn och i svarsfrekvensens nämnare. Det är precis den
  * sortens hopblandning som `result`/`outcome` finns till för att undvika.
  *
- * **Leadet raderas**, på beställning 2026-08-25: ett bolag som ingen kan ringa
- * ska inte ligga kvar och se ut som ett lead. Raderingen kaskaderar bort
- * kontakter, aktiviteter och kopplingen till mappen, så bolaget lämnar
- * ringlistan helt i stället för att bli en pensionerad rad i den.
- *
- * Två saker att veta om det:
- *
- * 1. **Det finns ingen väg tillbaka och inget spår.** `Activity.leadId` är
- *    obligatorisk och kaskaderar, så en logg-rad om raderingen hade raderats
- *    med leadet. Bolaget måste importeras på nytt för att komma tillbaka.
- *    Spärrlistan överlever däremot. `markNoPhoneFound` skriver en permanent
- *    `DoNotCall` **före** raderingen (`blockLead`), och `onDelete: SetNull`
- *    nollar bara `leadId` — org-numret står kvar. Eftersom däckets spärrfilter
- *    matchar på org-nummer också är bolaget spärrat även efter en omimport,
- *    trots att raden det spärrades på är borta. Utan den detaljen hade
- *    raderingen varit minneslös: nästa import gav ett nytt lead-id och nästa
- *    säljare gjorde om samma resultatlösa uppslagning.
- * 2. **`requireLeadAccess`, inte `requireAdmin`.** `deleteLead` i
- *    `actions/leads.ts` är admin-bara med motiveringen att aktivitetsloggen är
- *    oföränderlig och att den vägen inte får stå öppen för säljare. Här står
- *    den öppen, med flit: det är säljaren som gör uppslagningen och det är i
- *    cockpiten beslutet fattas. Undantaget gäller den här knappen och ingen
- *    annan väg.
- *
- * Undantaget från undantaget är historiken. Har bolaget ringts förut, eller
- * finns det en affär på det, pensioneras det i stället för att raderas —
- * statistiken för de samtalen ska inte försvinna för att någon inte hittade ett
- * nytt nummer i dag. I praktiken är det ett sällsynt fall: bolagen knappen
- * finns för har aldrig haft ett nummer att ringa.
+ * **`requireLeadAccess`, inte `requireAdmin`.** Det är säljaren som gör
+ * uppslagningen och det är i cockpiten beslutet fattas. Att åtgärden numera är
+ * återställbar är också vad som gör den försvarbar att lämna öppen.
  */
 export async function markNoPhoneFound(leadId: string) {
   const user = await requireLeadAccess(leadId);
 
-  // Spärren skrivs FÖRE allt annat, och särskilt före raderingen: efteråt
-  // finns inget lead att läsa org-numret ur, och `blockLead` hade fått en
-  // tom rad att nyckla på. `onDelete: SetNull` på `leadId` gör att raden
-  // överlever raderingen med org-numret i behåll.
-  await blockLead({
-    leadId,
-    userId: user.id,
-    reason: "Inget telefonnummer gick att hitta",
+  await db.lead.update({
+    where: { id: leadId },
+    data: {
+      retired: true,
+      retiredReason: "inget_nummer",
+      // Arbetslåset släpps i samma sats. Ligger det kvar står bolaget kvar
+      // som upptaget i en kvart efter att säljaren redan lämnat det.
+      leasedById: null,
+      leasedUntil: null,
+      // Ingen vila att räkna: bolaget ligger utanför rotationen tills någon
+      // ger det ett nummer. En framtida tid här hade sett ut som ett löfte
+      // om att det kommer tillbaka av sig självt.
+      nextActionAt: null,
+      nextSlotId: null,
+    },
   });
 
-  const [attempts, deals] = await Promise.all([
-    db.callAttempt.count({ where: { leadId } }),
-    db.deal.count({ where: { leadId } }),
-  ]);
+  await db.activity.create({
+    data: {
+      type: "STATUS_CHANGE",
+      actorId: user.id,
+      leadId,
+      metadata: JSON.stringify({ status: "retired", reason: "inget_nummer" }),
+    },
+  });
 
-  if (attempts > 0 || deals > 0) {
-    await db.lead.update({
-      where: { id: leadId },
-      data: {
-        retired: true,
-        retiredReason: "inget_nummer",
-        // Arbetslåset släpps i samma sats. Ligger det kvar står bolaget kvar
-        // som upptaget i en kvart efter att säljaren redan lämnat det.
-        leasedById: null,
-        leasedUntil: null,
-        nextActionAt: null,
-        nextSlotId: null,
-      },
-    });
-
-    await db.activity.create({
-      data: {
-        type: "STATUS_CHANGE",
-        actorId: user.id,
-        leadId,
-        metadata: JSON.stringify({ status: "retired", reason: "inget_nummer" }),
-      },
-    });
-
-    return { deleted: false as const };
-  }
-
-  await db.lead.delete({ where: { id: leadId } });
-  return { deleted: true as const };
+  return { retired: true as const };
 }
 
 // ── Varför är däcket tomt? ─────────────────────────────────────────────────
@@ -503,6 +497,13 @@ async function hydrateLeads(
       city: true,
       industry: true,
       industrySource: true,
+      // Råkoden följer med, inte bara etiketten. `industry` är vad FILEN
+      // påstod om bolaget och kan vara sökkategorin snarare än branschen —
+      // 1 151 bolag i `Endast Städföretag` bar etiketten "Stadforetag" medan
+      // deras SNI-koder spände över 24 huvudgrupper. Koden är vad bolaget
+      // självt är registrerat som, och cockpiten visar båda när de skiljer
+      // sig. Se branschbrickan i `CockpitDb`.
+      industryCode: true,
       employees: true,
       revenue: true,
       /// Bolagets ålder. Öppningen "ni startade ju 2023" kräver att året står
@@ -1170,6 +1171,9 @@ export async function recordAttempt(input: RecordAttemptInput) {
       where: { id: input.leadId },
       select: {
         attemptCount: true,
+        // Varvräknaren. Utan den kan `computeNext` inte veta att bolaget redan
+        // gjort ett helt varv, och taket blir en evighetsmaskin igen.
+        roundCount: true,
         noAnswerStreak: true,
         triedSlotsJson: true,
         orgNumber: true,
@@ -1192,6 +1196,7 @@ export async function recordAttempt(input: RecordAttemptInput) {
   const decision = computeNext({
     lead: {
       attemptCount: lead.attemptCount,
+      roundCount: lead.roundCount,
       noAnswerStreak: lead.noAnswerStreak,
       triedSlotIds,
     },
@@ -1261,6 +1266,7 @@ export async function recordAttempt(input: RecordAttemptInput) {
       where: { id: input.leadId },
       data: {
         attemptCount: decision.attemptCount,
+        roundCount: decision.roundCount,
         noAnswerStreak: decision.noAnswerStreak,
         triedSlotsJson: JSON.stringify(decision.triedSlotIds),
         nextActionAt: decision.nextActionAt,

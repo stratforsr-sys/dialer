@@ -6,10 +6,13 @@ import { updateDialerConfig, saveSlots } from "@/app/actions/dialer-settings";
 
 type Config = {
   maxAttempts: number;
+  maxRounds: number;
   cooldownDays: number;
   leaseMinutes: number;
   leaseBlockSize: number;
   retryHoursNoAnswer: number;
+  retryBackoffFactor: number;
+  retryHoursMax: number;
   retryHoursBusy: number;
   retryHoursVoicemail: number;
   retryHoursGatekeeper: number;
@@ -80,6 +83,19 @@ export function DialerSettingsView({
   const projectedDays =
     forecast.callsPerDay > 0 ? Math.round(projectedCapacity / forecast.callsPerDay) : null;
 
+  /**
+   * Trappan i läsbar form — samma formel som `retryHours` i scheduler.ts.
+   *
+   * Håll dem lika. Går de isär visar sidan en trappa som inte är den motorn
+   * kör, och det är värre än att inte visa någon alls: siffran läses som ett
+   * löfte om vad kunden kommer att uppleva.
+   */
+  const backoffSteps = Array.from({ length: Math.min(6, Math.max(1, cfg.maxAttempts)) }, (_, i) => {
+    const raw = cfg.retryHoursNoAnswer * Math.pow(Math.max(1, cfg.retryBackoffFactor), i);
+    const h = Math.min(raw, Math.max(cfg.retryHoursMax, cfg.retryHoursNoAnswer));
+    return h < 48 ? `${Math.round(h)} h` : `${(h / 24).toFixed(1).replace(".0", "")} d`;
+  });
+
   return (
     <div className="px-8 py-7 max-w-[980px]">
       <div className="flex items-start justify-between mb-6">
@@ -141,7 +157,7 @@ export function DialerSettingsView({
 
       {/* Tak och vila */}
       <Section title="Tak och vila">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-3 gap-4">
           <NumberField
             label="Max antal försök"
             value={cfg.maxAttempts}
@@ -152,9 +168,20 @@ export function DialerSettingsView({
             label="Vila efteråt (dagar)"
             value={cfg.cooldownDays}
             onChange={(v) => setCfg({ ...cfg, cooldownDays: v })}
-            hint="Efter vilan börjar räknaren om. Leadet raderas aldrig."
+            hint="Efter vilan börjar försöksräknaren om på ett nytt varv."
+          />
+          <NumberField
+            label="Antal varv"
+            value={cfg.maxRounds}
+            onChange={(v) => setCfg({ ...cfg, maxRounds: v })}
+            hint="Hur många hela varv om maxförsök ett bolag får innan det pensioneras med skälet ”Uttömd”. Fanns inte före 2026-09-15: räknaren nollställdes vid taket utan att någon höll reda på varven, så ett bolag som aldrig svarade ringdes åtta gånger, vilade trettio dagar och ringdes åtta gånger igen — i evighet. Ingen mapp kunde bli klar."
           />
         </div>
+        <p className="text-[11px] mt-2" style={{ color: "var(--text-dim)" }}>
+          Ett uttömt bolag <strong>spärras inte</strong> — det har inte bett om något, det har bara
+          aldrig svarat. Det ligger kvar i mappen under ”ur rotationen” och kommer tillbaka om
+          någon lyfter pensioneringen eller importerar bolaget med ett nytt nummer.
+        </p>
       </Section>
 
       {/* Väntetid per resultat */}
@@ -166,10 +193,31 @@ export function DialerSettingsView({
           <NumberField label="Växelstopp (h)" value={cfg.retryHoursGatekeeper} onChange={(v) => setCfg({ ...cfg, retryHoursGatekeeper: v })} />
           <NumberField label="Sa nej (dagar)" value={cfg.retryDaysNo} onChange={(v) => setCfg({ ...cfg, retryDaysNo: v })} />
           <NumberField label="Ej säljsamtal (dagar)" value={cfg.retryDaysNoSalespeople} onChange={(v) => setCfg({ ...cfg, retryDaysNoSalespeople: v })} />
+          <NumberField
+            label="Trappa ×"
+            step={0.1}
+            value={cfg.retryBackoffFactor}
+            onChange={(v) => setCfg({ ...cfg, retryBackoffFactor: v })}
+          />
+          <NumberField label="Tak för trappan (h)" value={cfg.retryHoursMax} onChange={(v) => setCfg({ ...cfg, retryHoursMax: v })} />
         </div>
         <p className="text-[11px] mt-2" style={{ color: "var(--text-dim)" }}>
           Udda tal är avsiktliga: 20 timmar i stället för 24 gör att nästa försök hamnar i ett annat
           tidsfönster i stället för på exakt samma klockslag nästa dag.
+        </p>
+        {/* Trappan — se `retryHours` i scheduler.ts. Förhandsvisningen räknas
+            fram i klienten med exakt samma formel, så admin ser vad siffran
+            betyder i dygn i stället för att behöva räkna potenser i huvudet. */}
+        <p className="text-[11px] mt-2" style={{ color: "var(--text-dim)" }}>
+          <strong>Trappan</strong> gäller bara <em>Svarar ej</em>, och bara så länge ingen svarar:
+          varje obesvarat samtal i rad multiplicerar vilan med faktorn, upp till taket. Ett besvarat
+          samtal nollställer trappan. Med nuvarande inställning blir stegen{" "}
+          {backoffSteps.join(" · ")} …
+        </p>
+        <p className="text-[11px] mt-1" style={{ color: "var(--text-dim)" }}>
+          Före 2026-09-15 var <em>Svarar ej</em> en fast vila, och 20 timmar betyder i praktiken
+          ”i morgon bitti”. Mätt på tre veckor: 450 omtagningar inom ett dygn och 296 inom två —
+          148 av de senare av en annan säljare.
         </p>
         <p className="text-[11px] mt-2" style={{ color: "var(--text-dim)" }}>
           <strong>Sa nej</strong> är i dagar och gäller alla åtta nej-anledningar — det är utfallet
@@ -343,18 +391,21 @@ function Stat({ label, value, emphasis }: { label: string; value: string; emphas
 }
 
 function NumberField({
-  label, value, onChange, hint,
+  label, value, onChange, hint, step,
 }: {
   label: string;
   value: number;
   onChange: (v: number) => void;
   hint?: string;
+  /** Decimalsteg. Alla fält utom trappans faktor är heltal. */
+  step?: number;
 }) {
   return (
     <label className="block">
       <span className="text-[12px] font-medium" style={{ color: "var(--text)" }}>{label}</span>
       <input
         type="number"
+        step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         className="w-full mt-1 px-3 py-2 text-[13px] rounded-md outline-none"

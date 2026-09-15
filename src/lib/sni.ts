@@ -68,11 +68,55 @@ export function sniLabel(code: string | null | undefined): string | null {
 }
 
 /**
+ * SNI-etiketten att visa VID SIDAN AV filens branschtext, eller null när den
+ * inte tillför något.
+ *
+ * ## Varför den behövs
+ *
+ * `resolveIndustry` låter filens fritextkolumn vinna, och det är oftast rätt:
+ * "Elektriker" är mer användbart i ett samtalsöppnande än huvudgruppen
+ * "Bygghantverk". Men fritextkolumnen är inte alltid en bransch. Leadverktygen
+ * skriver ofta **sökkategorin** där — samma värde på varje rad i filen — och
+ * då stämplas hela listan med ett påstående som bara gäller en del av den.
+ *
+ * Mätt i produktionen 2026-09-15: alla 1 151 bolag i `Endast Städföretag
+ * (kanske)` bar `industry = 'Stadforetag'`, men bara 679 hade SNI-huvudgrupp
+ * 81 (fastighetsservice och städ). Resten var 142 bygghantverk, 73
+ * landtransport, 65 husbyggnad, 27 bemanning, 22 detaljhandel och ytterligare
+ * nitton grupper — **24 huvudgrupper under en etikett**. Säljarna öppnade med
+ * städpitchen mot en cykelhandel (SNI 47632), en bemanningsfirma (78201) och
+ * ett måleri (43341), och alla tre stod som "Städföretag" på skärmen.
+ *
+ * ## Vad den gör
+ *
+ * Returnerar huvudgruppens etikett när det finns en kod OCH etiketten inte är
+ * samma ord som filens text. Skärmen visar då båda: filens påstående först,
+ * bolagets registrering efter. Ingen av dem döljs, och ingen av dem påstås
+ * vara den andras fel — det går inte att avgöra maskinellt om "Elektriker"
+ * och "Bygghantverk" är en motsägelse eller en precisering, och en kod som
+ * gissar fel på den frågan är värre än två ord på skärmen.
+ */
+export function sniAside(
+  industry: string | null | undefined,
+  code: string | null | undefined
+): string | null {
+  const label = sniLabel(code);
+  if (!label) return null;
+  const text = industry?.trim();
+  if (!text) return null;
+  return text.toLowerCase() === label.toLowerCase() ? null : label;
+}
+
+/**
  * Branschen att visa, given vad importfilen råkade innehålla.
  *
  * En fritextkolumn vinner över koden när den finns — den är vad filen faktiskt
  * påstår om bolaget, och är ofta mer specifik än huvudgruppen. Saknas den
  * härleds etiketten ur koden.
+ *
+ * **Den vinner inte ensam på skärmen.** Se `sniAside` ovan: när det finns en
+ * SNI-kod visas huvudgruppen bredvid, eftersom fritextkolumnen lika gärna kan
+ * vara sökkategorin som branschen.
  */
 export function resolveIndustry(
   rawIndustry: string | null | undefined,

@@ -51,8 +51,17 @@ export type OutcomeLike =
 
 export interface SchedulerConfig {
   maxAttempts: number;
+  /**
+   * Antal varv om `maxAttempts` försök innan bolaget pensioneras för gott.
+   * Se `computeNext` steg 5 och `DialerConfig.maxRounds`.
+   */
+  maxRounds: number;
   cooldownDays: number;
   retryHoursNoAnswer: number;
+  /** Hur mycket vilan växer per obesvarat samtal i rad. 2 = dubblas. */
+  retryBackoffFactor: number;
+  /** Tak för den trappade vilan, i timmar. */
+  retryHoursMax: number;
   retryHoursBusy: number;
   retryHoursVoicemail: number;
   retryHoursGatekeeper: number;
@@ -79,6 +88,8 @@ export interface Slot {
 
 export interface LeadSchedulingState {
   attemptCount: number;
+  /** Hela varv bolaget redan gjort. Överlever att `attemptCount` nollställs. */
+  roundCount: number;
   noAnswerStreak: number;
   triedSlotIds: string[];
 }
@@ -87,6 +98,7 @@ export interface SchedulerDecision {
   nextActionAt: Date | null;
   nextSlotId: string | null;
   attemptCount: number;
+  roundCount: number;
   noAnswerStreak: number;
   triedSlotIds: string[];
   retired: boolean;
@@ -204,8 +216,11 @@ function toISODate(d: Date): string {
  */
 export function toSchedulerConfig(cfg: {
   maxAttempts: number;
+  maxRounds: number;
   cooldownDays: number;
   retryHoursNoAnswer: number;
+  retryBackoffFactor: number;
+  retryHoursMax: number;
   retryHoursBusy: number;
   retryHoursVoicemail: number;
   retryHoursGatekeeper: number;
@@ -223,8 +238,15 @@ export function toSchedulerConfig(cfg: {
   }
   return {
     maxAttempts: cfg.maxAttempts,
+    // Golv på 1: `maxRounds = 0` i konfigurationen hade pensionerat varje
+    // bolag vid första taket, vilket ingen kan ha menat.
+    maxRounds: Math.max(1, cfg.maxRounds),
     cooldownDays: cfg.cooldownDays,
     retryHoursNoAnswer: cfg.retryHoursNoAnswer,
+    // Golv på 1: en faktor under 1 hade KORTAT vilan för varje obesvarat
+    // samtal, alltså ringt oftare ju mindre bolaget svarar.
+    retryBackoffFactor: Math.max(1, cfg.retryBackoffFactor),
+    retryHoursMax: cfg.retryHoursMax,
     retryHoursBusy: cfg.retryHoursBusy,
     retryHoursVoicemail: cfg.retryHoursVoicemail,
     retryHoursGatekeeper: cfg.retryHoursGatekeeper,
@@ -254,8 +276,43 @@ export function noRestDays(noReason: NoReasonLike, cfg: SchedulerConfig): number
   return cfg.retryDaysNo;
 }
 
-/** Hur många timmar innan nästa försök, givet vad som hände. */
-function retryHours(result: CallResultLike, cfg: SchedulerConfig): number {
+/**
+ * Hur många timmar innan nästa försök, givet vad som hände och hur många gånger
+ * i rad ingen svarat.
+ *
+ * ## Varför obesvarade trappas och de andra inte
+ *
+ * `retryHoursNoAnswer` var fram till 2026-09-15 en FAST vila på 20 timmar, och
+ * 20 timmar betyder i praktiken "i morgon bitti": `alignToSlot` flyttar ändå in
+ * tiden i nästa ringpass. Med taket på åtta försök ringdes ett bolag som aldrig
+ * svarade alltså åtta arbetsdagar i rad.
+ *
+ * Mätt på tre veckors produktionsdata 2026-09-15, tid mellan två samtal på
+ * samma bolag:
+ *
+ *   under 1 dygn   450 samtal   varav  40 av en annan säljare
+ *   1–2 dygn       296 samtal   varav 148 av en annan säljare
+ *   2–4 dygn       179 samtal   varav  59 av en annan säljare
+ *
+ * Från kundens stol är det samma företag som ringer varje dag, ofta med en ny
+ * röst. 128 `BORTFALL` på fjorton dagar — fyra procent av alla samtal var
+ * någon som bad att slippa bli kontaktad — är notan för det.
+ *
+ * Trappan gäller **bara obesvarade** samtal. Ett besvarat samtal nollställer
+ * `noAnswerStreak`, så `CONNECTED_DM` med utfallet `WRONG_DM` landar här med
+ * streak 0 och får grundvilan: vi nådde fel person och ska försöka nå rätt,
+ * det är inte samma sak som att ingen lyfter luren. Växeln och rösbrevlådan
+ * har egna tal och trappas inte — de beskriver ett hinder, inte en tystnad.
+ *
+ * @param noAnswerStreak Antal obesvarade samtal i rad EFTER det här samtalet.
+ *   Första obesvarade är 1 och ger grundvilan; steg två dubblar, och så vidare
+ *   upp till `retryHoursMax`.
+ */
+function retryHours(
+  result: CallResultLike,
+  cfg: SchedulerConfig,
+  noAnswerStreak: number
+): number {
   switch (result) {
     case "BUSY":
       return cfg.retryHoursBusy;
@@ -264,8 +321,11 @@ function retryHours(result: CallResultLike, cfg: SchedulerConfig): number {
       return cfg.retryHoursVoicemail;
     case "CONNECTED_GATEKEEPER":
       return cfg.retryHoursGatekeeper;
-    default:
-      return cfg.retryHoursNoAnswer;
+    default: {
+      const steps = Math.max(0, noAnswerStreak - 1);
+      const hours = cfg.retryHoursNoAnswer * Math.pow(cfg.retryBackoffFactor, steps);
+      return Math.min(hours, cfg.retryHoursMax);
+    }
   }
 }
 
@@ -322,6 +382,14 @@ export function rotationResumeAt(params: {
    */
   lastOutcome?: OutcomeLike;
   lastNoReason?: NoReasonLike;
+  /**
+   * Leadets `noAnswerStreak` som den står NU. Utan den föll vilan tillbaka på
+   * trappans första steg varje gång en återkomst avbokades — ett bolag som
+   * inte svarat sex gånger hade fått samma tjugo timmar som ett som inte
+   * svarat en gång, vilket är samma sorts hål som nej-vilan hade före
+   * migration 022.
+   */
+  noAnswerStreak?: number;
   slots: Slot[];
   config: SchedulerConfig;
 }): Date | null {
@@ -330,6 +398,7 @@ export function rotationResumeAt(params: {
     lastResult,
     lastOutcome = null,
     lastNoReason = null,
+    noAnswerStreak = 0,
     slots,
     config,
   } = params;
@@ -344,7 +413,7 @@ export function rotationResumeAt(params: {
     // att låsa in ett bolag på ett resultat vi inte kan läsa.
     wait.setTime(
       lastAttemptAt.getTime() +
-        retryHours(lastResult ?? "NO_ANSWER", config) * 3600_000
+        retryHours(lastResult ?? "NO_ANSWER", config, noAnswerStreak) * 3600_000
     );
   }
   const slot = pickNextSlot(slots, [], wait);
@@ -399,6 +468,7 @@ export function computeNext(params: {
       nextActionAt: null,
       nextSlotId: null,
       attemptCount,
+      roundCount: lead.roundCount,
       noAnswerStreak,
       triedSlotIds,
       retired: true,
@@ -415,6 +485,7 @@ export function computeNext(params: {
       nextActionAt: callbackAt,
       nextSlotId: slotAt(slots, callbackAt)?.id ?? null,
       attemptCount,
+      roundCount: lead.roundCount,
       noAnswerStreak,
       triedSlotIds,
       retired: false,
@@ -439,6 +510,7 @@ export function computeNext(params: {
       nextActionAt: alignToSlot(dmAvailableAt, slot, config.blockedDates),
       nextSlotId: slot?.id ?? null,
       attemptCount,
+      roundCount: lead.roundCount,
       noAnswerStreak,
       triedSlotIds,
       retired: false,
@@ -496,6 +568,7 @@ export function computeNext(params: {
       nextActionAt: alignToSlot(rest, slot, config.blockedDates),
       nextSlotId: slot?.id ?? null,
       attemptCount,
+      roundCount: lead.roundCount,
       noAnswerStreak,
       triedSlotIds,
       retired: false,
@@ -505,8 +578,53 @@ export function computeNext(params: {
     };
   }
 
-  // 5. Taket nått → vila. Leadet är inte förbrukat, bara pausat.
+  // 5. Taket nått → ett varv är slut.
+  //
+  //    ## Varvet som aldrig tog slut (rättat 2026-09-15)
+  //
+  //    Grenen gjorde tidigare exakt en sak: `attemptCount: 0`, `triedSlotIds:
+  //    []` och `cooldownDays` vila. Kommentaren löd "leadet är inte förbrukat,
+  //    bara pausat" — sant i en mening ingen hade tänkt till slut. Det fanns
+  //    nämligen ingen räknare som ÖVERLEVDE nollställningen, alltså ingen
+  //    gräns och ingen utgång. Ett bolag där ingen någonsin svarade fick åtta
+  //    försök, trettio dagars vila, åtta försök till — i evighet. Enda vägen
+  //    ut ur rotationen gick genom att en människa tryckte på "bortfall",
+  //    "fel nummer" eller "inget telefonnummer".
+  //
+  //    Det är också varför en ringlista aldrig kunde bli färdig: nämnaren stod
+  //    stilla medan samma bolag maldes om. `roundCount` är räknaren som saknades.
+  //
+  //    ## Vad som händer nu
+  //
+  //    Varvet räknas upp. Är det sista varvet **pensioneras** bolaget med
+  //    `retiredReason = 'uttomd'`: det lämnar däcket, står i mappen som "Uttömd
+  //    — alla försök gjorda" och räknas till "ur rotationen". Ingen spärr
+  //    skrivs. Bolaget har inte bett om något — det har bara aldrig svarat —
+  //    och en omimport eller `liftDoNotCall` ska kunna ge det ett nytt liv.
+  //    Det är skillnaden mot `BORTFALL`, som är ett besked från bolaget och
+  //    därför både pensionerar och spärrar permanent.
+  //
+  //    Annars vilar det `cooldownDays` som förut och börjar om.
   if (attemptCount >= config.maxAttempts) {
+    const roundCount = lead.roundCount + 1;
+
+    if (roundCount >= config.maxRounds) {
+      return {
+        nextActionAt: null,
+        nextSlotId: null,
+        // Behålls, inte nollställs: raden ska kunna berätta att det blev åtta
+        // försök på sista varvet. Ett bolag som pensioneras börjar inte om.
+        attemptCount,
+        roundCount,
+        noAnswerStreak,
+        triedSlotIds,
+        retired: true,
+        retiredReason: "uttomd",
+        callbackAt: null,
+        claimsLead: claims,
+      };
+    }
+
     const rest = new Date(now);
     rest.setDate(rest.getDate() + config.cooldownDays);
     const slot = pickNextSlot(slots, [], rest);
@@ -514,6 +632,7 @@ export function computeNext(params: {
       nextActionAt: alignToSlot(rest, slot, config.blockedDates),
       nextSlotId: slot?.id ?? null,
       attemptCount: 0, // nytt varv efter vilan
+      roundCount,
       noAnswerStreak: 0,
       triedSlotIds: [], // rotationen börjar om
       retired: false,
@@ -524,13 +643,20 @@ export function computeNext(params: {
   }
 
   // 6. Normalfallet: vänta enligt resultatet, prova ett annat pass.
-  const wait = new Date(now.getTime() + retryHours(result, config) * 3600_000);
+  //
+  //    Vilan trappas med `noAnswerStreak` — se `retryHours`. Streaken som
+  //    skickas in är den NYA (efter det här samtalet), så första obesvarade
+  //    samtalet får grundvilan och nästa dubblar den.
+  const wait = new Date(
+    now.getTime() + retryHours(result, config, noAnswerStreak) * 3600_000
+  );
   const slot = pickNextSlot(slots, triedSlotIds, wait);
 
   return {
     nextActionAt: alignToSlot(wait, slot, config.blockedDates),
     nextSlotId: slot?.id ?? null,
     attemptCount,
+    roundCount: lead.roundCount,
     noAnswerStreak,
     triedSlotIds,
     retired: false,

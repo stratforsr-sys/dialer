@@ -10,6 +10,7 @@ import {
 import type { LeadDetail as LeadDetailType } from "@/app/actions/leads";
 import { updateLead, reassignLead, liftDoNotCall } from "@/app/actions/leads";
 import { RETIRED_LABELS } from "@/lib/deck-state";
+import { sniAside } from "@/lib/sni";
 import { createNote } from "@/app/actions/activities";
 import { createContact } from "@/app/actions/contacts";
 
@@ -188,6 +189,22 @@ export function LeadDetail({
                     title={lead.industryCode ? `SNI ${lead.industryCode}` : undefined}
                   >
                     {lead.industry}
+                  </span>
+                )}
+                {/* Bolagets registrerade verksamhet, när den säger något annat
+                    än importfilens branschtext. Se `sniAside` i lib/sni.ts:
+                    filens kolumn är ofta sökkategorin, inte branschen. */}
+                {sniAside(lead.industry, lead.industryCode) && (
+                  <span
+                    className="inline-block mt-1 ml-1.5 text-[11px] px-2 py-[2px] rounded-full"
+                    style={{
+                      background: "var(--surface-inset)",
+                      color: "var(--text-muted)",
+                      border: "1px solid var(--border)",
+                    }}
+                    title={`Bolagets registrerade verksamhet enligt SNI ${lead.industryCode}`}
+                  >
+                    {sniAside(lead.industry, lead.industryCode)}
                   </span>
                 )}
               </div>

@@ -299,6 +299,12 @@ export async function POST(req: NextRequest) {
         // ut som en fullträff hela vägen till cockpiten, där mappen bara var
         // "slut". Räkna dem här och säg det innan någon startar ett pass.
         let withoutPhone = 0;
+        /**
+         * Bolag som låg pensionerade med skälet "inget nummer" och som den
+         * här filen gav ett nummer. De går tillbaka i rotationen, och det är
+         * värt att säga: det är oftast hela poängen med omimporten.
+         */
+        let revived = 0;
         const errors: string[] = [];
 
         enqueue({ total, created: 0, updated: 0, skipped, merged, done: 0 });
@@ -370,6 +376,10 @@ export async function POST(req: NextRequest) {
                   employees: true,
                   revenue: true,
                   registeredAt: true,
+                  // Behövs för att kunna häva en pensionering av typen
+                  // "inget nummer" när filen faktiskt bär ett nummer.
+                  retired: true,
+                  retiredReason: true,
                   contacts: {
                     select: {
                       id: true, name: true, firstName: true, lastName: true, role: true,
@@ -484,6 +494,12 @@ export async function POST(req: NextRequest) {
                   employees: g.employees,
                   revenue: g.revenue,
                   registeredAt: g.registeredAt,
+                  // Ett lead som just skapats är per definition inte
+                  // pensionerat, så hävningsregeln nedan kan aldrig slå till
+                  // på det. Fälten står här för att cachen ska ha samma form
+                  // som raderna ur databasen — annars går de isär tyst.
+                  retired: false,
+                  retiredReason: null,
                   contacts: g.contacts.map((c) => ({
                     // id är tomt: raden skapades med createMany, som inte ger
                     // tillbaka id:n. Cachen används bara för dubblettkontroll
@@ -519,6 +535,13 @@ export async function POST(req: NextRequest) {
             if (existingGroups.length > 0) {
               const now = new Date();
 
+              revived += existingGroups.filter(
+                ({ group, lead }) =>
+                  lead.retired &&
+                  lead.retiredReason === "inget_nummer" &&
+                  hasPhone(group.contacts)
+              ).length;
+
               await Promise.all(
                 existingGroups.map(({ group, lead }) =>
                   db.lead.update({
@@ -538,6 +561,28 @@ export async function POST(req: NextRequest) {
                       // En tom cell ska aldrig radera ett datum som en tidigare
                       // import hämtade in.
                       registeredAt: group.registeredAt ?? lead.registeredAt,
+                      // ── Pensioneringen "inget nummer" hävs av ett nummer ──
+                      //
+                      // `markNoPhoneFound` betyder "jag hittade inget nummer i
+                      // dag", inte "bolaget ska aldrig ringas". Kommer filen med
+                      // ett nummer är påståendet motbevisat, och bolaget hör
+                      // hemma i rotationen igen.
+                      //
+                      // **Bara det skälet.** `fel_nummer`, `ogiltigt_nummer`,
+                      // `bortfall` och `sald` är beslut om bolaget och rörs
+                      // aldrig av en import — samma gräns som `liftDoNotCall`
+                      // drar. Ett nytt nummer i en fil gör inte ett bortfall
+                      // ringbart.
+                      //
+                      // `nextActionAt` lämnas som den är (NULL, satt när
+                      // bolaget pensionerades). Det är korrekt här: bolaget har
+                      // aldrig ringts, och NULL betyder "aldrig ringt" — se
+                      // regeln om `nextActionAt` i CLAUDE.md.
+                      ...(lead.retired &&
+                      lead.retiredReason === "inget_nummer" &&
+                      hasPhone(group.contacts)
+                        ? { retired: false, retiredReason: null }
+                        : {}),
                     },
                   })
                 )
@@ -665,7 +710,7 @@ export async function POST(req: NextRequest) {
 
         enqueue({
           complete: true, total, created, updated, skipped, merged, errors,
-          seoClaims, seoKept, withoutPhone,
+          seoClaims, seoKept, withoutPhone, revived,
           listId: list.id, listName: list.name,
         });
       } catch (err) {
