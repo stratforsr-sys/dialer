@@ -20,12 +20,60 @@ function statsScope(user: { id: string; role: string }, sellerId?: string): stri
 }
 
 /**
+ * Vilken RINGLISTA frågan gäller — och varför filtret ser ut som det gör.
+ *
+ * Det ligger nära till hands att filtrera på `CallAttempt.listId`. Den finns,
+ * den är indexerad (`@@index([listId, startedAt])`) och den är denormaliserad
+ * just för att slippa en join. Den svarar bara på en annan fråga än den som
+ * ställs här.
+ *
+ * `listId` på ett samtal betyder **var säljaren satt när hen ringde**. Ett
+ * bolag ligger i flera mappar samtidigt (`LeadOnList`), och en import som
+ * hittar bolaget på org-numret länkar bara in det i en mapp till — samtalen
+ * står kvar med den gamla mappens id. Mätt i produktionen 2026-09-15:
+ *
+ *     300  samtal pekade på en mapp där leadet inte ens låg längre
+ *   1 556  samtal låg på bolag som finns i flera mappar
+ *     604  av 2 389 ringda bolag i `hantverkare_5000_alla` hade sina samtal
+ *          bokförda på en annan mapp — 348 av 502 i `test_stad_fastighetsservice`
+ *
+ * Frågan "hur går det för den här ringlistan" gäller **bolagen som ligger i
+ * mappen nu**, inte samtalen som råkade ringas därifrån. Därför joinen via
+ * `lead.lists`. Historiken skrivs aldrig om — `CallAttempt.listId` står kvar
+ * och är fortfarande rätt nyckel för säljar- och passtatistik.
+ *
+ * Följden är att ett samtal på ett bolag i tre mappar räknas i alla tre. Det
+ * är avsiktligt: varje mapp svarar sant om sina egna bolag. Summan över mappar
+ * är därför INTE lika med totalen, och den summan ska aldrig bildas.
+ */
+function listFilter(listId?: string) {
+  return listId && listId !== "all"
+    ? { lead: { lists: { some: { listId } } } }
+    : {};
+}
+
+/** Mapparna användaren får se, för väljaren i statistikvyn. Samma åtkomstregel
+ *  som `getLists` — en säljare ska inte kunna läsa ut att en mapp finns genom
+ *  att filtrera på den. */
+export async function getStatsLists() {
+  const user = await requireAuth();
+  return db.callList.findMany({
+    where: {
+      archived: false,
+      ...(user.role === "ADMIN" ? {} : { access: { some: { userId: user.id } } }),
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, name: true },
+  });
+}
+
+/**
  * Dagsstatistik ur CallAttempt, inte ur aktivitetsloggen.
  *
  * Aktivitetsloggen är en människoläsbar tidslinje med JSON i en textkolumn;
  * CallAttempt är typad och indexerad. Räkning ska ske mot faktatabellen.
  */
-export async function getDailyStats(days = 30, sellerId?: string) {
+export async function getDailyStats(days = 30, sellerId?: string, listId?: string) {
   const user = await requireAuth();
   const since = new Date();
   since.setDate(since.getDate() - days);
@@ -34,7 +82,7 @@ export async function getDailyStats(days = 30, sellerId?: string) {
   const sellerFilter = who ? { sellerId: who } : {};
 
   const attempts = await db.callAttempt.findMany({
-    where: { startedAt: { gte: since }, ...sellerFilter },
+    where: { startedAt: { gte: since }, ...sellerFilter, ...listFilter(listId) },
     select: { startedAt: true, result: true, outcome: true },
     orderBy: { startedAt: "asc" },
   });
@@ -69,10 +117,10 @@ export async function getDailyStats(days = 30, sellerId?: string) {
  * outcome är två fält: med ett enda hopslaget fält går den här nämnaren inte
  * att bilda.
  */
-export async function getConversionRates(sellerId?: string) {
+export async function getConversionRates(sellerId?: string, listId?: string) {
   const user = await requireAuth();
   const who = statsScope(user, sellerId);
-  const sellerFilter = who ? { sellerId: who } : {};
+  const sellerFilter = { ...(who ? { sellerId: who } : {}), ...listFilter(listId) };
 
   const [totalCalls, connected, reachedDm, totalSold, callbacks] = await Promise.all([
     db.callAttempt.count({ where: sellerFilter }),
@@ -175,12 +223,13 @@ export async function getOwnSummary(days = 30) {
   };
 }
 
-export async function getSellerStats(days = 30) {
+export async function getSellerStats(days = 30, listId?: string) {
   const user = await requireAuth();
   if (user.role !== "ADMIN") return [];
 
   const since = new Date();
   since.setDate(since.getDate() - days);
+  const iList = listFilter(listId);
 
   const sellers = await db.user.findMany({
     where: { role: "SELLER" },
@@ -190,10 +239,14 @@ export async function getSellerStats(days = 30) {
   const results = await Promise.all(
     sellers.map(async (seller) => {
       const [callCount, soldCount, sessions] = await Promise.all([
-        db.callAttempt.count({ where: { sellerId: seller.id, startedAt: { gte: since } } }),
+        db.callAttempt.count({ where: { sellerId: seller.id, startedAt: { gte: since }, ...iList } }),
         db.callAttempt.count({
-          where: { sellerId: seller.id, outcome: "SOLD", startedAt: { gte: since } },
+          where: { sellerId: seller.id, outcome: "SOLD", startedAt: { gte: since }, ...iList },
         }),
+        // Ringpassen filtreras INTE på mapp. En session är en tidsperiod vid
+        // skärmen och kan spänna över flera mappar — fluffminuterna hör till
+        // passet, inte till listan. Hade de delats per mapp hade samma
+        // väntetid räknats i var och en av dem.
         db.callSession.findMany({
           where: { userId: seller.id, startedAt: { gte: since } },
           select: { totalCalls: true, totalIdle: true },
@@ -233,7 +286,7 @@ export async function getSellerStats(days = 30) {
  * 50 000 kr i engångsintäkt och 50 000 kr i månadsintäkt är inte samma sak,
  * och en enda totalsumma hade dolt vilket av dem som växte.
  */
-export async function getDealsOverview(sellerId?: string, days = 90) {
+export async function getDealsOverview(sellerId?: string, days = 90, listId?: string) {
   const user = await requireAuth();
   const who = statsScope(user, sellerId);
 
@@ -246,6 +299,13 @@ export async function getDealsOverview(sellerId?: string, days = 90) {
     where: {
       closedAt: { gte: since },
       ...(who ? { createdById: who } : {}),
+      // Mappfiltret går på bolaget, precis som `listFilter` — en affär hör till
+      // mappen bolaget ligger i, oavsett vilken mapp säljaren ringde ifrån när
+      // den stängdes. `Deal` har ingen egen `listId` och ska inte ha någon:
+      // kunden kan flyttas mellan mappar, affären är gjord en gång.
+      ...(listId && listId !== "all"
+        ? { lead: { lists: { some: { listId } } } }
+        : {}),
     },
     orderBy: { closedAt: "desc" },
     select: {

@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { toE164 } from "@/lib/phone";
 import { resolveIndustry } from "@/lib/sni";
 import { parseImportDate } from "@/lib/import-date";
+import { orgNyckel, namnOrtNyckel } from "@/lib/lead-identitet";
 import {
   hasSeoData,
   signalsFromImport,
@@ -135,8 +136,15 @@ const int = (v: unknown): number | null => {
  * skickas dubbletterna vidare kraschar hela importen på en UNIQUE-krock.
  * Här blir de i stället ett lead med flera kontakter.
  *
- * Rader utan org-nummer kan inte slås ihop säkert (två bolag kan heta lika)
- * och får därför varsin grupp.
+ * Nyckeln är `orgNyckel(...)` och inte råtexten. Samma bolag skrivet
+ * `5595230201` på en rad och `559523-0201` på nästa är ETT bolag, och blev
+ * fram till 2026-09-15 två leads — ett med samtalen, ett tomt.
+ *
+ * Rader utan org-nummer får fortfarande varsin grupp här. Det är med flit:
+ * namn+ort-nyckeln används först mot DATABASEN, där den kan kontrolleras mot
+ * hela beståndet och avbrytas när den är flertydig. Att slå ihop två rader i
+ * filen på ett namn, innan man vet om namnet är unikt, är samma risk utan det
+ * skyddet.
  */
 function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
   const byOrg = new Map<string, CompanyGroup>();
@@ -147,6 +155,9 @@ function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
     if (!companyName) continue;
 
     const orgNumber = clean(row.orgNumber);
+    // Nyckeln, inte råtexten. `null` när numret saknas ELLER är skräp —
+    // fyra listor importerades med fel kolumnmappning och fick värden som "9".
+    const nyckel = orgNyckel(orgNumber);
     const firstName = clean(row.contactFirstName);
     const lastName = clean(row.contactLastName);
     // Klienten sätter normalt ihop namnet, men endpointen tar emot JSON utifrån
@@ -173,8 +184,16 @@ function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
         }
       : null;
 
-    if (!orgNumber) {
+    if (!nyckel) {
       withoutOrg.push({
+        // NULL, inte råtexten — även när filen hade något i kolumnen.
+        //
+        // `Lead.orgNumber` är UNIQUE. Ett skräpvärde som "9" är inte en
+        // identitet men beter sig som en: fyra listor importerades med fel
+        // kolumnmappning, och hade de värdena skrivits hade andra raden i
+        // filen kraschat hela importen på en UNIQUE-krock. SQLite tillåter
+        // hur många NULL som helst i ett unikt index — det är precis vad
+        // "uppgiften saknas" ska betyda.
         orgNumber: null,
         companyName,
         website: clean(row.website),
@@ -191,7 +210,7 @@ function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
       continue;
     }
 
-    const existing = byOrg.get(orgNumber);
+    const existing = byOrg.get(nyckel);
     if (existing) {
       // Senare rader fyller i luckor men skriver inte över det vi redan har
       existing.website ??= clean(row.website);
@@ -207,8 +226,13 @@ function groupByCompany(rows: ImportRow[]): CompanyGroup[] {
         existing.contacts.push(contact);
       }
     } else {
-      byOrg.set(orgNumber, {
-        orgNumber,
+      byOrg.set(nyckel, {
+        // Den NORMALISERADE formen skrivs till databasen, inte filens.
+        // Kolumnen är UNIQUE, och ett unikt index skyddar bara mot dubbletter
+        // som är identiska som strängar — `5595230201` och `559523-0201` gled
+        // förbi det 83 gånger. Gamla rader skrivs inte om (historiken är
+        // ingens att städa i förbifarten), men nyckeln hittar dem ändå.
+        orgNumber: nyckel,
         companyName,
         website: clean(row.website),
         address: clean(row.address),
@@ -356,43 +380,109 @@ export async function POST(req: NextRequest) {
           });
         };
 
-        // ── Hämta befintliga leads för alla org-nummer i ett svep ────────────
-        const allOrgNumbers = groups
-          .map((g) => g.orgNumber)
-          .filter((o): o is string => o !== null);
+        // ── Nyckelregistret ──────────────────────────────────────────────────
+        //
+        // Ett svep över HELA beståndet, men bara fyra kolumner: id och de tre
+        // fält identiteten byggs av. 21 131 rader à ~60 byte är drygt en
+        // megabyte och en läsning — mot en `WHERE orgNumber IN (…)` som bara
+        // kan matcha på råtext och därför missade 41 % av bolagen helt.
+        //
+        // Normaliseringen sker i JS och inte i SQL med flit. SQLites `lower()`
+        // rör bara ASCII, så "Åkeri" och "åkeri" hade blivit olika nycklar —
+        // ett svenskt bolagsregister är sista stället att anta ASCII.
+        const nyckelregister = await db.lead.findMany({
+          select: { id: true, orgNumber: true, companyName: true, city: true },
+        });
 
-        const existingLeads =
-          allOrgNumbers.length > 0
-            ? await db.lead.findMany({
-                where: { orgNumber: { in: allOrgNumbers } },
-                select: {
-                  id: true,
-                  orgNumber: true,
-                  website: true,
-                  address: true,
-                  city: true,
-                  industry: true,
-                  industryCode: true,
-                  employees: true,
-                  revenue: true,
-                  registeredAt: true,
-                  // Behövs för att kunna häva en pensionering av typen
-                  // "inget nummer" när filen faktiskt bär ett nummer.
-                  retired: true,
-                  retiredReason: true,
-                  contacts: {
-                    select: {
-                      id: true, name: true, firstName: true, lastName: true, role: true,
-                      email: true, directPhone: true, switchboard: true,
-                      directPhoneE164: true, switchboardE164: true, linkedin: true,
-                    },
-                  },
-                },
-              })
-            : [];
+        const orgTillId = new Map<string, string>();
+        /** Namn+ort → alla leads som bär nyckeln. Fler än ett = flertydig. */
+        const namnOrtTillIds = new Map<string, string[]>();
+
+        for (const l of nyckelregister) {
+          const ok = orgNyckel(l.orgNumber);
+          if (ok) orgTillId.set(ok, l.id);
+          const nk = namnOrtNyckel(l.companyName, l.city);
+          if (nk) {
+            const lista = namnOrtTillIds.get(nk);
+            if (lista) lista.push(l.id);
+            else namnOrtTillIds.set(nk, [l.id]);
+          }
+        }
+
+        /**
+         * Vilket befintligt lead en grupp ur filen är, om något.
+         *
+         * Org-numret först: det är bolagets identitet och går inte att ta fel
+         * på. Namn+ort bara när numret saknas, och bara när nyckeln pekar på
+         * **exakt ett** lead — matchar den två är det inte känt vilket av dem
+         * som är bolaget, och då skapas ett nytt i stället.
+         *
+         * Asymmetrin är hela regeln: en felmatchning slår ihop två bolags
+         * samtalshistorik permanent, en utebliven matchning ger en dubblett som
+         * går att städa. Vid tvekan, skapa nytt.
+         */
+        const hittaId = (g: CompanyGroup): string | undefined => {
+          const ok = orgNyckel(g.orgNumber);
+          if (ok) return orgTillId.get(ok);
+
+          const nk = namnOrtNyckel(g.companyName, g.city);
+          if (!nk) return undefined;
+          const träffar = namnOrtTillIds.get(nk);
+          return träffar && träffar.length === 1 ? träffar[0] : undefined;
+        };
+
+        // Bara de leads någon nyckel faktiskt pekade ut hämtas i sin helhet.
+        const matchadeIds = Array.from(
+          new Set(groups.map(hittaId).filter((id): id is string => id !== undefined))
+        );
+
+        const leadSelect = {
+          id: true,
+          orgNumber: true,
+          website: true,
+          address: true,
+          city: true,
+          industry: true,
+          industryCode: true,
+          employees: true,
+          revenue: true,
+          registeredAt: true,
+          // Behövs för att kunna häva en pensionering av typen
+          // "inget nummer" när filen faktiskt bär ett nummer.
+          retired: true,
+          retiredReason: true,
+          contacts: {
+            select: {
+              id: true, name: true, firstName: true, lastName: true, role: true,
+              email: true, directPhone: true, switchboard: true,
+              directPhoneE164: true, switchboardE164: true, linkedin: true,
+            },
+          },
+        } satisfies Prisma.LeadSelect;
+
+        // Hämtas i klumpar: SQLite har ett tak för antal bundna parametrar, och
+        // en femtusenradig fil kan nu matcha betydligt fler leads än när bara
+        // org-numret dög som nyckel.
+        const existingLeads: Prisma.LeadGetPayload<{ select: typeof leadSelect }>[] = [];
+        for (let i = 0; i < matchadeIds.length; i += 400) {
+          const del = await db.lead.findMany({
+            where: { id: { in: matchadeIds.slice(i, i + 400) } },
+            select: leadSelect,
+          });
+          existingLeads.push(...del);
+        }
 
         type ExistingLead = (typeof existingLeads)[number];
-        const existingByOrg = new Map(existingLeads.map((l) => [l.orgNumber!, l]));
+
+        /**
+         * Nycklade på lead-id, inte på org-nummer.
+         *
+         * Kartan hette `existingByOrg` och slogs upp på `group.orgNumber`. Det
+         * gick inte längre: ett bolag kan nu matchas på namn+ort och har då
+         * inget org-nummer att slå upp på. `hittaId` äger matchningen, den här
+         * kartan bara bär raderna.
+         */
+        const existingById = new Map(existingLeads.map((l) => [l.id, l]));
 
         // ── Batchvis bearbetning ─────────────────────────────────────────────
         for (let i = 0; i < groups.length; i += BATCH_SIZE) {
@@ -402,7 +492,8 @@ export async function POST(req: NextRequest) {
           const existingGroups: { group: CompanyGroup; lead: ExistingLead }[] = [];
 
           for (const group of batch) {
-            const found = group.orgNumber ? existingByOrg.get(group.orgNumber) : undefined;
+            const id = hittaId(group);
+            const found = id ? existingById.get(id) : undefined;
             if (found) existingGroups.push({ group, lead: found });
             else newGroups.push(group);
           }
@@ -480,11 +571,26 @@ export async function POST(req: NextRequest) {
               await linkToList(leadData.map((l) => l.id), true);
 
               // Kommande batchar måste se de här som befintliga, annars
-              // försöker vi skapa samma org-nummer igen
+              // försöker vi skapa samma bolag igen — och på org-numret blir det
+              // en UNIQUE-krock som fäller hela importen.
+              //
+              // Nycklarna måste registreras lika noga som raden. Ett bolag som
+              // just skapats utan org-nummer kan bara hittas på namn+ort, och
+              // utan raden nedan hade en fil med samma bolag i två batchar gett
+              // två leads igen — exakt felet som skulle lagas.
               newGroups.forEach((g, idx) => {
-                if (!g.orgNumber) return;
-                existingByOrg.set(g.orgNumber, {
-                  id: leadData[idx].id,
+                const nyttId = leadData[idx].id;
+                const ok = orgNyckel(g.orgNumber);
+                if (ok) orgTillId.set(ok, nyttId);
+                const nk = namnOrtNyckel(g.companyName, g.city);
+                if (nk) {
+                  const lista = namnOrtTillIds.get(nk);
+                  if (lista) lista.push(nyttId);
+                  else namnOrtTillIds.set(nk, [nyttId]);
+                }
+
+                existingById.set(nyttId, {
+                  id: nyttId,
                   orgNumber: g.orgNumber,
                   website: g.website,
                   address: g.address,

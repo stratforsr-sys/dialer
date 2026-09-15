@@ -129,15 +129,37 @@ function RecentDeals({ deals }: { deals: DealRecent[] }) {
 }
 
 export function StatsView({
-  daily, conversion, fluff, deals, sellers, isAdmin, sellerFilter,
+  daily, conversion, fluff, deals, sellers, isAdmin, sellerFilter, lists, listFilter,
 }: {
   daily: DailyRow[]; conversion: Conversion; fluff: Fluff; deals: DealsOverview; sellers: Seller[]; isAdmin: boolean;
   /** Vald säljare, eller null för hela golvet. Alltid null för säljare —
    *  servern struntar i parametern för dem, så den ska inte visas heller. */
   sellerFilter: string | null;
+  /** Mapparna användaren har tillgång till. Till skillnad från säljarfiltret
+   *  visas det här för alla roller — en säljare ska kunna se hur det går i sin
+   *  egen ringlista. */
+  lists: { id: string; name: string }[];
+  listFilter: string | null;
 }) {
   const [tab, setTab] = useState<Tab>("activity");
   const router = useRouter();
+
+  /**
+   * Båda filtren bor i URL:en, så de måste sättas tillsammans.
+   *
+   * Skrevs de var för sig — `router.push("/stats?seller=…")` — hade det ena
+   * nollställt det andra, och en admin som valt en mapp och sedan en säljare
+   * hade fått hela golvets siffror tillbaka utan att något syntes ändras.
+   */
+  function gaTill(nasta: { seller?: string | null; lista?: string | null }) {
+    const p = new URLSearchParams();
+    const s = nasta.seller !== undefined ? nasta.seller : sellerFilter;
+    const l = nasta.lista !== undefined ? nasta.lista : listFilter;
+    if (s) p.set("seller", s);
+    if (l) p.set("lista", l);
+    const q = p.toString();
+    router.push(q ? `/stats?${q}` : "/stats");
+  }
 
   const last7 = daily.slice(-7);
   const totalCallsWeek = last7.reduce((s, d) => s + d.calls, 0);
@@ -172,18 +194,38 @@ export function StatsView({
             </button>
           ))}
         </div>
-        {/* Filtret hamnar i motvikten som redan fanns för att centrera
-            flikarna. Säljare ser den aldrig — servern ignorerar parametern
-            för dem, och en väljare som inte gör något är värre än ingen. */}
-        {isAdmin && sellers.length > 0 ? (
-          <div className="w-[180px] flex justify-end">
+        {/* Filtren hamnar i motvikten som redan fanns för att centrera
+            flikarna. Säljarväljaren ser säljare aldrig — servern ignorerar
+            parametern för dem, och en väljare som inte gör något är värre än
+            ingen. Mappväljaren gäller däremot alla. */}
+        <div className="w-[340px] flex justify-end items-center gap-2">
+          {lists.length > 0 && (
+            <select
+              value={listFilter ?? "all"}
+              onChange={(e) => {
+                const v = e.target.value;
+                gaTill({ lista: v === "all" ? null : v });
+              }}
+              className="px-2 py-[5px] text-[12px] min-w-0 flex-1"
+              // Titeln säger vilken fråga siffrorna svarar på. Utan den ser
+              // "1 204 samtal" på en mapp ut som samtal RINGDA därifrån, och
+              // det är inte vad som räknas — se `listFilter` i actions/stats.
+              title="Filtrera på ringlista — räknar samtal på mappens bolag, även de som ringdes ur en annan mapp"
+            >
+              <option value="all">Alla ringlistor</option>
+              {lists.map((l) => (
+                <option key={l.id} value={l.id}>{l.name}</option>
+              ))}
+            </select>
+          )}
+          {isAdmin && sellers.length > 0 && (
             <select
               value={sellerFilter ?? "all"}
               onChange={(e) => {
                 const v = e.target.value;
-                router.push(v === "all" ? "/stats" : `/stats?seller=${encodeURIComponent(v)}`);
+                gaTill({ seller: v === "all" ? null : v });
               }}
-              className="px-2 py-[5px] text-[12px] max-w-full"
+              className="px-2 py-[5px] text-[12px] min-w-0"
               title="Filtrera statistiken på en säljare"
             >
               <option value="all">Alla säljare</option>
@@ -191,11 +233,23 @@ export function StatsView({
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
             </select>
-          </div>
-        ) : (
-          <div className="w-[120px]" />
-        )}
+          )}
+        </div>
       </div>
+
+      {/* Ineffektivitetssiffrorna kommer ur ringpassen, och ett pass kan spänna
+          över flera mappar. De filtreras därför INTE på mapp — fluffminuterna
+          hör till tiden vid skärmen, inte till listan. Utan raden hade en vald
+          mapp sett ut att gälla allt på sidan. */}
+      {listFilter && (
+        <div
+          className="px-6 py-1.5 shrink-0 text-[11px]"
+          style={{ background: "var(--surface-inset)", color: "var(--text-dim)", borderBottom: "1px solid var(--border)" }}
+        >
+          Mappfiltret gäller samtal, affärer och säljartabellen. Ineffektivitet
+          räknas per ringpass och kan spänna över flera mappar — den visar allt.
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto">
         <AnimatePresence mode="wait">

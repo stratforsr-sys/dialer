@@ -1,4 +1,11 @@
-import { getDailyStats, getConversionRates, getFluffStats, getDealsOverview, getSellerStats } from "@/app/actions/stats";
+import {
+  getDailyStats,
+  getConversionRates,
+  getFluffStats,
+  getDealsOverview,
+  getSellerStats,
+  getStatsLists,
+} from "@/app/actions/stats";
 import { requireAuth } from "@/lib/auth";
 import { StatsView } from "@/components/stats/StatsView";
 
@@ -7,9 +14,9 @@ export const dynamic = "force-dynamic";
 export default async function StatsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ seller?: string }>;
+  searchParams: Promise<{ seller?: string; lista?: string }>;
 }) {
-  const { seller } = await searchParams;
+  const { seller, lista } = await searchParams;
   const user = await requireAuth();
 
   // Parametern skickas vidare rå. statsScope i actions/stats.ts avgör om den
@@ -18,13 +25,21 @@ export default async function StatsPage({
   const isAdmin = user.role === "ADMIN";
   const sellerFilter = isAdmin && seller ? seller : null;
 
-  const [daily, conversion, fluff, deals, sellers] = await Promise.all([
-    getDailyStats(30, seller),
-    getConversionRates(seller),
+  // `lista` däremot gäller ALLA roller: en säljare ska kunna se hur det går i
+  // sin egen mapp. Skyddet ligger i stället i `getStatsLists`, som bara
+  // returnerar mappar användaren har tillgång till — och i att siffrorna ändå
+  // är begränsade till den egna säljaren av `statsScope`. Ett id till en mapp
+  // man saknar åtkomst till ger därmed noll rader, inte någon annans data.
+  const [daily, conversion, fluff, deals, sellers, listor] = await Promise.all([
+    getDailyStats(30, seller, lista),
+    getConversionRates(seller, lista),
     getFluffStats(30, seller),
-    getDealsOverview(seller),
-    getSellerStats(30),
+    getDealsOverview(seller, 90, lista),
+    getSellerStats(30, lista),
+    getStatsLists(),
   ]);
+
+  const listFilter = lista && listor.some((l) => l.id === lista) ? lista : null;
 
   return (
     <StatsView
@@ -35,6 +50,8 @@ export default async function StatsPage({
       sellers={sellers}
       isAdmin={isAdmin}
       sellerFilter={sellerFilter}
+      lists={listor}
+      listFilter={listFilter}
     />
   );
 }

@@ -13,6 +13,109 @@ Nyast först.
 
 ---
 
+## 2026-09-15 (kväll) — Utfallen följde mappen, inte bolaget
+
+Beställt: *"Om det är en lista som jag importerar och vissa uppdateras så måste
+utfallen hänga med i den listan också, det gör dem inte idag."*
+
+Fyra oberoende fel, alla räknade i produktionsdatan innan något rördes.
+
+### 1. Mappvyn läste aktivitetsloggen
+
+Kolumnen "Senaste samtal" i `/lists/[id]` hämtades ur en `Activity` av typ
+`CALL`. Den skrivs bara när säljaren lämnat en anteckning — medvetet, en rad
+per samtal hade lagt 150 rader per säljare och dag i en logg vars enda syfte är
+att gå att läsa. Följden:
+
+    6 445  leads hade ringts
+      121  av dem hade en CALL-aktivitet     ← kolumnen var tom för 98 %
+    7 894  samtal låg i CallAttempt
+      132  aktiviteter fanns totalt
+
+Utfallet visades inte alls. `Lead.lastResult`, `lastOutcome` och `lastNoReason`
+speglas vid VARJE disposition och låg redan i payloaden `getList` skickade ut —
+6 445 leads hade ett ifyllt `lastResult`. Vyn läste det bara aldrig.
+
+### 2. Utfallet bokfördes på mappen, inte på bolaget
+
+`CallAttempt.listId` är denormaliserad per mapp. När importen hittar ett
+befintligt bolag på org-numret länkas det in i den nya mappen — men samtalen
+pekar kvar på den gamla:
+
+    mapp                              leads   ringda   utfall på ANNAN mapp
+    hantverkare_5000_alla             3 749    2 389   604  (542 ringda innan de kom hit)
+    test_stad_fastighetsservice         502      350   348  ← 69 % av mappen
+    Endast Städföretag (kanske)       1 151      994   201
+    Blandad lista: Städ/Verkstäder    1 702      695   183
+
+      300  samtal pekade på en mapp där leadet inte längre låg
+    1 556  samtal låg på bolag som finns i flera mappar samtidigt
+
+**Beslut: `listId` skrivs aldrig om.** Den betyder "var säljaren satt när hen
+ringde" och är riktig som sådan — historiken är oföränderlig här. Mappens vyer
+och statistik joinar i stället via `LeadOnList`: *bolagen som ligger i mappen
+nu, och allt som hänt dem*. Ingen migration, ingen omskrivning av 7 894 rader.
+
+Följden är att ett samtal på ett bolag i tre mappar räknas i alla tre. Det är
+avsiktligt — varje mapp svarar sant om sina egna bolag. **Summan över mappar är
+därför inte lika med totalen, och den summan ska aldrig bildas.**
+
+### 3. Ingen statistik per ringlista fanns
+
+`stats.ts` hade sex funktioner, alla per säljare och dag. Inte trasigt —
+obyggt. `/stats` har nu en mappväljare (`?lista=`) som går genom `listFilter`,
+alltså via `LeadOnList`. Ringpassen filtreras **inte** på mapp: ett pass är en
+tid vid skärmen och kan spänna över flera mappar, så fluffminuterna hade
+räknats i var och en av dem. En rad i vyn säger det.
+
+### 4. Importen kunde bara matcha på råtext i org-numret
+
+Två hål, båda med samma följd — det gamla leadet blev kvar med samtalen och ett
+nytt kom in i mappen tomt.
+
+`5595230201` och `559523-0201` är samma bolag men olika strängar, och
+`Lead.orgNumber` är UNIQUE på strängen. **83 dubblettgrupper**, 46 med ett ringt
+och ett oringt lead. 345 leads bär dessutom tolvsiffriga nummer med sekelprefix.
+
+Och **8 729 av 21 131 leads (41 %) saknar org-nummer helt** — de kunde aldrig
+matchas. 94 tomma kopior av redan ringda bolag låg i datan.
+
+`src/lib/lead-identitet.ts` ger två nycklar. `orgNyckel` strippar allt utom
+siffror och fäller sekelprefixet; kortare än tio siffror ger `null`, eftersom de
+fyra felmappade listorna fick värden som `9` och `10` i kolumnen och en
+tvåsiffrig nyckel hade slagit ihop alla bolag som råkat dela skräpvärde.
+`namnOrtNyckel` är reserven när numret saknas.
+
+**Reservnyckeln mätt mot hela beståndet innan den byggdes:**
+
+    8 731  leads utan giltig org-nyckel
+    8 507  får en ENTYDIG namn+ort-nyckel   ← 97 % av luckan täckt
+      224  saknar ort, förblir omatchbara
+
+      187  flertydiga nycklar (382 leads)   → spärren avbryter, inget slås ihop
+        0  av dem med olika org-nummer bakom
+
+Noll verkliga felmatchningar i dagens data. Spärren står ändå kvar, och regeln
+är asymmetrisk med flit: **en felmatchning slår ihop två bolags samtalshistorik
+permanent, en utebliven matchning ger en dubblett som går att städa. Vid tvekan,
+skapa nytt.** Nya leads skrivs dessutom med normaliserat org-nummer, så det
+unika indexet börjar göra sitt jobb.
+
+### Kvar att göra
+
+De dubbletter som redan finns städas **inte** av det här passet — 46 par från
+oformaterade org-nummer och 94 tomma kopior på namn. Att slå ihop dem är
+oåterkalleligt och ska beställas separat. Org-numren finns, paren går att lista
+med samma nycklar.
+
+### Prov
+
+`scripts/test-lead-identitet.ts` (25) och `scripts/test-utfall.ts` (25), båda i
+`npm test`. Identitetsprovet är skevt med flit: fler fall kontrollerar att
+nyckeln säger NEJ än att den säger ja.
+
+---
+
 ## 2026-09-15 — Listan sa 5 %, säljarna fick cykelhandlare, kunderna ringdes varje dag
 
 Beställt: *"Jag lägger in listor. Dem ringer kanske 2000 kunder på 2 veckor.

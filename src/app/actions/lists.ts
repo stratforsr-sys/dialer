@@ -11,6 +11,8 @@ import {
   visibleLeadWhere,
 } from "@/lib/lists";
 import { SYSTEM_USER_EMAIL } from "@/lib/system-user";
+import { utfallAv, UTFALL_ORDNING, UTFALL, type UtfallKey } from "@/lib/utfall";
+import type { CallResult, ConversationOutcome } from "@/generated/prisma/client";
 
 export type ListSummary = Awaited<ReturnType<typeof getLists>>[number];
 export type ListDetail = NonNullable<Awaited<ReturnType<typeof getList>>>;
@@ -56,6 +58,19 @@ export type ListDetail = NonNullable<Awaited<ReturnType<typeof getList>>>;
  * ~3 400 rader/sekund kall och `LeadOnList` är 22 000 rader — tre svep är tre
  * gånger notan för samma svar. Alla tre villkoren är kolumner på `Lead`, så
  * ett svep räcker.
+ *
+ * ## Utfallen räknas i TS, inte i SQL
+ *
+ * Satsen grupperar på RÅVÄRDENA (`lastOutcome`, `lastResult`, ringd ja/nej) och
+ * låter `utfallAv` i `lib/utfall.ts` göra hinkindelningen efteråt. Det ser ut
+ * som en omväg — ett `SUM(CASE WHEN ...)` per hink hade gett svaret direkt —
+ * men då hade regeln för vad som är "sa nej" funnits på två ställen, i SQL här
+ * och i TS i mappvyn, och de hade glidit isär. Det är exakt felet
+ * `deck-state.ts` finns för att inte upprepa.
+ *
+ * Kardinaliteten är ofarlig: gruppnyckeln är (mapp × 8 outcome × 9 result ×
+ * ringd × ur rotation × låst), men bara kombinationer som finns i datan blir
+ * rader — i produktionen ~25 rader per mapp.
  */
 export async function getLists() {
   const user = await requireAuth();
@@ -91,27 +106,66 @@ export async function getLists() {
   // en korrelerad subfråga per rad. Mappvyn (`getList` + `deckState`) är
   // fortfarande den som svarar exakt; brädet svarar snabbt.
   const stats = await db.$queryRawUnsafe<
-    { listId: string; called: number | bigint; retired: number | bigint; claimed: number | bigint }[]
+    {
+      listId: string;
+      ringd: number | bigint;
+      lastResult: CallResult | null;
+      lastOutcome: ConversationOutcome | null;
+      retired: number | bigint;
+      claimed: number | bigint;
+      n: number | bigint;
+    }[]
   >(
     `SELECT lol."listId" AS "listId",
-            SUM(CASE WHEN l."lastAttemptAt" IS NOT NULL THEN 1 ELSE 0 END) AS "called",
-            SUM(CASE WHEN l."retired" = 1 OR l."hasActiveDeal" = 1 THEN 1 ELSE 0 END) AS "retired",
-            SUM(CASE WHEN l."claimedAt" IS NOT NULL AND l."claimedAt" >= ? THEN 1 ELSE 0 END) AS "claimed"
+            CASE WHEN l."lastAttemptAt" IS NOT NULL THEN 1 ELSE 0 END AS "ringd",
+            l."lastResult"  AS "lastResult",
+            l."lastOutcome" AS "lastOutcome",
+            CASE WHEN l."retired" = 1 OR l."hasActiveDeal" = 1 THEN 1 ELSE 0 END AS "retired",
+            CASE WHEN l."claimedAt" IS NOT NULL AND l."claimedAt" >= ? THEN 1 ELSE 0 END AS "claimed",
+            COUNT(*) AS "n"
      FROM "LeadOnList" lol
      JOIN "Lead" l ON l."id" = lol."leadId"
      WHERE lol."listId" IN (${placeholders})
-     GROUP BY lol."listId"`,
+     GROUP BY lol."listId", "ringd", l."lastResult", l."lastOutcome", "retired", "claimed"`,
     claimCutoff().toISOString(),
     ...listIds
   );
 
-  const byList = new Map(stats.map((s) => [s.listId, s]));
+  /** Ihopräknat per mapp. Hinkarna fylls av `utfallAv` — se kommentaren ovan. */
+  type Aggregat = {
+    called: number;
+    retired: number;
+    claimed: number;
+    utfall: Map<UtfallKey, number>;
+  };
+  const byList = new Map<string, Aggregat>();
+
+  for (const r of stats) {
+    let a = byList.get(r.listId);
+    if (!a) {
+      a = { called: 0, retired: 0, claimed: 0, utfall: new Map() };
+      byList.set(r.listId, a);
+    }
+    const n = Number(r.n);
+
+    // `lastAttemptAt` bärs bara som ja/nej hit — `utfallAv` bryr sig om att den
+    // FINNS, inte om när. Ett datum i gruppnyckeln hade gett en rad per lead.
+    const def = utfallAv({
+      lastAttemptAt: Number(r.ringd) === 1 ? new Date(0) : null,
+      lastResult: r.lastResult,
+      lastOutcome: r.lastOutcome,
+    });
+
+    a.utfall.set(def.key, (a.utfall.get(def.key) ?? 0) + n);
+    if (def.called) a.called += n;
+    if (Number(r.retired) === 1) a.retired += n;
+    if (Number(r.claimed) === 1) a.claimed += n;
+  }
 
   return lists.map((l) => {
-    const s = byList.get(l.id);
+    const a = byList.get(l.id);
     const total = l._count.leads;
-    const calledLeads = Number(s?.called ?? 0);
-    const retiredLeads = Number(s?.retired ?? 0);
+    const calledLeads = a?.called ?? 0;
     return {
       id: l.id,
       name: l.name,
@@ -126,9 +180,24 @@ export async function getLists() {
       /** Aldrig ringda — arbetet som står kvar orört i mappen. */
       untouchedLeads: Math.max(0, total - calledLeads),
       /** Pensionerade eller kunder: kommer aldrig tillbaka i rotationen. */
-      retiredLeads,
+      retiredLeads: a?.retired ?? 0,
       /** Håller någon just nu (öppet löfte eller kund). Inte framsteg. */
-      claimedLeads: Number(s?.claimed ?? 0),
+      claimedLeads: a?.claimed ?? 0,
+      /**
+       * Vad som HÄNDE med mappens bolag, inte bara hur många som rörts.
+       *
+       * Räknat på bolagets senaste utfall, som följer bolaget mellan mappar —
+       * inte på `CallAttempt.listId`, som pekar på mappen säljaren råkade ringa
+       * ifrån. 604 av 2 389 ringda bolag i `hantverkare_5000_alla` hade sina
+       * samtal bokförda på en annan mapp den 15 september 2026; på den nyckeln
+       * hade stapeln varit lika fel som claim-låset var före den dagen.
+       *
+       * Bara hinkar som förekommer, i `UTFALL_ORDNING`.
+       */
+      utfall: UTFALL_ORDNING.flatMap((key) => {
+        const n = a?.utfall.get(key) ?? 0;
+        return n === 0 ? [] : [{ key, label: UTFALL[key].label, color: UTFALL[key].color, n }];
+      }),
       members: l.access.map((a) => a.user),
     };
   });
@@ -141,7 +210,7 @@ export async function getList(listId: string) {
   // Åtkomstkollen bakas in i mappfrågan (en round-trip i stället för två),
   // och leadsen hämtas samtidigt. Saknar användaren åtkomst blir list null
   // och vi kastar leadsen — de har ändå aldrig lämnat servern.
-  const [list, rows, cfg] = await Promise.all([
+  const [list, rows, cfg, arvda] = await Promise.all([
     db.callList.findFirst({
       where: {
         id: listId,
@@ -177,12 +246,17 @@ export async function getList(listId: string) {
             // hasActiveDeal, attemptCount, callbackAt, nextActionAt,
             // lastOutcome — är skalärer och följer redan med `include`.
             dnc: { select: { expiresAt: true } },
-            activities: {
-              where: { type: { in: ["CALL", "CALL_NO_ANSWER"] } },
-              orderBy: { timestamp: "desc" },
-              take: 1,
-              select: { timestamp: true, type: true },
-            },
+            // Aktivitetsloggen hämtas INTE längre hit.
+            //
+            // Kolumnen "Senaste samtal" läste fram till 2026-09-15 en `Activity`
+            // av typ CALL. Den skrivs bara när säljaren lämnat en anteckning
+            // (`recordAttempt` — en rad per samtal hade lagt 150 rader per
+            // säljare och dag i en logg vars enda syfte är att gå att läsa), och
+            // kolumnen var därför tom för 6 324 av 6 445 ringda leads.
+            //
+            // `lastAttemptAt`, `lastResult`, `lastOutcome` och `lastNoReason` är
+            // skalärer på `Lead` och följer redan med `include` ovan. De speglas
+            // vid varje disposition och är fullständiga. Se `lib/utfall.ts`.
           },
         },
       },
@@ -194,6 +268,28 @@ export async function getList(listId: string) {
       where: { id: "singleton" },
       select: { maxAttempts: true },
     }),
+    /**
+     * Hur många av mappens bolag som bär utfall från ett samtal som ringdes
+     * någon annanstans ifrån.
+     *
+     * Raden finns för att svaret annars ser ut som ett fel. En nyimporterad mapp
+     * kan säga "994 ringda" i samma andetag som den skapades, eftersom bolagen
+     * redan fanns i dialern och importen bara länkade in dem (`linkToList(…,
+     * false)`). Utan den här siffran går det inte att skilja "mappen är
+     * bearbetad" från "bolagen var bearbetade innan mappen fanns" — och det var
+     * precis den frågan som gjorde att utfallen upplevdes som borttappade.
+     *
+     * `listId IS NULL OR <> ?` och inte en join mot `LeadOnList`: frågan gäller
+     * var säljaren SATT, inte var bolaget ligger nu.
+     */
+    db.$queryRawUnsafe<{ n: number | bigint }[]>(
+      `SELECT COUNT(*) AS "n" FROM "LeadOnList" lol
+       WHERE lol."listId" = ?
+         AND EXISTS (SELECT 1 FROM "CallAttempt" ca
+                     WHERE ca."leadId" = lol."leadId"
+                       AND (ca."listId" IS NULL OR ca."listId" <> lol."listId"))`,
+      listId
+    ),
   ]);
 
   if (!list) return null;
@@ -233,6 +329,8 @@ export async function getList(listId: string) {
     scripts: list.scripts,
     /** Däckets tak — driver `deckState` i mappvyn. */
     maxAttempts: cfg?.maxAttempts ?? 8,
+    /** Bolag vars utfall kommer från samtal ringda ur en annan mapp. Se frågan. */
+    arvdaUtfall: Number(arvda[0]?.n ?? 0),
     // En spärr på org-numret syntetiseras in i `dnc` så att `deckState` inte
     // behöver veta att den finns — den ser en spärr, oavsett vilken nyckel
     // den hittades på, precis som däcket gör.

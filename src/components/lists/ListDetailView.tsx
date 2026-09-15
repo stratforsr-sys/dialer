@@ -12,6 +12,7 @@ import { releaseLead } from "@/app/actions/lists";
 import { claimState, CLAIM_TTL_DAYS } from "@/lib/claim";
 import { deckState, deckStateLabel, isOutOfRotation } from "@/lib/deck-state";
 import { sniLabel } from "@/lib/sni";
+import { utfallAv, utfallText, utfallsfordelning, type UtfallKey } from "@/lib/utfall";
 import { ShareListModal } from "./ShareListModal";
 
 type UserOption = { id: string; name: string; email: string; role: string };
@@ -22,8 +23,19 @@ type Lead = ListDetail["leads"][number];
  * om däcket över huvud taget skulle dela ut bolaget. Ett spärrat bolag och ett
  * bolag med öppet löfte såg tidigare ut precis som ett obearbetat lead här, och
  * gick att öppna rakt in i dialern därifrån. Se `lib/deck-state.ts`.
+ *
+ * `utfall:<hink>` är en tredje sort igen: den frågar vad som HÄNDE med bolaget,
+ * inte vem som håller det eller om det delas ut. Den ligger i samma union för
+ * att filterraden ska vara ett val och inte tre som kan stå i konflikt.
  */
-type Filter = "all" | "free" | "mine" | "taken" | "ringbar" | "ur_rotation";
+type Filter =
+  | "all"
+  | "free"
+  | "mine"
+  | "taken"
+  | "ringbar"
+  | "ur_rotation"
+  | `utfall:${UtfallKey}`;
 
 function relativeDays(date: Date | string): string {
   const days = Math.floor((Date.now() - new Date(date).getTime()) / 86400000);
@@ -56,8 +68,28 @@ export function ListDetailView({
       lead,
       claim: claimState(lead, viewerId, now),
       deck: deckState(lead, list.maxAttempts, now),
+      // Utfallet är bolagets, inte mappens. Se `lib/utfall.ts` — det är hela
+      // skillnaden mot att läsa `CallAttempt.listId`, som pekar på mappen
+      // säljaren råkade sitta i när samtalet gjordes.
+      utfall: utfallAv(lead),
     }));
   }, [list.leads, list.maxAttempts, viewerId]);
+
+  /**
+   * Hur mappens bolag fördelar sig på utfall.
+   *
+   * Det här var frågan mappvyn inte kunde svara på. "2 389 ringda" säger att
+   * arbete gjorts men inte vad det gav — och kolumnen som skulle ha visat det
+   * läste aktivitetsloggen, som bara har en rad när säljaren skrivit en
+   * anteckning (121 av 6 445 ringda leads den 15 september 2026).
+   *
+   * Räknas på samma `withState` som allt annat i huvudet, alltså utan en extra
+   * genomgång av 5 666 rader.
+   */
+  const fordelning = useMemo(
+    () => utfallsfordelning(withState.map(({ lead }) => lead)),
+    [withState]
+  );
 
   const counts = useMemo(() => {
     let free = 0, mine = 0, taken = 0, ringbar = 0, urRotation = 0, ringda = 0;
@@ -102,7 +134,10 @@ export function ListDetailView({
     let out = withState;
     if (filter === "ringbar") out = out.filter(({ deck }) => deck.state === "callable");
     else if (filter === "ur_rotation") out = out.filter(({ deck }) => isOutOfRotation(deck));
-    else if (filter !== "all") out = out.filter(({ claim }) => claim.state === filter);
+    else if (filter.startsWith("utfall:")) {
+      const key = filter.slice("utfall:".length) as UtfallKey;
+      out = out.filter(({ utfall }) => utfall.key === key);
+    } else if (filter !== "all") out = out.filter(({ claim }) => claim.state === filter);
     if (search) {
       const q = search.toLowerCase();
       out = out.filter(({ lead }) =>
@@ -169,6 +204,79 @@ export function ListDetailView({
               {counts.mine > 0 && ` · ${counts.mine} dina`}
               {list.sourceFile ? ` · ${list.sourceFile}` : ""}
             </p>
+
+            {/* ── Utfallsfördelning ──────────────────────────────────────────
+                Vad de ringda samtalen gav. Stapeln är proportionell mot HELA
+                mappen och inte mot de ringda: en mapp där 40 % är orört ska
+                säga det, annars läser tio procent sålda som tio procent av
+                allt.
+
+                Segmenten är klickbara och sätter filtret. Det är poängen med
+                att rita den — en fördelning man inte kan gå in i är en bild,
+                och det som behövs är vägen till de fyrtio bolag som sa nej av
+                prisskäl. */}
+            {fordelning.ringda > 0 && (
+              <div className="mt-3 max-w-3xl">
+                <div
+                  className="flex h-2 rounded-full overflow-hidden"
+                  style={{ background: "var(--surface-inset)" }}
+                >
+                  {fordelning.rader.map((r) => (
+                    <button
+                      key={r.def.key}
+                      onClick={() =>
+                        setFilter(filter === `utfall:${r.def.key}` ? "all" : `utfall:${r.def.key}`)
+                      }
+                      title={`${r.def.label}: ${r.n.toLocaleString("sv-SE")} (${Math.round(r.andel * 100)} %)`}
+                      style={{
+                        width: `${r.andel * 100}%`,
+                        // `oringd` är frånvaro av arbete, inte ett utfall. Den
+                        // ritas som tomrum — en egen färg hade gjort "aldrig
+                        // ringt" till en kategori bland andra i stället för till
+                        // det som är kvar att göra.
+                        background: r.def.key === "oringd" ? "transparent" : r.def.color,
+                        opacity: filter === "all" || filter === `utfall:${r.def.key}` ? 1 : 0.35,
+                      }}
+                    />
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
+                  {fordelning.rader
+                    .filter((r) => r.def.key !== "oringd")
+                    .map((r) => (
+                      <button
+                        key={r.def.key}
+                        onClick={() =>
+                          setFilter(filter === `utfall:${r.def.key}` ? "all" : `utfall:${r.def.key}`)
+                        }
+                        className="inline-flex items-center gap-1.5 text-[11px] tabular-nums"
+                        style={{
+                          color:
+                            filter === `utfall:${r.def.key}` ? "var(--text)" : "var(--text-muted)",
+                        }}
+                      >
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ background: r.def.color }}
+                        />
+                        {r.def.label} {r.n.toLocaleString("sv-SE")}
+                      </button>
+                    ))}
+                </div>
+
+                {/* Varför en nyimporterad mapp kan säga "994 ringda" i samma
+                    andetag som den skapades: bolagen fanns redan i dialern och
+                    importen länkade bara in dem. Utan raden ser siffran ut som
+                    ett fel. */}
+                {list.arvdaUtfall > 0 && (
+                  <p className="text-[11px] mt-1.5" style={{ color: "var(--text-dim)" }}>
+                    {list.arvdaUtfall.toLocaleString("sv-SE")} av dem ringdes ur en annan mapp —
+                    utfallet följer bolaget, inte mappen.
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Branschfördelning — se `sniMix`. */}
             {sniMix.rows.length > 1 && (
@@ -321,7 +429,7 @@ export function ListDetailView({
           <table className="w-full border-collapse">
             <thead className="sticky top-0 z-10">
               <tr style={{ background: "var(--bg)", borderBottom: "1px solid var(--border)" }}>
-                {["Bolag", "Kontakt", "Senaste samtal", "Status", ""].map((h, i) => (
+                {["Bolag", "Kontakt", "Senaste samtal", "Utfall", "Status", ""].map((h, i) => (
                   <th
                     key={h + i}
                     className="text-left px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider"
@@ -333,9 +441,8 @@ export function ListDetailView({
               </tr>
             </thead>
             <tbody>
-              {rows.map(({ lead, claim, deck }) => {
+              {rows.map(({ lead, claim, deck, utfall }) => {
                 const contact = lead.contacts[0];
-                const lastCall = lead.activities[0];
                 const deckLabel = deckStateLabel(deck);
                 const outOfRotation = isOutOfRotation(deck);
 
@@ -417,10 +524,44 @@ export function ListDetailView({
                       )}
                     </td>
 
+                    {/* `lastAttemptAt` och inte aktivitetsloggen. Den speglas
+                        vid varje disposition; loggen bara när någon skrivit en
+                        anteckning, och kolumnen var därför tom för 98 % av de
+                        ringda bolagen. Den räknar dessutom samtal ur ANDRA
+                        mappar, vilket är hela poängen — bolaget är detsamma. */}
                     <td className="px-4 py-3">
                       <span className="text-[12px]" style={{ color: "var(--text-muted)" }}>
-                        {lastCall ? relativeDays(lastCall.timestamp) : "—"}
+                        {lead.lastAttemptAt ? relativeDays(lead.lastAttemptAt) : "—"}
                       </span>
+                      {lead.attemptCount > 1 && (
+                        <span className="text-[10px] ml-1.5 tabular-nums" style={{ color: "var(--text-dim)" }}>
+                          {lead.attemptCount} försök
+                        </span>
+                      )}
+                    </td>
+
+                    <td className="px-4 py-3">
+                      {lead.lastAttemptAt ? (
+                        <span
+                          className="inline-flex items-center gap-1.5 text-[12px]"
+                          style={{ color: "var(--text-secondary)" }}
+                          // Den långa versionen — resultat, utfall och
+                          // anledning. Tabellen visar hinken, tooltipen hela
+                          // meningen: "Sa nej · Pris" är två informationer i en
+                          // kolumn som ska gå att svepa med blicken.
+                          title={utfallText(lead) ?? undefined}
+                        >
+                          <span
+                            className="w-1.5 h-1.5 rounded-full shrink-0"
+                            style={{ background: utfall.color }}
+                          />
+                          {utfall.label}
+                        </span>
+                      ) : (
+                        <span className="text-[12px]" style={{ color: "var(--text-dim)" }}>
+                          —
+                        </span>
+                      )}
                     </td>
 
                     <td className="px-4 py-3">

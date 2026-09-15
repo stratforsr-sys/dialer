@@ -476,6 +476,42 @@ export function ListsBoard({
                             .join(" · ")}
                         </p>
                       )}
+
+                      {/* ── Vad mappen GAV ─────────────────────────────────
+                          Stapeln säger hur mycket som rörts, inte vad det gav.
+                          Raden nedan är den frågan — räknad på bolagets senaste
+                          utfall, som följer bolaget mellan mappar.
+
+                          Ingen egen stapel: elva kort med var sitt färgband gör
+                          brädet till en regnbåge, och doktrinen i CLAUDE.md ger
+                          ett fyllt färgfält per skärmbild. Punkterna bär färgen,
+                          siffran bär informationen. Fördelningen i sin helhet
+                          finns i mappvyn, där det finns plats att gå in i den.
+
+                          Tre hinkar, inte tio: sålt, lovat och nej är vad någon
+                          tar ett beslut på. "Svarar ej" är den största gruppen i
+                          varje mapp och säger ingenting om mappens kvalitet. */}
+                      {list.utfall.some((u) =>
+                        ["sald", "aterkomst", "nej"].includes(u.key)
+                      ) && (
+                        <p className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] tabular-nums">
+                          {list.utfall
+                            .filter((u) => ["sald", "aterkomst", "nej"].includes(u.key))
+                            .map((u) => (
+                              <span
+                                key={u.key}
+                                className="inline-flex items-center gap-1"
+                                style={{ color: "var(--text-muted)" }}
+                              >
+                                <span
+                                  className="w-1.5 h-1.5 rounded-full shrink-0"
+                                  style={{ background: u.color }}
+                                />
+                                {u.n.toLocaleString("sv-SE")} {u.label.toLowerCase()}
+                              </span>
+                            ))}
+                        </p>
+                      )}
                     </div>
                   </div>
 
