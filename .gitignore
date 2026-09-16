@@ -11,6 +11,11 @@ out/
 .env
 .env.local
 .env.*.local
+# `vercel env pull .env.prod` är vägen till produktionsdatabasen när en bugg
+# ska räknas i stället för gissas (se docs/ARBETSLOGG.md). Filen bär riktiga
+# Turso-nycklar och ska raderas efteråt — men mönstren ovan fångar den inte,
+# och en glömd fil är ett läckt produktionstoken.
+.env.prod
 
 # Prisma local dev db
 prisma/dev.db

@@ -67,7 +67,29 @@ export function ListDetailView({
     return list.leads.map((lead) => ({
       lead,
       claim: claimState(lead, viewerId, now),
-      deck: deckState(lead, list.maxAttempts, now),
+      // `hasPhone` läses ur den första kontakten — det är den enda mappvyn
+      // hämtar (`getList`, `contacts: take 1`), och det är också den enda
+      // raden visar. Däcket frågar i stället över ALLA kontakter. De två kan
+      // i teorin gå isär om numret sitter på ett senare kontaktkort; mätt
+      // 2026-09-16 gällde det 0 av 20 156 leads, eftersom importen skriver en
+      // kontakt per bolag. Blir det någon gång fel ritar mappen "bearbetat
+      // utan nummer" på ett bolag som däcket ändå delar ut — fel text, inte
+      // fel beteende. Skulle flera kontakter bli vanliga är det `getList` som
+      // ska hämta flaggan, inte den här raden som ska gissa bredare.
+      deck: deckState(
+        {
+          ...lead,
+          hasPhone: Boolean(
+            lead.contacts[0] &&
+              (lead.contacts[0].directPhoneE164 ||
+                lead.contacts[0].switchboardE164 ||
+                lead.contacts[0].directPhone ||
+                lead.contacts[0].switchboard)
+          ),
+        },
+        list.maxAttempts,
+        now
+      ),
       // Utfallet är bolagets, inte mappens. Se `lib/utfall.ts` — det är hela
       // skillnaden mot att läsa `CallAttempt.listId`, som pekar på mappen
       // säljaren råkade sitta i när samtalet gjordes.

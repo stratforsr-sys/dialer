@@ -13,6 +13,138 @@ Nyast först.
 
 ---
 
+## 2026-09-16 — Mapparna var slut, men däcket delade ut repriser i stället för att säga det
+
+Beställt: *"det kanske är dubbletter för flera av säljarna får upp samma
+företag som de har ringt men utan utfallen som står i cockpit … en säljare hade
+30st igår."*
+
+### Det var inte dubbletter
+
+Räknat först, eftersom hypotesen gick att motbevisa på tre frågor. Av 20 156
+leads:
+
+    229  överflödiga rader på samma bolagsnamn
+    320  överflödiga rader på samma telefonnummer
+     65  överflödiga rader på samma org-nummer NORMALISERAT
+          (`556677-8899` och `5566778899` är olika strängar, och
+           `orgNumber` är unik som sträng — så den vägen finns)
+
+Överlappande, alltså ~400 bolag. Och samtliga skapade i augusti: noll nya
+dubbletter sedan 9 september. Det räcker inte till 30 på en dag.
+
+Fler spår som mättes och föll, så att nästa session slipper gå om dem:
+
+- **Omtagningar ur däcket**: 17–20 per dag, stabilt i tre veckor. Ingen
+  försämring att hitta.
+- **Ringda bolag överst i kön** (`nextActionAt = NULL`, som sorterar först i
+  SQLite): 0. Regeln från 2026-08-26 håller.
+- **Spöken av `Lead.callbackAt`** utan öppen `Callback`-rad — de hade sorterats
+  först av ORDER BY:s första nyckel: 0. Ekot underhålls.
+- **`noAnswerStreak`** stämmer mot samtalshistoriken på alla utom 16 leads.
+  Trappan från migration 030 är alltså rätt laddad och behöver ingen backfill.
+- **Släppta leases** hamnar sist, inte först: `releaseLeases` går via Prismas
+  `updateMany`, som tillämpar `@updatedAt`, och sista sorteringsnyckeln är
+  `updatedAt ASC`. En omstartad cockpit ger alltså nya bolag, inte samma.
+
+### Vad det faktiskt var
+
+Fyra mappar hade inte längre något ringbart arbete kvar — bara repriser.
+Mätt 2026-09-16, ringbara bolag per mapp:
+
+    Endast Städföretag (kanske)   523 ringbara, varav 521 REDAN RINGDA
+    leads_bygg_hantverk           176 ringbara, varav 176 REDAN RINGDA
+    test_stad_fastighetsservice   306 ringbara, varav 175 redan ringda
+    hantverkare_5000_alla       2 250 ringbara, varav 1 003 redan ringda
+
+Och **noll** av de ringbara bolagen i de mapparna hade ett telefonnummer. En
+säljare i `Endast Städföretag` kunde inte få något annat än ett bolag hen redan
+ringt, på ett kort utan nummer.
+
+Det är den andra halvan som gör det osynligt: **numret sparas aldrig.** Av de
+840 bolag som ringts i `Endast Städföretag` har **35** ett nummer på en
+kontaktrad. Säljaren slår upp numret i en annan flik, ringer på en annan
+telefon, och systemet får aldrig se det. När vilan går ut kommer bolaget
+tillbaka med tomt telefonfält — det *ser ut* som ett obearbetat bolag. Det var
+det säljarna beskrev som "samma företag, utan utfallen".
+
+Kedjan alltså: fyra listor importerade utan telefonkolumnen → säljaren slår upp
+numret externt → numret sparas aldrig → vilan går ut → samma tomma kort igen →
+ny uppslagning. Med 20 timmars vila (före migration 030) blev det varje dag.
+
+### Vad som ändrades
+
+Ett villkor i `leaseNextLeads`, speglat i `deckStatus` och i
+`lib/deck-state.ts`: **ett bolag som redan bearbetats och fortfarande saknar
+nummer delas inte ut.**
+
+Grenen är tvådelad med flit, och halva den är lätt att tappa: ett
+**obearbetat** bolag utan nummer är fortfarande ringbart. Uppslagningen ÄR
+arbetet, `AddNumberCard` finns för just det, och filtret på kontaktrad som togs
+bort 2026-08-25 gjorde 986 av 1 000 bolag osynliga. `scripts/test-deck-state.ts`
+bevisar båda leden.
+
+Ingen skrivning, ingen migration, ingen pensionering. Raden rörs inte: bolaget
+står kvar i mappen, går att söka upp, går att öppna med ⌘K — och kommer
+tillbaka i rotationen i samma sekund som ett nummer finns. Filtret läker sig
+självt när datan lagas, vilket är hela skälet till att det är ett filter och
+inte en `retired`-flagga.
+
+**3 497 bolag lämnar rotationen.** Följden är avsiktlig och ska inte läsas som
+ett fel: `leads_bygg_hantverk` går från 176 ringbara till 0 och `Endast
+Städföretag` från 523 till 1. De mapparna säger nu "slut" med en räknad
+förklaring i cockpitens tomläge, i stället för att mala samma bolag. Det är
+sant, och det är vad framstegsmätaren redan försökte säga.
+`hantverkare_5000_alla` behåller sina 1 243 obearbetade.
+
+### Varför "spara varje nummer som rings" inte byggdes
+
+Det var förslaget i första svaret och det var fel. Säljaren ringer inte genom
+appen — numret slås upp externt och slås in på en telefon, så det finns ingen
+händelse att fånga. Det enda som skulle fungera är att **fråga** efter numret,
+och det är ett nytt steg i dispositionsflödet. Flödet delas med
+`CallbackDisposition` med flit, och ett steg som skiljer dem åt ger statistik
+som inte går att jämföra. Den ändringen ska beställas, inte smygas in. Se
+öppna punkter.
+
+### Sidofynd, inte åtgärdade
+
+- **En femte och en sjätte lista importerades utan telefonkolumn.**
+  `stadforetag_1000_etablerade` 2026-09-15 13:05 (1 000 bolag, **25** med
+  nummer) och `blandad_tak_maleri_flytt_786` under natten till 16:e.
+  Importspärren från 2026-09-15 larmade — den kräver ett kryss för att gå
+  vidare — och kryssades i. Spärren fungerar alltså; den är bara inte en
+  vägg. 904 av de 930 oringda bolagen i den femte listan serverades och
+  övergavs utan ett enda samtal samma eftermiddag.
+- **Edvins cockpit startade om 46 gånger den 14:e och 47 den 15:e**, mot 4–13
+  tidigare. 35 av 94 sessioner utan ett enda samtal; ~900 bolag leasades och
+  lämnades tillbaka på två dagar. Orsaken är inte funnen. Det ger inga
+  repriser (se `updatedAt`-noten ovan) men det är slöseri och något är fel.
+- **82 förfallna återkomster ligger i Edvins klocka**, äldsta från 31 augusti.
+  Josef 53 (äldsta 13 augusti, kontot ringer inte längre), Zen 28. De lämnar
+  aldrig klockan av sig själva — bara ett samtal eller ett släpp tar bort dem.
+- **`.env.prod` var inte gitignorerad.** Filen skapas av
+  `vercel env pull` varje gång produktionsdatan ska frågas och bär riktiga
+  Turso-nycklar. Tillagd i `.gitignore` i samma commit.
+
+### Öppna punkter
+
+1. **Omimport av de sex nummerlösa listorna** är fortfarande den enda riktiga
+   lösningen — nu ~7 200 bolag plus de två nya listorna. Kräver filerna från
+   leadkällan. En import som bär ett nummer häver både pensioneringen
+   `inget_nummer` och det nya filtret, automatiskt.
+2. **Fråga efter numret i dispositionen?** Se ovan — ska beställas, inte
+   antas. Utan den fortsätter varje bearbetat bolag att tappa sitt nummer.
+3. **Varför startar Edvins cockpit om?** Mät innan något byggs.
+4. **Trappan går att utvärdera först 2026-09-19.** Den gick live 09:24 den
+   15:e, och migration 030 lät pågående vilor vara med flit — bolagen som
+   vilar nu kommer tillbaka en gång till på gammal takt. Jämförelsetal, tid
+   mellan två samtal på samma bolag, tre veckor bakåt mätt 2026-09-16:
+   477 / 313 / 186 / 110 på under 1 dygn / 1–2 / 2–4 / 4–8, där 149 av
+   "1–2 dygn" var av en annan säljare.
+
+---
+
 ## 2026-09-15 (kväll) — Utfallen följde mappen, inte bolaget
 
 Beställt: *"Om det är en lista som jag importerar och vissa uppdateras så måste

@@ -136,9 +136,43 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
     // ett bolag släpps av en människa, inte av en klocka.
     `NOT EXISTS (SELECT 1 FROM "Callback" cb WHERE cb."leadId" = l."id"
         AND cb."status" = 'PENDING')`,
+    // Bearbetat, och fortfarande utan ett nummer att ringa.
+    //
+    // Villkoret på kontaktrad togs bort 2026-08-25 med rätta: ett bolag utan
+    // nummer är obearbetat, inte färdigt, och uppslagningen är ett par
+    // minuters arbete som hör hemma i passet. Det som saknades var den andra
+    // halvan — vad som händer när uppslagningen ÄR gjord och kortet ändå är
+    // tomt. Då kom bolaget tillbaka nästa dag, lika tomt, och nästa säljare
+    // gjorde om exakt samma sökning.
+    //
+    // Mätt 2026-09-16 var det inte ett undantag utan hela däcket i fyra
+    // mappar. `Endast Städföretag (kanske)`: 523 ringbara bolag, varav 521
+    // redan ringda och NOLL med ett nummer. `leads_bygg_hantverk`: 176 av
+    // 176. En säljare i de mapparna kunde inte få något annat än repriser —
+    // och eftersom numret aldrig sparades (805 av 840 bearbetade bolag i
+    // Endast Städföretag saknar ett) såg varje repris ut som ett obearbetat
+    // bolag. Det var det säljarna beskrev som "samma företag om och om igen,
+    // utan utfallen".
+    //
+    // Det är ingen pensionering och ingen spärr: raden rörs inte alls.
+    // Bolaget står kvar i mappen, går att söka upp, går att öppna med ⌘K, och
+    // kommer tillbaka i rotationen i samma sekund som ett nummer finns —
+    // `AddNumberCard` eller en omimport som bär telefonkolumnen. Filtret
+    // läker alltså sig självt så fort datan lagas, vilket är varför det är
+    // ett filter och inte en skrivning.
+    //
+    // `lastAttemptAt` och inte `attemptCount`: taket nollställer räknaren och
+    // glömmer då arbetet som gjorts. Samma val som framstegsmätaren i
+    // `getLists` gör, och av samma skäl.
+    `NOT (l."lastAttemptAt" IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM "Contact" c
+        WHERE c."leadId" = l."id"
+          AND (c."directPhoneE164" IS NOT NULL OR c."switchboardE164" IS NOT NULL
+               OR c."directPhone" IS NOT NULL OR c."switchboard" IS NOT NULL)))`,
   ];
   // Ordningen följer conds ovan exakt. Den sista nowIso hör till
-  // DoNotCall-villkoret; reservationen av lovade bolag binder inga parametrar.
+  // DoNotCall-villkoret; reservationen av lovade bolag och filtret mot
+  // bearbetade bolag utan nummer binder inga parametrar.
   const args: unknown[] = [
     nowIso,
     cutoffIso,
@@ -322,7 +356,9 @@ export type DeckBlocker = {
     | "max_attempts"
     | "resting"
     | "retired"
-    | "active_deal";
+    | "active_deal"
+    /** Bearbetat och fortfarande utan nummer — se filtret i `leaseNextLeads`. */
+    | "worked_no_phone";
   count: number;
 };
 
@@ -419,6 +455,12 @@ export async function deckStatus(listId: string | null): Promise<DeckStatus> {
           WHEN EXISTS (
             SELECT 1 FROM "Callback" cb WHERE cb."leadId" = l."id" AND cb."status" = 'PENDING'
           ) THEN 'callback'
+          WHEN l."lastAttemptAt" IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM "Contact" c
+            WHERE c."leadId" = l."id"
+              AND (c."directPhoneE164" IS NOT NULL OR c."switchboardE164" IS NOT NULL
+                   OR c."directPhone" IS NOT NULL OR c."switchboard" IS NOT NULL)
+          ) THEN 'worked_no_phone'
           WHEN l."claimedAt" IS NOT NULL AND l."claimedAt" >= ? AND l."ownerId" <> ? THEN 'claimed'
           WHEN l."leasedUntil" IS NOT NULL AND l."leasedUntil" >= ? AND l."leasedById" <> ? THEN 'leased_by_other'
           WHEN l."leasedUntil" IS NOT NULL AND l."leasedUntil" >= ? THEN 'leased_by_me'

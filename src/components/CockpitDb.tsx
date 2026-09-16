@@ -65,6 +65,7 @@ const DECK_REASON_LABELS: Record<DeckStatus["blockers"][number]["reason"], strin
   resting: "vilar mellan försök",
   retired: "är avslutade",
   active_deal: "har en aktiv affär",
+  worked_no_phone: "är redan bearbetade och saknar ett nummer att ringa — de behöver en omimport med telefonkolumnen mappad",
 };
 
 // ─── Iframe med fallback ──────────────────────────────────────────────────────

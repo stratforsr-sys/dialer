@@ -36,6 +36,16 @@ export type DeckState =
   | { state: "callback"; at: Date }
   | { state: "capped"; attempts: number }
   /**
+   * Bearbetat, och fortfarande utan ett nummer att ringa.
+   *
+   * Inte en pensionering och inget beslut om bolaget — bara ett konstaterande
+   * att kortet är tomt. Uppslagningen är redan gjord en gång, och rotationen
+   * har ingenting nytt att erbjuda säljaren genom att visa det igen. Numret
+   * finns kvar i källan; en omimport som bär det lyfter bolaget tillbaka i
+   * samma sekund, utan att någon behöver häva något.
+   */
+  | { state: "worked_no_phone" }
+  /**
    * `saidNo` skiljer en vila som bolaget SJÄLVT bett om från en vanlig
    * rotationspaus. Samma tillstånd i däcket — men inte samma sak för en
    * människa som läser raden och funderar på att öppna bolaget ändå, vilket
@@ -53,6 +63,17 @@ export interface DeckStateLead {
   nextActionAt: Date | string | null;
   /** Utfallet på senaste samtalet. Skiljer ett nej från en rotationspaus. */
   lastOutcome?: string | null;
+  /** När bolaget senast ringdes. `null` = aldrig bearbetat. */
+  lastAttemptAt?: Date | string | null;
+  /**
+   * Finns det ett nummer att ringa på någon av bolagets kontakter?
+   *
+   * `undefined` betyder att anroparen inte vet — då hoppas grenen över i
+   * stället för att gissa. Ett bolag som felaktigt ritas som "utan nummer"
+   * ser ut att vara ur rotationen fast det ringes varje dag, och då ljuger
+   * mappvyn om precis det den finns till för att förklara.
+   */
+  hasPhone?: boolean;
   /** Spärrlistan. `expiresAt: null` = permanent. */
   dnc?: { expiresAt: Date | string | null } | null;
 }
@@ -101,6 +122,19 @@ export function deckState(
   const callbackAt = asDate(lead.callbackAt);
   if (callbackAt) return { state: "callback", at: callbackAt };
 
+  // Bearbetat men fortfarande utan nummer. Ligger FÖRE taket och vilan: de
+  // två svarar på "när kommer det tillbaka", och det här bolaget kommer inte
+  // tillbaka av sig självt oavsett vad klockan säger.
+  //
+  // Villkoret är avsiktligt tvådelat. Ett OBEARBETAT bolag utan nummer är
+  // ringbart och ska delas ut — uppslagningen ÄR arbetet, och `AddNumberCard`
+  // finns i cockpiten för just det. Det är först när någon gjort
+  // uppslagningen och kortet ändå är tomt som en ny utdelning bara är samma
+  // sökning en gång till.
+  if (lead.hasPhone === false && lead.lastAttemptAt) {
+    return { state: "worked_no_phone" };
+  }
+
   // Taket har ett undantag i däcket för lovade bolag, men ett lovat bolag är
   // redan fångat av grenen ovanför — här återstår bara det raka taket.
   if (lead.attemptCount >= maxAttempts) {
@@ -134,12 +168,27 @@ export function deckStateLabel(s: DeckState): string | null {
       return "Lovad återkomst";
     case "capped":
       return `${s.attempts} försök — taket nått`;
+    case "worked_no_phone":
+      return "Bearbetat — inget nummer sparat";
     case "resting":
       return s.saidNo ? "Sa nej" : "Vilar";
   }
 }
 
-/** Skiljer det som är permanent ur rotationen från det som bara väntar. */
+/**
+ * Skiljer det som är ur rotationen från det som bara väntar på sin tur.
+ *
+ * `worked_no_phone` räknas hit trots att det inte är ett beslut om bolaget:
+ * frågan filtret svarar på är "kommer det här tillbaka av sig självt?", och
+ * det gör det inte — det väntar på ett nummer, inte på en klocka. Det är
+ * dessutom hela poängen med att kunna filtrera fram dem: de är listan över
+ * vad en omimport skulle lyfta.
+ */
 export function isOutOfRotation(s: DeckState): boolean {
-  return s.state === "retired" || s.state === "customer" || s.state === "dnc";
+  return (
+    s.state === "retired" ||
+    s.state === "customer" ||
+    s.state === "dnc" ||
+    s.state === "worked_no_phone"
+  );
 }
