@@ -363,7 +363,18 @@ model LeadOnList {
   lead Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
   @@id([listId, leadId])
-  @@index([leadId])
+  /// **Databasen har ett UNIKT index på `leadId` — migration 031.** Ett bolag
+  /// ligger i exakt en mapp, och det är inte en konvention utan ett villkor.
+  ///
+  /// Indexet står inte som `@@unique([leadId])` här med flit. Prisma läser en
+  /// unik skalär främmande nyckel som ett ett-till-ett-förhållande: `Lead.lists`
+  /// blir `LeadOnList?` i stället för `LeadOnList[]`, och varje
+  /// `lists: { some: { listId } }` i koden slutar kompilera. Regeln hör hemma i
+  /// databasen; typerna ska inte ritas om för den.
+  ///
+  /// Följden att känna till: en `create` som lägger ett bolag i en andra mapp
+  /// kastar `UNIQUE constraint failed`. Det är avsikten — se
+  /// `/api/import-stream`, som därför bara länkar in leads den själv skapat.
   @@index([listId, createdByImport])
 }
 

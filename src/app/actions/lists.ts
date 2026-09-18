@@ -401,9 +401,26 @@ function chunk<T>(items: T[], size = 400): T[][] {
 export type DeleteListResult = {
   /** Leads som importen skapade och som nu är borta. */
   deletedLeads: number;
-  /** Dubbletter — fanns i dialern redan innan importen, och ligger kvar. */
+  /**
+   * Leads som fanns i dialern innan importen och bara länkades in här.
+   *
+   * De raderas inte — men sedan migration 031 ligger ett bolag i **exakt en**
+   * mapp, så det finns ingen annan mapp kvar att falla tillbaka på. De blir
+   * alltså mapplösa: de finns i registret, går att söka upp och att öppna med
+   * ⌘K, men ingen säljare får dem serverade av rotationen.
+   *
+   * Det är samma rader som förut, med en annan följd — och följden ska stå på
+   * skärmen. "Ligger kvar" var sant när de låg kvar någon annanstans.
+   */
   keptDuplicates: number;
-  /** Skapade här, men ligger även i en annan mapp och sparades därför. */
+  /**
+   * Skapade här, men ligger även i en annan mapp och sparades därför.
+   *
+   * **Alltid 0 sedan migration 031.** Fältet står kvar för att vara ärligt om
+   * varför: villkoret kan inte längre inträffa, inte för att det slutade
+   * kontrolleras. Tas det bort ser nästa läsare en radering som aldrig
+   * övervägde fallet.
+   */
   keptInOtherLists: number;
 };
 

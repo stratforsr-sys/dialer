@@ -13,6 +13,158 @@ Nyast först.
 
 ---
 
+## 2026-09-18 — Ett bolag låg i fem mappar, och vilan gällde bolaget
+
+Beställt: *"samma kunder dyker upp igen och igen för samma person … när en
+person ringer på en annan lista och sen får en ny lista där det finns kunder
+som han har ringt förut på den andra listan då får han upp dem."*
+
+Hypotesen stämde, och den gick att räkna på.
+
+### Mekaniken
+
+`leaseNextLeads` filtrerar och vilar **per bolag** — `nextActionAt`,
+`attemptCount`, `retired` sitter alla på `Lead`. Mappen är bara en `JOIN` som
+avgör vilka bolag som är valbara. Ett bolag i tre mappar är alltså vilande i
+alla tre samtidigt, och kommer tillbaka i den mapp säljaren råkar sitta i när
+vilan gått ut. Sitter hen i en ny lista ser hela listan ut att bestå av bolag
+hen redan ringt.
+
+Mätt i produktionen innan något rördes:
+
+    22 371  leads
+    24 259  LeadOnList-rader
+     1 421  bolag i fler än en mapp  (1 029 i två, 324 i tre, 61 i fyra, 7 i fem)
+     1 888  överflödiga mapprader
+     1 085  av de 1 421 hade redan ringts
+
+       161  bolag ringda av SAMMA säljare i fler än en mapp
+              Fredrik 118, Mick 16, Vlado 13, Edvin 12, Zen 1, Josef 1
+     11–43  sådana omtagningar per dag, hela september, oavbrutet
+
+Överlappet är inte slumpmässigt — det är delmängder:
+`leads_bygg_hantverk` ligger till 541 av 599 inuti `hantverkare_5000_alla`,
+och `test_stad_fastighetsservice` till **502 av 502** inuti `Blandad lista`.
+Fredriks värsta par var `Clicknet Lista 1` → `leads_bygg_hantverk`, 55 bolag.
+
+### Vad som INTE var fel, mätt så att nästa session slipper gå om det
+
+- **Trappan från migration 030 håller.** Av 2 055 samtal på sju dagar var
+  1 688 första samtalet på bolaget. Av de 156 omtagningarna inom ett dygn
+  följde **103 på en bokad återkomst** (alltså ett löfte som infriades) och
+  43 på `NO_ANSWER`, som ska vila 20 timmar. Ingen fast vila kvar att laga.
+- **Dubbla lead-RADER var marginalen.** 156 grupper, men bara **4** fall där
+  samma säljare ringt två rader för samma bolag. Nästan hela problemet var
+  samma rad i flera mappar.
+- **Däcket läcker fortfarande inte mellan mappar.** Kontrollerat igen.
+
+### Tre ändringar, i den ordningen
+
+**1. `scripts/avdubbla.ts` städade beståndet.** Torrkörning är förval; den
+skriver en säkerhetskopia i `backups/` oavsett. Två steg, och ordningen är inte
+valfri — steg 1 flyttar mapptillhörigheter och kan därmed skapa nya
+flermappsbolag:
+
+- **Samma bolag på flera lead-rader slås ihop.** Identiteten importeras från
+  `lib/lead-identitet` — `orgNyckel`, annars `namnOrtNyckel` — och skrivs
+  **inte** om i skriptet. En andra tolkning av "samma bolag" är precis den
+  fällan den här loggen varnar för. 156 grupper, 164 rader raderade, **0
+  avvisade** (ingen namn+ort-nyckel bar två olika org-nummer).
+- **Samma bolag i flera mappar städas till en.** Mappen bolaget först laddades
+  upp i behåller det: lägsta `LeadOnList.addedAt`, med mappens `createdAt` som
+  avgörare vid lika och `createdByImport` sist. 2 022 mapprader stryks.
+
+**2. Importen länkar inte längre in bolag som redan finns.** Raden
+`linkToList(existingGroups…, false)` i `/api/import-stream` var källan: varje
+omimport la samma bolag i en mapp till. Uppgifterna ur filen skrivs på bolaget
+som förut — det är hela värdet i en omimport — men mappen det redan ligger i
+behåller det. Importrapporten har en egen räknare, `kvarIUrsprunglig`, och en
+egen ruta: en fil på 1 000 rader som ger en mapp på 600 ska förklara sig på
+skärmen, inte se ut som ett bortfall.
+
+**3. Migration 031 gör regeln till ett villkor.** `CREATE UNIQUE INDEX` på
+`LeadOnList.leadId`. Utan den är "ett bolag, en mapp" en överenskommelse mellan
+två kodställen som nästa ändring kan bryta tyst.
+
+### Fallgropar som kostade tid
+
+**`LeadClaim.leadId` är en främmande nyckel mot `LeadDossier.leadId`, inte mot
+`Lead.id`** — och `PRAGMA foreign_keys` är **PÅ** i den här databasen
+(kontrollerat, inte antaget). Första versionen av hopslagningen flyttade
+uppgifterna före dossiern och hade fallit på nyckeln mitt i transaktionen, på
+246 dossierer och 1 397 uppgifter. Ordningen är nu: dossiern först, uppgifterna
+sedan, kvarvarande dossierer sist.
+
+**En `DoNotCall`-rad får aldrig raderas.** `leadId` är UNIQUE, så två spärrar
+kan inte peka på samma lead — men en spärr är ett besked från bolaget och får
+inte försvinna i ett städjobb. Har överlevaren redan en nollas den andras
+`leadId` i stället; raden lever vidare på `orgNumber`, som däckets spärrfilter
+matchar på just för att överleva att leadId försvinner.
+
+**Samtalshistoriken måste ärvas, annars ringer städningen upp folk.** Det
+farliga fallet är att den äldsta raden är oringd och den andra ringdes i går:
+utan arv hamnar det hopslagna bolaget överst i däcket som obearbetat. 29 av 156
+grupper såg precis så ut. `lastAttemptAt` tar max, vilan tar den **längsta** av
+de två, och `nextActionAt = NULL` får aldrig stå kvar på ett bolag som ringts —
+NULL betyder "aldrig ringd" och sorterar först.
+
+**`attemptCount` tar MAX, inte summan.** Summan är sannare om hur många gånger
+bolaget faktiskt ringts, men hade slagit bolag i taket i samma sekund som de
+slogs ihop — och ett lead över `maxAttempts` serveras aldrig mer. Ett städjobb
+får inte pensionera bolag i tysthet.
+
+**Indexet ligger bara i SQL, inte i `schema.prisma`.** En `@@unique([leadId])`
+där gör relationen ett-till-ett i Prismas ögon: `Lead.lists` blir `LeadOnList?`
+i stället för `LeadOnList[]`, och varje `lists: { some: { listId } }` i koden
+slutar kompilera. Regeln hör hemma i databasen; typerna ska inte ritas om för
+den. Noten står i schemat så att nästa läsare inte tror att indexet saknas.
+
+### Följder som är avsiktliga och inte ska läsas som fel
+
+**720 bolag hamnar i mappar som ingen säljare har tillgång till** — 374 i
+`test_stad_fastighetsservice`, 71 i `Nya bolag från 2025 till 2019`, 57 i
+`sokning_Clicknet2`. 412 av dem är fortfarande ringbara. Regeln "första mappen
+behåller bolaget" beställdes uttryckligen och följdes bokstavligt; alternativet
+— att bara mappar i bruk får vinna — valdes bort. **Åtgärden är en rad i
+`ListAccess`, inte en ny körning:** ge säljarna tillgång till mapparna så är de
+tillbaka i rotationen samma sekund.
+
+**Att radera en mapp betyder något nytt.** `keptDuplicates` i `deleteList` var
+"ligger kvar" så länge bolaget låg kvar någon **annanstans**. Nu finns ingen
+annan mapp: de blir mapplösa — kvar i registret, sökbara, öppningsbara med ⌘K,
+men ingen rotation delar ut dem. Störst exponering är
+`sokning_Clicknet2_2026-08-04`, där alla 2 167 rader bär `createdByImport = 0`
+(de skrevs före migration 010). Meningen står nu i bekräftelsen på skärmen.
+`keptInOtherLists` är permanent 0 och står kvar för att säga varför.
+
+**Summan över mappar minskar.** 24 259 → 22 237 mapprader. Inget bolag
+raderades utom de 164 dubblettraderna; resten bytte inte plats, de slutade
+ligga på två ställen.
+
+### Sidofynd
+
+**Två bolag har två öppna återkomster var efter hopslagningen.** `Fix & Fint
+Uppland AB` (Zen 17 aug, Edvin 9 sep — båda förfallna) och `Pureflow
+Ventilation AB` (Fredrik två gånger, jan 2027). Städningen skapade dem inte —
+två löften låg redan på var sin lead-rad — och skriptet avbokar **inte** det
+ena. En avbokning kräver ett skäl och är ett beslut om bolaget; ett städjobb
+får inte ta ett löfte som en människa gav. Skriptet varnar i stället.
+
+### Öppna punkter
+
+1. **Ge säljarna tillgång till de fyra mapparna** om de 412 ringbara bolagen
+   ska tillbaka i rotationen. Se ovan.
+2. **Avboka det ena löftet** på de två bolagen ovan, i klockan, med skäl.
+3. **`test_stad_fastighetsservice` är 100 % en delmängd av `Blandad lista`.**
+   Den heter "test", ingen säljare når den, och den äger nu 368 bolag. Antingen
+   ska den bemannas eller avvecklas — men avvecklas den med `deleteList`
+   blir 344 av bolagen mapplösa, se ovan.
+4. **Omimporten av de nummerlösa listorna** står kvar sedan 2026-09-16 och är
+   opåverkad av det här passet — utom att den nu är billigare: en omimport
+   skapar inte längre dubbletter i en ny mapp.
+
+---
+
 ## 2026-09-16 — Mapparna var slut, men däcket delade ut repriser i stället för att säga det
 
 Beställt: *"det kanske är dubbletter för flera av säljarna får upp samma

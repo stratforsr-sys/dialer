@@ -24,6 +24,8 @@ type ProgressState = {
   withoutPhone?: number;
   /** Bolag som låg pensionerade utan nummer och som filen gav ett. */
   revived?: number;
+  /** Bolag som redan fanns och därför blev kvar i mappen de först laddades upp i. */
+  kvarIUrsprunglig?: number;
   errors: string[];
   listId?: string | null;
   listName?: string;
@@ -711,6 +713,26 @@ export function DbImportView({ users = [] }: { users?: UserOption[] }) {
                   <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>
                     De låg som ”Inget nummer att hitta”. Filen hade ett nummer, alltså är
                     påståendet motbevisat och bolagen delas ut igen.
+                  </p>
+                </div>
+              )}
+
+              {/* Mappen blir mindre än filen när bolag redan fanns. Det är ett
+                  svar, inte ett bortfall — och utan raden här ser en fil på
+                  1 000 rader som gav en mapp på 600 ut som en misslyckad
+                  import. Uppgifterna ur filen skrevs på bolagen ändå; det enda
+                  som inte hände är att de flyttades hit. */}
+              {(progress.kvarIUrsprunglig ?? 0) > 0 && (
+                <div className="text-left p-4 rounded-lg mb-6" style={{ background: "var(--info-bg)", border: "1px solid var(--info-border)" }}>
+                  <p className="text-[12px] font-semibold mb-1 flex items-center gap-1" style={{ color: "var(--info)" }}>
+                    <AlertCircle size={13} />
+                    {progress.kvarIUrsprunglig!.toLocaleString("sv-SE")} bolag fanns redan och ligger kvar i sin första mapp
+                  </p>
+                  <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>
+                    Ett bolag ligger i exakt en mapp. Deras uppgifter kompletterades
+                    ur filen, men de flyttades inte hit — annars hade säljaren fått
+                    upp bolag hen redan ringt i den andra mappen, utan att utfallen
+                    följde med. Mappen blir därför mindre än filen.
                   </p>
                 </div>
               )}

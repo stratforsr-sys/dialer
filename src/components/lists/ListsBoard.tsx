@@ -578,8 +578,12 @@ export function ListsBoard({
           </p>
           <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>
             {deleteResult.deletedLeads} lead{deleteResult.deletedLeads === 1 ? "" : "s"} borttagna.
+            {/* Sedan migration 031 ligger ett bolag i exakt en mapp, så det
+                finns ingen annan mapp att ligga kvar i. De här bolagen blir
+                mapplösa: kvar i registret, sökbara, men inget däck delar ut
+                dem. Det är en mening värd att läsa innan man raderar. */}
             {deleteResult.keptDuplicates > 0 &&
-              ` ${deleteResult.keptDuplicates} fanns redan innan importen och ligger kvar.`}
+              ` ${deleteResult.keptDuplicates} fanns redan innan importen och blir kvar utan mapp — de delas inte ut av någon rotation förrän de importeras in i en mapp igen.`}
             {deleteResult.keptInOtherLists > 0 &&
               ` ${deleteResult.keptInOtherLists} sparades eftersom de även ligger i en annan mapp.`}
           </p>

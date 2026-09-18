@@ -329,6 +329,16 @@ export async function POST(req: NextRequest) {
          * värt att säga: det är oftast hela poängen med omimporten.
          */
         let revived = 0;
+        /**
+         * Bolag i filen som redan fanns i dialern och därför INTE lades i den
+         * här mappen. De ligger kvar i mappen de först laddades upp i, och
+         * deras uppgifter kompletterades ur filen.
+         *
+         * Egen räknare och inte gömd i `updated`: den som laddar upp 1 000
+         * rader och får en mapp med 600 bolag ska få veta varför på skärmen,
+         * inte gissa att importen tappade fyrahundra.
+         */
+        let kvarIUrsprunglig = 0;
         const errors: string[] = [];
 
         enqueue({ total, created: 0, updated: 0, skipped, merged, done: 0 });
@@ -356,17 +366,18 @@ export async function POST(req: NextRequest) {
         });
 
         /**
-         * Länkar leads till mappen. Ett lead kan ligga i flera mappar, så vi
-         * filtrerar bara bort dubbletter inom SAMMA mapp (SQLite stödjer inte
-         * skipDuplicates i createMany).
+         * Länkar leads till mappen.
+         *
+         * **Bara leads den här importen SKAPADE.** Ett bolag som redan fanns
+         * blir kvar i mappen det först laddades upp i och länkas aldrig in
+         * här — se `kvarIUrsprunglig` längre ned för varför.
+         *
+         * `createdByImport` är därför alltid sant numera. Flaggan står kvar
+         * eftersom den bär betydelse för de 24 259 rader som skrevs innan
+         * regeln fanns: den avgör vad som händer när mappen tas bort, och i
+         * efterhand går fallen inte att skilja åt.
          */
-        /**
-         * `createdByImport` säger om det var den här importen som skapade
-         * leadet. Flaggan avgör vad som händer när mappen tas bort: leads som
-         * importen skapade följer med, dubbletter som redan fanns blir kvar.
-         * Den måste sättas här och nu — i efterhand går fallen inte att skilja.
-         */
-        const linkToList = async (leadIds: string[], createdByImport: boolean) => {
+        const linkToList = async (leadIds: string[]) => {
           if (leadIds.length === 0) return;
           const already = await db.leadOnList.findMany({
             where: { listId: list.id, leadId: { in: leadIds } },
@@ -376,7 +387,7 @@ export async function POST(req: NextRequest) {
           const fresh = Array.from(new Set(leadIds)).filter((id) => !existing.has(id));
           if (fresh.length === 0) return;
           await db.leadOnList.createMany({
-            data: fresh.map((leadId) => ({ listId: list.id, leadId, createdByImport })),
+            data: fresh.map((leadId) => ({ listId: list.id, leadId, createdByImport: true })),
           });
         };
 
@@ -568,7 +579,7 @@ export async function POST(req: NextRequest) {
               });
 
               // Skapade av den här importen — försvinner med mappen.
-              await linkToList(leadData.map((l) => l.id), true);
+              await linkToList(leadData.map((l) => l.id));
 
               // Kommande batchar måste se de här som befintliga, annars
               // försöker vi skapa samma bolag igen — och på org-numret blir det
@@ -777,8 +788,31 @@ export async function POST(req: NextRequest) {
                 })),
               });
 
-              // Fanns redan i dialern — dubbletter, stannar kvar när mappen tas bort.
-              await linkToList(existingGroups.map(({ lead }) => lead.id), false);
+              /**
+               * ── Bolaget stannar i mappen det först laddades upp i ─────────
+               *
+               * Här stod `linkToList(existingGroups…, false)`, och den raden
+               * var orsaken till att säljarna fick samma bolag om och om igen.
+               *
+               * `leaseNextLeads` vilar per **bolag**, inte per mapp. Ett bolag
+               * som ligger i tre mappar kommer alltså tillbaka i vilken av de
+               * tre säljaren än sitter i så fort vilan gått ut — och för
+               * säljaren, som just fått en ny lista, ser det ut som att den
+               * nya listan är full av bolag hen redan ringt. Mätt i
+               * produktionen 2026-09-18, innan raden togs bort:
+               *
+               *     1 421  bolag låg i fler än en mapp
+               *       161  bolag hade ringts av SAMMA säljare i fler än en
+               *     11–43  sådana omtagningar per dag, hela september
+               *
+               * Nu länkas bara nyskapade leads. Ett bolag som redan finns får
+               * sina uppgifter kompletterade ur filen — det är hela värdet i
+               * en omimport och rörs inte — men mappen det redan ligger i
+               * behåller det. Följden är att mappen kan bli mindre än filen,
+               * och det står i importrapporten: det är ett svar, inte ett
+               * bortfall.
+               */
+              kvarIUrsprunglig += existingGroups.length;
 
               for (const { group, lead } of existingGroups) {
                 if (hasSeoData(group.seo)) {
@@ -816,7 +850,7 @@ export async function POST(req: NextRequest) {
 
         enqueue({
           complete: true, total, created, updated, skipped, merged, errors,
-          seoClaims, seoKept, withoutPhone, revived,
+          seoClaims, seoKept, withoutPhone, revived, kvarIUrsprunglig,
           listId: list.id, listName: list.name,
         });
       } catch (err) {
