@@ -13,7 +13,7 @@ Nyast först.
 
 ---
 
-## 2026-09-18 — Ett bolag låg i fem mappar, och vilan gällde bolaget
+## 2026-09-18/21 — Ett bolag låg i fem mappar, och vilan gällde bolaget
 
 Beställt: *"samma kunder dyker upp igen och igen för samma person … när en
 person ringer på en annan lista och sen får en ny lista där det finns kunder
@@ -119,6 +119,64 @@ i stället för `LeadOnList[]`, och varje `lists: { some: { listId } }` i koden
 slutar kompilera. Regeln hör hemma i databasen; typerna ska inte ritas om för
 den. Noten står i schemat så att nästa läsare inte tror att indexet saknas.
 
+### Körningen, och vad den gav
+
+Koden gick live 2026-09-18 (`436b930`). **Städningen och migrationen kördes
+2026-09-21 06:10**, när golvet varit tyst sedan fredag 17:06 — noll aktiva
+leases, noll samtal. Beståndet var oförändrat sedan torrkörningen, så planen
+var identisk.
+
+    före                                    efter
+    22 371 leads                            22 207 leads   (164 dubbletter borta)
+    24 259 mapprader                        22 207 mapprader
+     1 421 bolag i fler än en mapp               0
+
+Kontrollerat efteråt, allt noll: mapplösa leads, föräldralösa samtal,
+föräldralösa återkomster, `LeadClaim` utan dossier, och **ringda bolag utan
+vila** (`lastAttemptAt` satt men `nextActionAt` NULL — fällan som hade lagt
+dem överst i däcket). Samtliga 9 348 samtal, 1 312 återkomster, 13 affärer,
+3 065 spärrar, 15 497 dossierer och 81 402 uppgifter står kvar.
+
+Indexet provades skarpt: ett `INSERT` som lägger ett befintligt bolag i en
+andra mapp svarar `UNIQUE constraint failed: LeadOnList.leadId`. Regeln biter
+i databasen, inte bara i koden.
+
+`ANALYZE` kördes om på `Lead` och `LeadOnList` — indexen på den senare byttes,
+och utan färsk statistik gissar planeraren fel på däckfrågan (se 2026-09-04).
+Båda tog 1,4 sekunder mot 236 respektive 92 tidigare; databasen var varm och
+obelastad.
+
+### Det städningen blottade: arbetet ligger bakom stängda dörrar
+
+Mätt efter körningen, ringbara bolag per mapp mot säljartillgång. Det här är
+inte en följd av avdubblingen — den gjorde det bara synligt:
+
+    mapp                                 ringbara   säljare
+    clicknet_leads_bokadirekt_import        4 902   Josef (kontot ringer inte längre)
+    Clicknet Lista 1                        4 448   6
+    sokning_Clicknet2_2026-08-04            2 105   INGEN
+    hantverkare_5000_alla                   1 018   5
+    Utan hemsida lead                         883   INGEN
+    Blandad lista: Städ/Verkstäder            835   4
+    Företag från brabyggare                   472   INGEN
+    Nya bolag 2025–2019                       293   INGEN
+    stadforetag_1000_etablerade               192   4
+    test_stad_fastighetsservice               100   INGEN
+    leads_bygg_hantverk                         0   7
+    blandad_tak_maleri_flytt_786                0   4
+    Endast Städföretag (kanske)                 0   4
+
+**Tre bemannade mappar är slut** — och det är inte städningen som tömde dem.
+Bland de opensionerade bolagen i alla tre är **noll oringda**. Samma
+uttömning som 2026-09-16 beskrev, nu på tre mappar till: `Endast Städföretag`
+har 210 pensionerade och 181 vilande, `blandad_tak` 470 pensionerade,
+`leads_bygg_hantverk` 188 plus 10 i taket.
+
+**Samtidigt ligger 8 755 ringbara bolag bakom noll aktiva säljare.** Den
+största posten är `clicknet_leads_bokadirekt_import`: 4 902 bolag, **inte ett
+enda ringt**, och enda tillgången är Josefs konto som slutat ringa. Det är en
+rad i `ListAccess` från att vara golvets nästa månad.
+
 ### Följder som är avsiktliga och inte ska läsas som fel
 
 **720 bolag hamnar i mappar som ingen säljare har tillgång till** — 374 i
@@ -152,16 +210,28 @@ får inte ta ett löfte som en människa gav. Skriptet varnar i stället.
 
 ### Öppna punkter
 
-1. **Ge säljarna tillgång till de fyra mapparna** om de 412 ringbara bolagen
-   ska tillbaka i rotationen. Se ovan.
-2. **Avboka det ena löftet** på de två bolagen ovan, i klockan, med skäl.
-3. **`test_stad_fastighetsservice` är 100 % en delmängd av `Blandad lista`.**
+1. **Ge säljarna tillgång till `clicknet_leads_bokadirekt_import`.** 4 902
+   ringbara bolag, inte ett enda ringt, och enda tillgången är ett konto som
+   slutat ringa. Det är den enskilt största åtgärden i hela loggen just nu och
+   den kostar en rad i `ListAccess`. Tre bemannade mappar är samtidigt slut.
+2. **Och till de fyra mappar avdubblingen flyttade bolag till** —
+   `sokning_Clicknet2` (2 105 ringbara), `Utan hemsida lead` (883),
+   `Företag från brabyggare` (472), `Nya bolag 2025–2019` (293),
+   `test_stad_fastighetsservice` (100). Totalt 8 755 ringbara bolag bakom noll
+   aktiva säljare.
+3. **Avboka det ena löftet** på `Fix & Fint Uppland AB` och `Pureflow
+   Ventilation AB`, i klockan, med skäl. Se sidofynd ovan.
+4. **`test_stad_fastighetsservice` var 100 % en delmängd av `Blandad lista`.**
    Den heter "test", ingen säljare når den, och den äger nu 368 bolag. Antingen
-   ska den bemannas eller avvecklas — men avvecklas den med `deleteList`
-   blir 344 av bolagen mapplösa, se ovan.
-4. **Omimporten av de nummerlösa listorna** står kvar sedan 2026-09-16 och är
+   ska den bemannas eller avvecklas — men avvecklas den med `deleteList` blir
+   bolagen **mapplösa**, se ovan. Det är inte samma sak som förut.
+5. **Omimporten av de nummerlösa listorna** står kvar sedan 2026-09-16 och är
    opåverkad av det här passet — utom att den nu är billigare: en omimport
    skapar inte längre dubbletter i en ny mapp.
+6. **Mät om en vecka om repriserna faktiskt upphörde.** Frågan som gav 161
+   före körningen: bolag med samtal från samma säljare i fler än en
+   `CallAttempt.listId`. Den kan inte växa längre — men den kan avslöja en väg
+   in i `LeadOnList` som ingen letat efter.
 
 ---
 
