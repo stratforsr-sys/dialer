@@ -83,12 +83,19 @@ flyttades — produktionens databas ska inte stå i `/tmp`.
 
 ### Öppna punkter
 
-- [ ] **1 oktober 02:00: byt INTE bara tillbaka miljövariablerna.** Turso står
-      stilla sedan 28 september; varje samtal, disposition, återkomst och affär
-      sedan cutover ligger bara i `~/dialer-failover/`. Ett rakt byte tillbaka
-      raderar tre säljdagar. Ordningen står i failover-katalogens `README.md`:
-      dumpa lokalt → läs in i `sales-hub-eu` → **sedan** env tillbaka → jämför
-      radantal innan `sqld` stoppas.
+- [ ] **Reservlösningen ska bort — Macen kan inte husera databasen.** Mätt
+      2026-09-28 10:11 CEST finns **ingen divergens**: `max(Activity.timestamp)`
+      och `max(CallAttempt.startedAt)` står båda kvar på fredag 25/9 14:5x, noll
+      samtal den 28:e, och exakt **en** Lead-rad ändrad efter cutover (ett
+      branschfält utan säljarvärde). Säljarna hann alltså aldrig in. Vägen
+      tillbaka är därför en **env-återställning ur
+      `~/dialer-failover/gammal-turso.env`, inte en datamigrering**.
+      **Mät om det innan du litar på det** — har någon loggat in sedan dess
+      gäller det inte, och då är ordningen den i failover-katalogens `README.md`:
+      dumpa lokalt → läs in i `sales-hub-eu` → **sedan** env → jämför radantal
+      innan `sqld` stoppas. Valet står mellan att slå på overages (ingen
+      planuppgradering, ~7 % överdrag, släpper direkt) och att vänta ut kvoten
+      1 oktober 02:00 CEST. Hela överlämningen: `~/dialer-failover/NASTA_SESSION.md`.
 - [ ] **Kör `ANALYZE` på `sales-hub-eu` när kvoten släpper.** 535,5M lästa
       rader mot 22 719 bolag och 97 MB är ~19M/dygn, ungefär 850 fullscans av
       bolagstabellen per dag. Indexen finns
