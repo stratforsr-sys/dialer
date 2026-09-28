@@ -13,6 +13,101 @@ Nyast först.
 
 ---
 
+## 2026-09-28 — Turso blockerade alla läsningar; produktionen körs på en reservdatabas
+
+Dialern gav `Application error: a server-side exception` (digest `51591698`) på
+varje inloggad sida. Det var **inte** koden och **inte** en nedstängd databas:
+Tursos lästak på starter-planen slog i taket.
+
+    rows read      535.5M / 500M   107%   <- spärren
+    rows written     2.7M / 10M     27%
+    Overages disabled
+    Quota resets: Thu 01 Oct 2026 02:00 CEST
+
+Med overages avstängt sänker Turso bommen i stället för att fakturera.
+
+### Felbilden ljuger på tre sätt
+
+Skriv- och läskvoten är **skilda**, och bara läsningarna var slut. Därför:
+databasens `/health` svarade 200, senaste deployen stod `● Ready`,
+inloggningssidan gick att nå (den läser ingenting), och de skrivande cronjobben
+rullade vidare i tysthet. Det såg ut som en kodbugg i flera minuter.
+
+Det enda som säger sanningen är `vercel logs <deploy-url> --json`, där
+`@prisma/adapter-libsql` kastar `BLOCKED: Operation was blocked: SQL read
+operations are forbidden` på **varje** träff — och `turso plan show`.
+
+### Datan kom ut genom skrivsatser
+
+Spärren klassar satstyper, inte lästa rader: en `SELECT` avvisas, men `DROP
+TABLE` rapporterade `rows_read: 23` och gick igenom. `turso db export` är
+också blockerad. Vägen ut blev därför
+
+```sql
+CREATE TABLE _d_Lead AS SELECT * FROM "Lead";
+DELETE FROM _d_Lead WHERE rowid IN (select rowid from _d_Lead limit 1500) RETURNING *;
+```
+
+Alla **222 631 rader ur 31 tabeller**, 90 index, `integrity_check ok`.
+Kostade ingenting i skrivkvot (temptabellerna släpptes efter varje tabell).
+
+Två fällor, båda träffade och värda att minnas:
+
+- **`sqld` cachar frågeplanen per SQL-text.** Med samma temptabellnamn för alla
+  tabeller gav `RETURNING *` föregående tabells *kolumnnamn* medan värdena var
+  den nya tabellens — `INSERT INTO "Contact"` bar `passwordHash`. Lagat med
+  unikt temptabellnamn per tabell och positionell INSERT utan kolumnlista.
+- **`sqlite_master` gav tre kolumner**, `sql` på index 2. Fel destrukturering
+  gav en dump utan en enda `CREATE TABLE`, och `sqlite3` rullade tillbaka allt.
+
+### Vart den flyttade, och varför just dit
+
+`turso org create` går inte: *"Organizations are only supported in paid plans"*.
+Kvoterna räknas per organisation, så en ny gratis-org hade varit den snabba
+vägen — den finns inte.
+
+Produktionen kör därför mot **`sqld` 0.24.32 på arbetsmaskinen**, bakom en
+Cloudflare-tunnel, med Ed25519-JWT-auth (401 utan token, verifierat utifrån).
+libSQL-protokollet är identiskt med Tursos, så **ingen kodrad är ändrad** —
+bara `TURSO_DATABASE_URL` och `TURSO_AUTH_TOKEN`. `ANALYZE` går inte över nätet
+(`unsupported statement`); den kördes direkt på filen, 114 rader i
+`sqlite_stat1`.
+
+Verifierat orsakssamband, inte bara frånvaro av fel: ett inloggningsförsök mot
+`/api/auth/callback/credentials` flyttade `cloudflared_tunnel_total_requests`
+från 9 till 10 med 0 fel.
+
+Allt ligger i **`~/dialer-failover/`** med `README.md`, `starta.sh` och
+`status.sh`. Databasen låg först i en sessionsbunden scratchpad-katalog och
+flyttades — produktionens databas ska inte stå i `/tmp`.
+
+### Öppna punkter
+
+- [ ] **1 oktober 02:00: byt INTE bara tillbaka miljövariablerna.** Turso står
+      stilla sedan 28 september; varje samtal, disposition, återkomst och affär
+      sedan cutover ligger bara i `~/dialer-failover/`. Ett rakt byte tillbaka
+      raderar tre säljdagar. Ordningen står i failover-katalogens `README.md`:
+      dumpa lokalt → läs in i `sales-hub-eu` → **sedan** env tillbaka → jämför
+      radantal innan `sqld` stoppas.
+- [ ] **Kör `ANALYZE` på `sales-hub-eu` när kvoten släpper.** 535,5M lästa
+      rader mot 22 719 bolag och 97 MB är ~19M/dygn, ungefär 850 fullscans av
+      bolagstabellen per dag. Indexen finns
+      (`Lead_retired_nextActionAt_idx`, `Lead_leasedUntil_idx`,
+      `Lead_callbackAt_idx`, `Lead_claimedAt_idx`), så det är planval.
+      Avdubblingen (`eefd3f4`) skrev om hela fördelningen utan ny statistik.
+- [ ] **Mät pollningarnas verkliga radåtgång.** `/api/callbacks` hämtas av två
+      klockor var 60:e sekund per säljare, `/api/presence` var 15:e. Elva konton
+      ger tusentals frågor per dag innan någon rört en knapp. `EXPLAIN QUERY
+      PLAN` går först när läsningarna släppt.
+- [ ] **Reservlösningen är ömtålig.** Macen måste vara på, och
+      `trycloudflare.com`-adressen dör med processen — då pekar Vercel åt ett
+      hål i luften tills `starta.sh` körts. Ingen automatisk backup tas.
+- [ ] **`locations 4 / 3` är också över taket.** `claude-sales-hub` och
+      `salestraining` ligger i ap-northeast-1 och har läst 0 respektive 382
+      rader. De kostar en location var utan att göra något.
+
+---
+
 ## 2026-09-18/21 — Ett bolag låg i fem mappar, och vilan gällde bolaget
 
 Beställt: *"samma kunder dyker upp igen och igen för samma person … när en
