@@ -210,8 +210,13 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
   const sql = `
     UPDATE "Lead"
     SET "leasedById" = ?, "leasedUntil" = ?
-    WHERE "rowid" IN (
-      SELECT l."rowid" FROM "Lead" l
+    -- "id" och inte "rowid". rowid är en SQLite-egenhet som inte finns i
+    -- Postgres, och raden kraschade hela cockpiten med felet
+    -- "column l.rowid does not exist" efter flytten till Neon 2026-09-30.
+    -- Primärnyckeln gör exakt samma sak här: den pekar ut de rader den inre
+    -- frågan valde, och den finns i båda dialekterna.
+    WHERE "id" IN (
+      SELECT l."id" FROM "Lead" l
       ${join}
       WHERE ${conds.join(" AND ")}
       ORDER BY
