@@ -77,8 +77,10 @@ ger 2,6:1 i mörkt läge — det är därför tokenet finns.
 
 ### Stack
 - Next.js 14 App Router + TypeScript + Tailwind CSS
-- Turso (LibSQL/SQLite) — 9 GB free tier
-- Prisma ORM + @prisma/adapter-libsql
+- Neon (PostgreSQL 18, `eu-central-1` Frankfurt) — gratisnivån ger 100
+  CU-timmar/månad, vilket räcker till 400 timmar **bara om** autoskalningens tak
+  står på 0,25 CU
+- Prisma ORM + @prisma/adapter-pg
 - NextAuth.js — CredentialsProvider (email + password, bcrypt)
 - Framer Motion — animations
 - xlsx — läser CSV och Excel vid import
@@ -90,11 +92,24 @@ ger 2,6:1 i mörkt läge — det är därför tokenet finns.
 - Activity log is immutable — never delete Activity rows
 - orgNumber uniqueness: on CSV import, if orgNumber exists → merge/update lead, never duplicate
 
-### Database: Turso
+### Database: Neon (PostgreSQL)
 - **En enda databas — den är också produktionens.** Det finns ingen separat
   dev-databas. Allt du kör mot den syns direkt på https://dialer-five.vercel.app/
 - Prisma-schema i `prisma/schema.prisma`, genererad klient i `src/generated/prisma`
   (gitignorerad, byggs av `postinstall`)
+- **Två URL:er, och de är inte utbytbara.** `DATABASE_URL` går via poolern och
+  är appens väg (`src/lib/db.ts`). `DIRECT_URL` går rakt på computen och är
+  vägen för schemaoperationer och skript — poolern klarar dem inte.
+- Databasen var Turso (libSQL/SQLite) fram till 2026-09-30. Lästaket slog i
+  taket, spärren visade sig vara **org-bred**, och en ny databas i samma org föds
+  blockerad. **Gå inte tillbaka dit.** Migreringen och dess beviskedja ligger i
+  `docs/ARBETSLOGG.md` under 2026-09-30.
+- **Dialektfällan som kostade mest: NULL-sortering.** SQLite lägger NULL först i
+  `ORDER BY … ASC`, Postgres lägger NULL **sist**. Däcket hänger på att
+  `nextActionAt IS NULL` ("aldrig ringt") sorterar överst, och de 12 655 aldrig
+  ringda bolagen hade tyst hamnat efter 8 252 omtagningar. `leaseNextLeads`
+  skriver därför `ASC NULLS FIRST` uttryckligen. Skriv alltid ut NULL-ordningen
+  i en ny `ORDER BY` på en nullbar kolumn.
 
 #### Migrationer — INTE `prisma migrate dev`
 Migrationerna är handskriven SQL, körd av en egen runner. `prisma migrate` används
@@ -110,8 +125,10 @@ produktionsdatabas är fel verktyg.
 Runnern bokför varje fil med checksumma i tabellen `_migrations`. Den vägrar köra
 om en redan applicerad fil, och vägrar köra en fil som ändrats sedan den kördes.
 **Ändra därför aldrig en applicerad migrationsfil — skriv en ny.** Hela filen körs
-med `executeMultiple()`, så SQLite tolkar satsgränserna själv; SQLite rullar inte
-tillbaka DDL, så en fil som fallerar mitt i lämnar databasen halvmigrerad.
+i ett anrop, så `pg` tolkar satsgränserna själv i stället för att någon splittar
+på `;` — och den ligger i en transaktion tillsammans med ledgerraden. Postgres
+rullar tillbaka DDL, så en fil som fallerar mitt i lämnar ingenting efter sig.
+Runnern går mot `DIRECT_URL`.
 
 `prisma/apply-migration.mjs` är den gamla runnern (splittar på `;`, sväljer
 "already exists" tyst). Använd den inte.
@@ -424,8 +441,8 @@ skrivas om från den tidigaste som är kvar — de är ett eko av den öppna rad
 ett `null` där hade lämnat löftet i klockan men bolaget utanför däcket.
 
 **`nextActionAt = NULL` betyder "aldrig ringt", inte "ringbart nu".** De är
-ringbara på samma sätt, men bara den ena sorterar överst: `ORDER BY nextActionAt
-ASC` lägger NULL först i SQLite. Skriv därför aldrig NULL på ett lead som ringts
+ringbara på samma sätt, men bara den ena sorterar överst: `leaseNextLeads`
+sorterar `nextActionAt ASC NULLS FIRST`. Skriv därför aldrig NULL på ett lead som ringts
 — använd `rotationResumeAt` i `scheduler.ts`, som räknar fram tiden ur
 `lastAttemptAt` + vilotiden för `lastResult`. Det var precis det
 `syncLeadFromCallbacks` gjorde fel fram till 2026-08-26: en avbokad återkomst la

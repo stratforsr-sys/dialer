@@ -2,6 +2,7 @@
 
 import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
+import { bind } from "@/lib/sql";
 import { requireAuth } from "@/lib/auth";
 import { requireLeadAccess } from "@/lib/guard";
 import { canAccessList, claimCutoff, isAdminUser } from "@/lib/lists";
@@ -75,8 +76,8 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
   // Villkoren byggs upp som fragment för att slippa binda parametrar som inte
   // är relevanta (listfilter, passfilter, admin-synlighet).
   const conds: string[] = [
-    `l."retired" = 0`,
-    `l."hasActiveDeal" = 0`,
+    `l."retired" = false`,
+    `l."hasActiveDeal" = false`,
     `(l."leasedUntil" IS NULL OR l."leasedUntil" < ?)`,
     `(l."claimedAt" IS NULL OR l."claimedAt" < ? OR l."ownerId" = ?)`,
     `(l."nextActionAt" IS NULL OR l."nextActionAt" <= ?)`,
@@ -226,7 +227,14 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
                  OR c."directPhone" IS NOT NULL OR c."switchboard" IS NOT NULL)
         ) THEN 0 ELSE 1 END,
         ${slotRank}
-        l."nextActionAt" ASC,
+        -- NULLS FIRST är inte dekoration. nextActionAt IS NULL betyder
+        -- "aldrig ringt", och de bolagen ska ligga överst. SQLite sorterade
+        -- NULL först av sig själv, Postgres sorterar NULL SIST vid ASC — vid
+        -- flytten till Neon 2026-09-30 hade de 12 655 aldrig ringda bolagen
+        -- alltså tyst hamnat efter de 8 252 omtagningarna, och säljarna fått
+        -- repriser hela dagen utan att se ett nytt bolag. Skriv aldrig om den
+        -- här raden utan att skriva ut sorteringen av NULL.
+        l."nextActionAt" ASC NULLS FIRST,
         l."attemptCount" ASC,
         l."updatedAt" ASC
       LIMIT ?
@@ -238,7 +246,7 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
   // $queryRawUnsafe — inte $executeRawUnsafe: den senare returnerar antal rader
   // och kastar bort RETURNING.
   const rows = await db.$queryRawUnsafe<{ id: string }[]>(
-    sql,
+    bind(sql),
     user.id,
     leaseIso,
     ...args,
@@ -444,8 +452,8 @@ export async function deckStatus(listId: string | null): Promise<DeckStatus> {
     FROM (
       SELECT
         CASE
-          WHEN l."retired" = 1 THEN 'retired'
-          WHEN l."hasActiveDeal" = 1 THEN 'active_deal'
+          WHEN l."retired" = true THEN 'retired'
+          WHEN l."hasActiveDeal" = true THEN 'active_deal'
           WHEN EXISTS (
             SELECT 1 FROM "DoNotCall" d
             WHERE (d."leadId" = l."id"
@@ -478,7 +486,7 @@ export async function deckStatus(listId: string | null): Promise<DeckStatus> {
   `;
 
   const rows = await db.$queryRawUnsafe<{ reason: string; n: bigint | number; next_at: string | null }[]>(
-    sql,
+    bind(sql),
     nowIso,
     cutoffIso,
     user.id,
@@ -838,11 +846,11 @@ export async function renewLeases(leadIds: string[]) {
   // och det är just skillnaden mellan behållna och förlorade rader vi är ute
   // efter. Samma skäl som i `leaseNextLeads`.
   const rows = await db.$queryRawUnsafe<{ id: string }[]>(
-    `UPDATE "Lead"
+    bind(`UPDATE "Lead"
         SET "leasedUntil" = ?
       WHERE "id" IN (${ids.map(() => "?").join(",")})
         AND "leasedById" = ?
-      RETURNING "id"`,
+      RETURNING "id"`),
     leaseIso,
     ...ids,
     user.id
@@ -970,11 +978,11 @@ export async function leaseSpecificLead(leadId: string) {
   // just läste, så en kollega som hinner emellan vinner i stället för att bli
   // överskriven.
   const taken = await db.$queryRawUnsafe<{ id: string }[]>(
-    `UPDATE "Lead"
+    bind(`UPDATE "Lead"
         SET "leasedById" = ?, "leasedUntil" = ?
       WHERE "id" = ?
         AND ("leasedUntil" IS NULL OR "leasedUntil" < ? OR "leasedById" = ?)
-      RETURNING "id"`,
+      RETURNING "id"`),
     user.id,
     new Date(now.getTime() + cfg.leaseMinutes * 60_000).toISOString(),
     leadId,

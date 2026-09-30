@@ -364,7 +364,7 @@ function terminalReason(
  * det är ett obearbetat lead, inte ett som väntar.
  *
  * Att i stället skriva `null` på ett lead SOM ringts är det som gick fel fram
- * till 2026-08-26: `nextActionAt = NULL` sorterar först i `ORDER BY … ASC`, så
+ * till 2026-08-26: däcket sorterar `nextActionAt` med `ASC NULLS FIRST`, så
  * ett bolag som fick ett nej i morse hamnade allra överst i däcket i samma
  * sekund som någon avbokade dess återkomst — före alla bolag som faktiskt
  * väntat ut sin vila.

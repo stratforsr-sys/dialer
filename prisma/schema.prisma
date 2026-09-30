@@ -4,8 +4,9 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  // Database migrated to support Deal pipeline (Apr 2026)
+  // Uppkopplingen ligger i prisma.config.ts — Prisma 7 tar inte längre emot
+  // `url` i schemafiler.
+  provider = "postgresql"
 }
 
 // ==================== USERS ====================
@@ -376,6 +377,13 @@ model LeadOnList {
   /// kastar `UNIQUE constraint failed`. Det är avsikten — se
   /// `/api/import-stream`, som därför bara länkar in leads den själv skapat.
   @@index([listId, createdByImport])
+  /// Mappvyn hämtar sina bolag med `orderBy: { addedAt: "asc" }`. Utan
+  /// `addedAt` i indexet fick SQLite läsa mappens alla rader och sortera dem i
+  /// en temporär b-tree (`USE TEMP B-TREE FOR ORDER BY`), vilket gjorde ett
+  /// `LIMIT` verkningslöst: 41 441 lästa rader för den största mappen oavsett
+  /// hur få rader som efterfrågades. Migration 032. Mätt 2026-09-28: samma
+  /// fråga med `LIMIT 100` kostar 200 rader med indexet.
+  @@index([listId, addedAt])
 }
 
 /// Ger en användare tillgång till en mapp. Admin behöver ingen rad — ser allt.

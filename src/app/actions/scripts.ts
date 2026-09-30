@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { requireAuth, requireAdmin } from "@/lib/auth";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, unstable_cache } from "next/cache";
 import {
   resolveScript,
   lintVariants,
@@ -830,13 +830,36 @@ export async function previewVariants(
   };
 }
 
-/** Nycklar som finns i databasen — förslag när chefen skriver krav. */
+/**
+ * Nycklar som finns i databasen — förslag när chefen skriver krav.
+ *
+ * Frågan är ett `GROUP BY key` utan filter, och den läser därför varje rad i
+ * `LeadClaim`: 82 847 lästa rader per anrop mätt 2026-09-28. `LeadClaim_key_idx`
+ * finns och används — ett index gör ingen skillnad, för att räkna alla rader
+ * måste alla rader besökas. Kostnaden ligger i hur ofta den ställs: varje
+ * rendering av `/admin/scripts`, och varje `revalidatePath("/admin/scripts")`
+ * i den här filen tvingar fram en ny. Elva anrop på 82 minuter blev 0,9M rader.
+ *
+ * Svaret är en förslagslista till ett formulär. Den behöver inte vara
+ * sekundfärsk — nya nycklar skrivs av berikningen, inte av chefen som skriver.
+ * Fem minuter är därför taket, och `requireAdmin` ligger UTANFÖR cachen:
+ * `unstable_cache` ser varken cookies eller headers, så en behörighetskoll
+ * innanför hade varit cachead tillsammans med svaret.
+ */
 export async function getAvailableClaimKeys() {
   await requireAdmin();
-  const rows = await db.leadClaim.groupBy({
-    by: ["key"],
-    _count: { key: true },
-    orderBy: { _count: { key: "desc" } },
-  });
-  return rows.map((r) => ({ key: r.key, count: r._count.key }));
+  return hamtaClaimNycklar();
 }
+
+const hamtaClaimNycklar = unstable_cache(
+  async () => {
+    const rows = await db.leadClaim.groupBy({
+      by: ["key"],
+      _count: { key: true },
+      orderBy: { _count: { key: "desc" } },
+    });
+    return rows.map((r) => ({ key: r.key, count: r._count.key }));
+  },
+  ["claim-nycklar"],
+  { revalidate: 300 }
+);

@@ -200,9 +200,11 @@ async function requireCallbackAccess(id: string) {
  *
  *   - `nextActionAt IS NULL` passerar däckets tidsvillkor rakt igenom, så
  *     bolaget blir ringbart i samma sekund som återkomsten avbokas.
- *   - `ORDER BY l."nextActionAt" ASC` sorterar NULL **först** i SQLite. Bolaget
- *     hamnade alltså inte bara tillbaka i kön utan allra överst i den, före
- *     varje bolag som faktiskt väntat ut sin vila.
+ *   - `ORDER BY l."nextActionAt" ASC NULLS FIRST` sorterar NULL **först**.
+ *     Bolaget hamnade alltså inte bara tillbaka i kön utan allra överst i den,
+ *     före varje bolag som faktiskt väntat ut sin vila. (SQLite gjorde det av
+ *     sig själv; i Postgres står `NULLS FIRST` uttryckligen i frågan, se
+ *     `leaseNextLeads`.)
  *
  * Ett avbokat löfte betyder att löftet är borta — inte att bolaget aldrig
  * ringts. Vilan det tjänade ihop på sitt senaste samtal gäller fortfarande, och
@@ -442,7 +444,7 @@ export async function cancelCallback(id: string, input: CancelCallbackInput) {
 
       // Saknas konfigurationen går vilan inte att räkna, och då skrivs den
       // inte. `nextActionAt = NULL` betyder "aldrig ringt", inte "vilar" —
-      // och `ORDER BY nextActionAt ASC` sorterar NULL FÖRST i SQLite, så ett
+      // och däcket sorterar NULL FÖRST (`ASC NULLS FIRST`), så ett
       // nej hade landat allra överst i hela golvets däck. Det är exakt felet
       // `syncLeadFromCallbacks` gjorde fram till 2026-08-26. Hellre den gamla,
       // kortare vilan än ett bolag i toppen av kön.

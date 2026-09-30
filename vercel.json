@@ -1,5 +1,5 @@
 {
-  "regions": ["dub1"],
+  "regions": ["fra1"],
   "crons": [
     {
       "path": "/api/cron/enrich?tier=0",

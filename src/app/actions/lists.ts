@@ -1,6 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
+import { bind } from "@/lib/sql";
 import { requireAuth, requireAdmin } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import {
@@ -87,7 +88,12 @@ export async function getLists() {
     include: {
       createdBy: { select: { id: true, name: true } },
       access: { include: { user: { select: { id: true, name: true, email: true } } } },
-      _count: { select: { leads: true } },
+      // `_count: { leads: true }` låg här fram till 2026-09-28. Den kostade en
+      // full gruppering av `LeadOnList` (24 572 lästa rader per anrop) för en
+      // siffra som `stats`-frågan nedan redan sveper fram: summan av `n` per
+      // mapp ÄR antalet bolag i mappen. Kontrollerat mot produktionsdatan
+      // 2026-09-28 — 15 mappar, noll avvikelser, båda summerar till 24 511.
+      // Efter ändringen kostar mappfrågan 16 rader.
     },
   });
 
@@ -116,23 +122,30 @@ export async function getLists() {
       n: number | bigint;
     }[]
   >(
-    `SELECT lol."listId" AS "listId",
+    bind(`SELECT lol."listId" AS "listId",
             CASE WHEN l."lastAttemptAt" IS NOT NULL THEN 1 ELSE 0 END AS "ringd",
             l."lastResult"  AS "lastResult",
             l."lastOutcome" AS "lastOutcome",
-            CASE WHEN l."retired" = 1 OR l."hasActiveDeal" = 1 THEN 1 ELSE 0 END AS "retired",
+            CASE WHEN l."retired" = true OR l."hasActiveDeal" = true THEN 1 ELSE 0 END AS "retired",
             CASE WHEN l."claimedAt" IS NOT NULL AND l."claimedAt" >= ? THEN 1 ELSE 0 END AS "claimed",
             COUNT(*) AS "n"
      FROM "LeadOnList" lol
      JOIN "Lead" l ON l."id" = lol."leadId"
      WHERE lol."listId" IN (${placeholders})
-     GROUP BY lol."listId", "ringd", l."lastResult", l."lastOutcome", "retired", "claimed"`,
+     -- Ordningstal och inte alias. SQLite låter GROUP BY peka på ett
+     -- utdata-alias, men Postgres binder samma namn till INKOLUMNEN först:
+     -- "retired" krockar med l."retired", och då står l."hasActiveDeal" kvar
+     -- ogrupperad och frågan avvisas. Ordningstalen syftar entydigt på
+     -- SELECT-listan och betyder samma sak i båda dialekterna.
+     GROUP BY 1, 2, 3, 4, 5, 6`),
     claimCutoff().toISOString(),
     ...listIds
   );
 
   /** Ihopräknat per mapp. Hinkarna fylls av `utfallAv` — se kommentaren ovan. */
   type Aggregat = {
+    /** Mappens bolag. Summan av gruppernas `n` — se frågan ovan. */
+    total: number;
     called: number;
     retired: number;
     claimed: number;
@@ -143,10 +156,11 @@ export async function getLists() {
   for (const r of stats) {
     let a = byList.get(r.listId);
     if (!a) {
-      a = { called: 0, retired: 0, claimed: 0, utfall: new Map() };
+      a = { total: 0, called: 0, retired: 0, claimed: 0, utfall: new Map() };
       byList.set(r.listId, a);
     }
     const n = Number(r.n);
+    a.total += n;
 
     // `lastAttemptAt` bärs bara som ja/nej hit — `utfallAv` bryr sig om att den
     // FINNS, inte om när. Ett datum i gruppnyckeln hade gett en rad per lead.
@@ -164,7 +178,9 @@ export async function getLists() {
 
   return lists.map((l) => {
     const a = byList.get(l.id);
-    const total = l._count.leads;
+    // En tom mapp får ingen grupp i `stats` alls och har alltså noll bolag —
+    // samma svar som `_count.leads` gav, utan frågan.
+    const total = a?.total ?? 0;
     const calledLeads = a?.called ?? 0;
     return {
       id: l.id,
@@ -210,7 +226,7 @@ export async function getList(listId: string) {
   // Åtkomstkollen bakas in i mappfrågan (en round-trip i stället för två),
   // och leadsen hämtas samtidigt. Saknar användaren åtkomst blir list null
   // och vi kastar leadsen — de har ändå aldrig lämnat servern.
-  const [list, rows, cfg, arvda] = await Promise.all([
+  const [list, rows, cfg, arvda, kontakter] = await Promise.all([
     db.callList.findFirst({
       where: {
         id: listId,
@@ -241,7 +257,14 @@ export async function getList(listId: string) {
           include: {
             owner: { select: { id: true, name: true } },
             contacts: { orderBy: { createdAt: "asc" }, take: 1 },
-            _count: { select: { contacts: true } },
+            // `_count: { contacts: true }` låg här fram till 2026-09-28 och var
+            // mappvyns dyraste rad. Prisma bygger ett `LEFT JOIN (SELECT
+            // "leadId", COUNT(*) FROM "Contact" GROUP BY "leadId")` — en
+            // materialisering av HELA kontakttabellen, 23 260 rader, vid varje
+            // anrop och oberoende av hur många leads mappen har. Mätt mot
+            // produktionsdatan kostade den största mappen 96 938 lästa rader;
+            // utan den 41 441. Antalet hämtas nu av `kontaktantal` nedan,
+            // avgränsat till mappens bolag. Se `docs/ARBETSLOGG.md` 2026-09-28.
             // Spärrlistan. Resten av det `deckState` behöver — retired,
             // hasActiveDeal, attemptCount, callbackAt, nextActionAt,
             // lastOutcome — är skalärer och följer redan med `include`.
@@ -283,16 +306,42 @@ export async function getList(listId: string) {
      * var säljaren SATT, inte var bolaget ligger nu.
      */
     db.$queryRawUnsafe<{ n: number | bigint }[]>(
-      `SELECT COUNT(*) AS "n" FROM "LeadOnList" lol
+      bind(`SELECT COUNT(*) AS "n" FROM "LeadOnList" lol
        WHERE lol."listId" = ?
          AND EXISTS (SELECT 1 FROM "CallAttempt" ca
                      WHERE ca."leadId" = lol."leadId"
-                       AND (ca."listId" IS NULL OR ca."listId" <> lol."listId"))`,
+                       AND (ca."listId" IS NULL OR ca."listId" <> lol."listId"))`),
+      listId
+    ),
+    /**
+     * Antal kontakter per bolag — avgränsat till mappen.
+     *
+     * Ersätter `_count: { contacts: true }` på leadet. Skillnaden är inte
+     * formen utan vad databasen tvingas läsa: Prismas `_count` grupperar hela
+     * `Contact` innan den joinar, medan den här frågan drivs av mappens egna
+     * rader. Mätt 2026-09-28 mot produktionsdatan, största mappen (11 277
+     * bolag): 55 497 lästa rader som `_count`, 17 095 så här.
+     *
+     * `HAVING` tar bort nollorna — de bär ingen information och `?? 0` nedan
+     * ger samma svar. Raden som renderar det här är "+N till" i
+     * `ListDetailView`, som bara bryr sig om fler än en.
+     */
+    db.$queryRawUnsafe<{ leadId: string; n: number | bigint }[]>(
+      bind(`SELECT lol."leadId" AS "leadId", COUNT(c."id") AS "n"
+       FROM "LeadOnList" lol
+       LEFT JOIN "Contact" c ON c."leadId" = lol."leadId"
+       WHERE lol."listId" = ?
+       GROUP BY lol."leadId"
+       HAVING COUNT(c."id") > 0`),
       listId
     ),
   ]);
 
   if (!list) return null;
+
+  // `as const` och inte bara `.map()`: utan tuppeltypen ser TypeScript en
+  // `(string | number)[][]` och `new Map` tar inte emot den.
+  const kontaktantal = new Map(kontakter.map((k) => [k.leadId, Number(k.n)] as const));
 
   // Spärrar som inte hänger på det här leadet.
   //
@@ -334,11 +383,16 @@ export async function getList(listId: string) {
     // En spärr på org-numret syntetiseras in i `dnc` så att `deckState` inte
     // behöver veta att den finns — den ser en spärr, oavsett vilken nyckel
     // den hittades på, precis som däcket gör.
-    leads: rows.map((r) =>
-      !r.lead.dnc && r.lead.orgNumber && blockedOrgNumbers.has(r.lead.orgNumber)
-        ? { ...r.lead, dnc: { expiresAt: null } }
-        : r.lead
-    ),
+    // `_count` sätts tillbaka här i stället för att hämtas av Prisma. Formen
+    // är avsiktligt identisk med den `_count: { contacts: true }` gav —
+    // `ListDetailView` läser `lead._count.contacts` och ska inte behöva veta
+    // att siffran kommer från en annan fråga.
+    leads: rows.map((r) => {
+      const lead = { ...r.lead, _count: { contacts: kontaktantal.get(r.leadId) ?? 0 } };
+      return !lead.dnc && lead.orgNumber && blockedOrgNumbers.has(lead.orgNumber)
+        ? { ...lead, dnc: { expiresAt: null } }
+        : lead;
+    }),
   };
 }
 

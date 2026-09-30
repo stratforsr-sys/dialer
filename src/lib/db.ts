@@ -1,10 +1,12 @@
 import { PrismaClient } from "@/generated/prisma/client";
-import { PrismaLibSql } from "@prisma/adapter-libsql";
+import { PrismaPg } from "@prisma/adapter-pg";
 
+// DATABASE_URL går via Neons pooler. Applikationen öppnar många korta
+// anslutningar per begäran; DIRECT_URL hör hemma i schemaoperationer och
+// engångsskript, inte här.
 function createPrismaClient() {
-  const adapter = new PrismaLibSql({
-    url: process.env.TURSO_DATABASE_URL!,
-    authToken: process.env.TURSO_AUTH_TOKEN,
+  const adapter = new PrismaPg({
+    connectionString: process.env.DATABASE_URL!,
   });
   return new PrismaClient({ adapter });
 }

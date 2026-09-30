@@ -13,6 +13,234 @@ Nyast först.
 
 ---
 
+## 2026-09-30 — Databasen är Neon, och reservlösningen är avstängd
+
+Cutovern är gjord. Produktionen läser ur **Neon (PostgreSQL 18.6,
+`eu-central-1` Frankfurt)**, `sqld` och Cloudflare-tunneln är stoppade, och
+`TURSO_*` är borta ur Vercel. Värdfrågan som stod öppen i förra posten är
+därmed avgjord — **Turso är avskrivet**, lässpärren var org-bred och bevisad
+genom att en knappt läst databas i samma org också var blockerad. GCP-vägen
+behövdes aldrig.
+
+### Tunneln var nere igen, och det avgjorde ordningen
+
+Vid sessionens start 09:11 CEST löste tunneladressen inte i DNS. Processerna
+levde — `sqld` och `cloudflared` båda uppe — precis som vid de tre nedtiderna
+den 29:e. Det var **fjärde** gången en `trycloudflare`-adress återkallades under
+tre dygn.
+
+Den vanliga åtgärden, `bash ~/dialer-failover/starta.sh`, hade varit **fel här
+och gjort skadan större**: den kör `vercel --prod` från `~/dialer`, alltså
+arbetsträdet, och arbetsträdet var vid det laget redan konverterat till
+Postgres medan Vercel-env fortfarande bar `TURSO_*`. Resultatet hade varit en
+produktion som byggde mot Neon-klienten och letade efter en libSQL-URL.
+
+Snabbaste vägen upp var därför att **slutföra cutovern**, inte att laga
+tunneln. Det var också det säkraste: Neon var redan laddad.
+
+### Beviskedjan, i ordning
+
+Ingen av dessa ersätter någon annan, och ingen av dem är `/health`:
+
+1. **Datafilen mot `sqld` via tunneln, tabell för tabell** — 31 tabeller, noll
+   avvikelser. Flyttskriptet läser filen direkt
+   (`~/dialer-failover/sqld-data/dbs/default/data`), inte tunneln, så utan det
+   här provet hade `neon-jamfor.mjs` kunnat bli grön mot en källa som saknade
+   det senaste. Filen och servern var i takt.
+2. **Ingen skrivning sedan flytten.** Senaste hjärtslag 29 sep 15:09 UTC,
+   senaste samtal 14:58, flytten kördes 15:54. Tunneln hade legat nere sedan
+   någon gång under natten, så säljarna hade inte kunnat skriva även om de
+   försökt. Ingen omflytt behövdes.
+3. **`neon-jamfor.mjs`** — 229 781 rader, 31 tabeller, noll avvikelser.
+4. **`neon-varden.mjs`** — booleaner, NULL, apostrofer, radbrytningar och
+   datumens yttervärden. `min(CallAttempt.startedAt)` stämmer på millisekunden.
+5. **Neons egna räknare före och efter ett påtvingat läsanrop** —
+   `pg_stat_database.tup_returned` steg med 49 663 under ett enda anrop mot
+   `/api/auth/callback/credentials`. Samma resonemang som
+   `cloudflared_tunnel_total_requests`, fast på databasen.
+6. **En riktig inloggning.** Ett tillfälligt SELLER-konto lades in i Neon,
+   loggades in över NextAuth med csrf-cookie, gav en session med rollen ur
+   databasen, hämtade `/lists` (40 389 tecken, ingen krasch) — och raderades i
+   samma körning. `/login` svarar 200 utan att läsa någonting; bara en
+   genomförd session bevisar läsvägen.
+
+**Först därefter** stoppades `sqld` och `cloudflared`. Den sista
+SQLite-sanningen ligger som `~/dialer-failover/sista-sqlite-2026-09-30.db`
+(88 MB).
+
+### Migrationsrunnern talar Postgres nu
+
+`prisma/apply-sql.mjs` och `scripts/aterstall-migrationsledger.mjs` var båda
+libSQL-skript mot `TURSO_DATABASE_URL`. Båda går nu mot `DIRECT_URL` — poolern
+duger inte till schemaoperationer — och båda kör i en transaktion.
+
+Det sista är mer än en dialektfråga: **Postgres rullar tillbaka DDL.** Den
+skarpaste kanten på SQLite-versionen var att en fil som fallerade mitt i lämnade
+databasen halvmigrerad, och felutskriften bad läsaren kontrollera tillståndet
+för hand. Nu ligger filen och ledgerraden i samma `BEGIN`/`COMMIT`.
+
+`pg`:s enkla frågeprotokoll tar flera satser i ett anrop och tolkar
+satsgränserna själv, vilket är samma egenskap som motiverade
+`executeMultiple()` — ingen split på `;` som går sönder på semikolon inuti
+stränglitteraler och kommentarer.
+
+**Ledgern är återställd:** 32 filer bokförda till och med `031`, sedan `032`
+körd som vanligt genom runnern. `_migrations` har 33 rader.
+`LeadOnList_listId_addedAt_idx` finns i Neon.
+
+### Övrigt som ändrades
+
+- `src/lib/db.ts` → `PrismaPg` mot `DATABASE_URL` (poolern; `DIRECT_URL` hör
+  hemma i skript och schemaoperationer).
+- `prisma/schema.prisma` och `prisma.config.ts` är Postgres-versionerna.
+  **Sidokopiorna `schema.postgres.prisma` och `prisma.config.postgres.ts` är
+  raderade** — två scheman som ingen håller i takt är en fälla, inte en
+  säkerhet.
+- `vercel.json`: `regions` `dub1` → **`fra1`**. Neon står i Frankfurt, och
+  Dublin→Frankfurt är ~25 ms som annars betalades vid varje anrop.
+- `npx tsc --noEmit` rent, `npm test` 255 prov i 8 filer, alla gröna.
+
+### Öppna punkter
+
+- [ ] **Rotera Neon-lösenordet.** Det klistrades in i en chatt under
+      migreringen.
+- [ ] **Kontrollera att autoskalningens tak står på 0,25 CU.** Gratisnivån ger
+      100 CU-timmar/månad, vilket är 400 timmar vid 0,25 CU men bara 100 vid
+      1 CU. Uppskattat behov är ~208 aktiva timmar/månad — pollningen håller
+      computen vaken hela arbetsdagen. Vid fel tak tar månaden slut i mitten.
+- [ ] **49 663 lästa rader på ett enda inloggningsanrop med fel lösenord.**
+      Mätt i beviskedjan ovan, punkt 5. Uppslaget i `User` är 12 rader; resten
+      är något annat och värt att spåra nu när räkningen kostar CU-timmar i
+      stället för läskvot. Kan vara samtidig trafik under mätningen — mät om
+      på en tyst produktion innan någon drar slutsatser.
+- [ ] **Glesa ut pollningen.** `/api/presence` var 15:e sekund är tätare än
+      gränssnittet kräver, och `/api/callbacks` pollas av två klockor. Det
+      sparar numera CU-timmar, inte läskvot.
+- [ ] **Sidindelning av mappvyn.** Fortfarande öppen, men premissen är ny:
+      den handlar inte längre om Tursos 500M-tak utan om computetid. `032`
+      tog bort sorteringssteget, så samma fråga med `LIMIT 100` kostar 200
+      rader i stället för 41 441. Fällan står kvar — se förra posten.
+- [ ] **Rätta doc-kommentaren i `src/app/api/callbacks/route.ts`.**
+- [ ] **`~/dialer-failover/` kan rensas** när Neon har stått ett par dygn.
+      Behåll `sista-sqlite-2026-09-30.db` längre än resten.
+
+---
+
+## 2026-09-28 (eftermiddag) — orsaken mätt: `_count` läste hela tabeller
+
+Andra passet samma dag. Uppdraget var att få dialern tillbaka från
+reservdatabasen och att köra `ANALYZE` på `sales-hub-eu`, som var den antagna
+orsaken till 535,5M lästa rader. **Båda premisserna föll.**
+
+### Premiss 1: "ingen divergens" gällde inte längre
+
+Förmiddagens mätning (10:11) sa att säljarna aldrig hunnit in och att
+återgången därför var en ren env-återställning. Mätt om 11:22 samma dag:
+
+    max(Activity.timestamp)     2026-09-28T09:21:09Z   (en minut före mätningen)
+    max(CallAttempt.startedAt)  2026-09-28T09:22:23Z
+    samtal sedan cutover        82
+    Lead 22 719 -> 24 511       (1 816 LEAD_IMPORTED)
+
+Edvin, Mick, Vlado och Fredrik arbetade i reservdatabasen medan mätningen
+gjordes, och **en affär vanns** 10:11. En rak env-återställning hade raderat
+en vunnen affär, 82 samtal och en hel import.
+
+**Lärdomen är inte att siffran var fel — den var rätt när den togs.** Den är
+att en överlämning som påstår något om levande data har ett bäst-före-datum på
+minuter, inte timmar. Mät om, varje gång, innan något oåterkalleligt görs.
+
+### Premiss 2: `ANALYZE` var inte orsaken
+
+Reservdatabasen **har** färsk statistik (114 rader i `sqlite_stat1`, körd vid
+cutover) och läste ändå **10,0M rader på 82 minuter** med fyra säljare — stabilt
+~1,2M per tiominutersfönster. `sqld` loggar frågor över en tröskel
+(`libsql_server::stats: high read (N)`), och det är den loggen som gav svaret
+utan att kosta en enda läsning hos Turso.
+
+Orsaken är **Prismas `_count`**. `_count: { select: { contacts: true } }`
+kompileras till
+
+```sql
+LEFT JOIN (SELECT "leadId", COUNT(*) FROM "Contact" WHERE 1=1 GROUP BY "leadId")
+```
+
+— en materialisering av **hela** kontakttabellen, oberoende av `WHERE` och
+`LIMIT` på den yttre frågan. `EXPLAIN QUERY PLAN` säger det rakt ut:
+
+    |--MATERIALIZE a
+    |  `--SCAN Contact USING COVERING INDEX Contact_leadId_idx
+    |--SEARCH l USING INDEX Lead_hasActiveDeal_updatedAt_idx (hasActiveDeal=?)
+
+Index hjälper inte mot det, och statistik hjälper inte mot det. Mätt per anrop
+mot produktionsdatan, via `rows_read` i `sqld`:s eget svar:
+
+| Fråga | Före | Efter | |
+|---|---|---|---|
+| Mappvyn, största mappen (11 277 bolag) | 96 938 | **~28 400** | `_count` bort + index 032 |
+| Mappbrädet (`getLists`) | 24 572 | **16** | `_count` bort |
+| Claim-nycklar (`/admin/scripts`) | 82 847 | **~0** | cachad 5 min |
+| Leadlistan utan `_count` (referensmätning) | 44 516 | **260** | |
+
+Tillsammans ~47 % av den mätta förbrukningen: 7,2M/h → ~3,8M/h.
+
+### Det som faktiskt INTE var dyrt
+
+Överlämningen pekade ut `/api/callbacks` (två klockor per säljare, var 60:e
+sekund) och `/api/presence` (var 15:e) som misstänkta, och routens egen
+doc-kommentar i `src/app/api/callbacks/route.ts` namnger kostnaden. **Båda är
+oskyldiga.** `Callback` och presence förekommer **noll** gånger i loggen över
+dyra frågor, och frågan mäter 100 lästa rader (`mine`) respektive 288 (`floor`)
+— `Callback` har 1 626 rader och ett exakt sammansatt index. Pollning var aldrig
+problemet; rollups vid varje sidrendering var det.
+
+Kommentaren i routen bör rättas — den är nu det enda stället i koden som
+påstår att klockan är dyr.
+
+### `_migrations` följde inte med reservdatabasen
+
+Räddningen ut ur den lässpärrade databasen tog **31 tabeller** — och
+bokföringstabellen `_migrations` var inte en av dem. Reservdatabasen har alltså
+32 tabeller varav `sqlite_stat1`, men ingen ledger.
+
+Följden är begränsad, eftersom `apply-sql.mjs` slår upp **en** fil i taget:
+migration 032 skapar tabellen på nytt och bokförs korrekt. Men historiken över
+vad som körts är borta, och en framtida session som kör om en gammal fil får
+inget skydd — runnern kan bara vägra det den vet om. Ledgern bör byggas om från
+filnamn + checksumma.
+
+### Öppna punkter
+
+- [x] **Värdvalet är öppet, och det blockerar allt.** ~~Macen kan inte husera
+      databasen, och Tursos kvot släpper inte förrän 1 oktober 02:00 CEST.
+      Kvar står två vägar, båda med en kostnad som kräver ett beslut:
+      overages på i Tursos dashboard, eller egen `sqld` på en alltid-på-värd.
+      `clicknt-dialer` finns i GCP men `compute.googleapis.com` är **inte**
+      aktiverat, vilket kräver billing på projektet.~~
+      **Avgjort 2026-09-30: Neon, Frankfurt.** Ingen av de två vägarna togs —
+      se posten 2026-09-30 överst.
+- [ ] **Sidindelning av mappvyn.** ~~Är den enda återstående vägen under Tursos
+      500M/mån.~~ Premissen är utbytt — det handlar om CU-timmar nu, inte
+      läskvot. Efter fixarna ovan är mappvyns golv ~11 300 lästa rader per
+      rendering: `rows_read` räknar besökta rader, inte kolumner, så en smalare
+      projektion hjälper inte — det är fördelningarna över **hela** mappen som
+      kräver alla rader. **Fällan:** filtren bygger på `claimState` och
+      `deckState` i TypeScript, och att filtrera server-sidigt blir en
+      **tredje** implementation av däckets villkor. Se regeln i CLAUDE.md och
+      de 831 bolag som såg ringbara ut när två implementationer gick isär.
+      Vägen utan duplicering: en smal fråga över hela mappen driver
+      fördelningarna och filtren i klienten precis som nu, och bara den
+      synliga skivan hämtas med kontakter, ägare och spärr.
+- [x] **Bygg om `_migrations`.** ~~Filnamn + `sha256(...).slice(0,16)` per fil i
+      `prisma/migrations/`, så runnern igen kan vägra en omkörning.~~
+      **Gjort 2026-09-30** i Neon: 32 filer till och med `031`, sedan `032`
+      genom runnern. 33 rader.
+- [ ] **Rätta doc-kommentaren i `src/app/api/callbacks/route.ts`.** Den påstår
+      att frågan är dyr. Den kostar 100 rader.
+- [ ] **`locations 4 / 3` är fortfarande över taket.** Se punkten nedan.
+
+---
+
 ## 2026-09-28 — Turso blockerade alla läsningar; produktionen körs på en reservdatabas
 
 Dialern gav `Application error: a server-side exception` (digest `51591698`) på
@@ -83,7 +311,13 @@ flyttades — produktionens databas ska inte stå i `/tmp`.
 
 ### Öppna punkter
 
-- [ ] **Reservlösningen ska bort — Macen kan inte husera databasen.** Mätt
+- [x] ~~**Reservlösningen ska bort — Macen kan inte husera databasen.**~~
+      **ÖVERSPELAD samma dag — se eftermiddagspasset ovan.** Divergensen
+      uppstod 11:22 samma förmiddag: 82 samtal, en vunnen affär och 1 816
+      importerade bolag ligger bara i reservdatabasen. Återgången är därför
+      dump + restore, utanför arbetstid — inte env-bytet som står nedan.
+      Punkten står kvar oredigerad för att visa hur snabbt påståendet ruttnade.
+      Mätt
       2026-09-28 10:11 CEST finns **ingen divergens**: `max(Activity.timestamp)`
       och `max(CallAttempt.startedAt)` står båda kvar på fredag 25/9 14:5x, noll
       samtal den 28:e, och exakt **en** Lead-rad ändrad efter cutover (ett
@@ -96,16 +330,22 @@ flyttades — produktionens databas ska inte stå i `/tmp`.
       innan `sqld` stoppas. Valet står mellan att slå på overages (ingen
       planuppgradering, ~7 % överdrag, släpper direkt) och att vänta ut kvoten
       1 oktober 02:00 CEST. Hela överlämningen: `~/dialer-failover/NASTA_SESSION.md`.
-- [ ] **Kör `ANALYZE` på `sales-hub-eu` när kvoten släpper.** 535,5M lästa
+- [x] ~~**Kör `ANALYZE` på `sales-hub-eu` när kvoten släpper.**~~
+      **MOTBEVISAD samma dag — se eftermiddagspasset ovan.** Reservdatabasen
+      har färsk statistik och läste ändå 7,2M rader/timme. Orsaken är Prismas
+      `_count`, som materialiserar hela tabeller oberoende av `WHERE` och
+      `LIMIT`. `ANALYZE` är fortfarande rätt att köra efter en import, men den
+      lagar inte det här. 535,5M lästa
       rader mot 22 719 bolag och 97 MB är ~19M/dygn, ungefär 850 fullscans av
       bolagstabellen per dag. Indexen finns
       (`Lead_retired_nextActionAt_idx`, `Lead_leasedUntil_idx`,
       `Lead_callbackAt_idx`, `Lead_claimedAt_idx`), så det är planval.
       Avdubblingen (`eefd3f4`) skrev om hela fördelningen utan ny statistik.
-- [ ] **Mät pollningarnas verkliga radåtgång.** `/api/callbacks` hämtas av två
-      klockor var 60:e sekund per säljare, `/api/presence` var 15:e. Elva konton
-      ger tusentals frågor per dag innan någon rört en knapp. `EXPLAIN QUERY
-      PLAN` går först när läsningarna släppt.
+- [x] ~~**Mät pollningarnas verkliga radåtgång.**~~ **GJORT, och de var
+      oskyldiga** — se eftermiddagspasset. 100 lästa rader för `mine`, 288 för
+      `floor`; `Callback` och presence förekommer noll gånger i loggen över dyra
+      frågor. Mätningen behövde aldrig vänta på Turso: `sqld` rapporterar
+      `rows_read` per sats i sitt eget svar.
 - [ ] **Reservlösningen är ömtålig.** Macen måste vara på, och
       `trycloudflare.com`-adressen dör med processen — då pekar Vercel åt ett
       hål i luften tills `starta.sh` körts. Ingen automatisk backup tas.
