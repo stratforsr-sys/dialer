@@ -7,7 +7,7 @@ import {
   Phone, Globe, Linkedin, ChevronLeft, ChevronRight, ExternalLink, Mail,
   ArrowLeft, Clock, Building2, Zap, X, AlertTriangle, Copy,
   Check, Loader2, CalendarClock, Calendar, MapPin, Users, Banknote, Undo2,
-  Search, Star, Trophy, Tag,
+  Search, Star, Trophy, Tag, RefreshCw,
 } from "lucide-react";
 import { startSession, endSession } from "@/app/actions/sessions";
 import { leaseNextLeads, releaseLeases, leaseSpecificLead, deckStatus, type OpenWarning, type DeckStatus, type LostLease } from "@/app/actions/dialer";
@@ -1464,6 +1464,19 @@ export function CockpitDb({
           </button>
           {/* Kön är slut, men ett bolag man vet namnet på går fortfarande att
               ringa — annars är enda vägen dit att lämna cockpiten. */}
+          {/* "Slut" är ett ögonblicksbesked, inte ett slutgiltigt. Kollegornas
+              parkerade bolag släpps efter en kvart, och en påfyllning kan ha
+              kommit tom av ett skäl som inte längre gäller — utan knappen
+              var enda vägen till en ny fråga att ladda om sidan. */}
+          {exhausted && !refilling && (
+            <button
+              onClick={() => { setDeck(null); setExhausted(false); }}
+              className="flex items-center gap-1.5 px-4 py-2 text-[13px] rounded-md"
+              style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+            >
+              <RefreshCw size={13} /> Försök igen
+            </button>
+          )}
           <button onClick={() => guardLeave(() => setShowSwitcher(true))} className="flex items-center gap-1.5 px-4 py-2 text-[13px] rounded-md" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
             <Search size={13} /> Sök bolag
           </button>

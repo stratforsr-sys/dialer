@@ -2,7 +2,7 @@
 
 import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
-import { bind } from "@/lib/sql";
+import { bind, arPostgres } from "@/lib/sql";
 import { requireAuth } from "@/lib/auth";
 import { requireLeadAccess } from "@/lib/guard";
 import { canAccessList, claimCutoff, isAdminUser } from "@/lib/lists";
@@ -243,6 +243,20 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
         l."attemptCount" ASC,
         l."updatedAt" ASC
       LIMIT ?
+      -- SKIP LOCKED är vad som gör att fyra säljare kan dela en mapp.
+      --
+      -- Det yttre villkoret nedan räckte i SQLite, där skrivningar köas efter
+      -- varandra och den andra säljarens underfråga ser den förstas lås. I
+      -- Postgres läser båda underfrågorna samma ögonblicksbild, väljer SAMMA
+      -- åtta bolag, och den som kommer sist väntar på radlåsen, prövar om det
+      -- yttre villkoret, ser att vinnaren tagit dem — och får noll rader.
+      -- Underfrågan körs inte om. Säljaren fick "Mappen är slut" med hundratals
+      -- ringbara bolag kvar, och klienten frågade aldrig igen.
+      --
+      -- Provat mot Neon 2026-10-01 på en kopia av satsen: utan låset fick den
+      -- andra av två samtidiga körningar 0 av 300 lediga rader, med låset 8.
+      -- Låsta rader hoppas över och LIMIT fyller på med nästa i ordningen.
+      ${arPostgres ? `FOR UPDATE OF l SKIP LOCKED` : ""}
     )
     AND ("leasedUntil" IS NULL OR "leasedUntil" < ?)
     RETURNING "id"

@@ -13,6 +13,33 @@ Nyast först.
 
 ---
 
+## 2026-10-01 — "Mappen är slut" med hundratals bolag kvar: kapplöpning i Postgres
+
+Rapport från golvet: fyra säljare i samma mapp, ~300 ringbara bolag kvar, och
+en av dem får "Mappen är slut".
+
+**Orsak — kom med flytten till Neon 2026-09-30.** `leaseNextLeads` är en
+`UPDATE … WHERE id IN (SELECT … ORDER BY … LIMIT n) AND <leasedUntil-villkoret>`.
+I SQLite köades skrivningarna, så den andra säljarens underfråga såg den förstas
+lås. I Postgres läser två samtidiga underfrågor samma ögonblicksbild, väljer
+*samma* åtta bolag, och den som kommer sist väntar på radlåsen, prövar om det
+yttre villkoret och får **noll rader** — underfrågan körs inte om. Klienten
+satte då `exhausted = true`, och den flaggan släpptes aldrig: säljaren satt fast
+tills sidan laddades om.
+
+**Bevisat** på en provtabell i Neon (raderad efteråt), samma satsform, två
+samtidiga anslutningar: utan lås fick B 0 av 300 lediga, med
+`FOR UPDATE OF l SKIP LOCKED` fick båda 8. Den riktiga satsen med JOIN och
+`OF l` provkörd mot produktionen i en transaktion som rullades tillbaka.
+
+**Ändrat:**
+- `FOR UPDATE OF l SKIP LOCKED` i underfrågan (bara när `arPostgres`). Låsta
+  rader hoppas över och `LIMIT` fyller på med nästa i ordningen.
+- Knappen **Försök igen** på tomskärmen i cockpiten, så att "slut" inte längre
+  är ett slutgiltigt besked för hela passet.
+
+---
+
 ## 2026-09-30 — Databasen är Neon, och reservlösningen är avstängd
 
 Cutovern är gjord. Produktionen läser ur **Neon (PostgreSQL 18.6,
