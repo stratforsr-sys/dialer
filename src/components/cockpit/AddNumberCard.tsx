@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { PhoneOff, Search, Loader2, Plus } from "lucide-react";
 import { createContact } from "@/app/actions/contacts";
+import { merinfoHref, googleHref } from "@/lib/company-lookup";
 
 export type NewContact = {
   id: string;
@@ -96,10 +97,9 @@ export function AddNumberCard({
 
   const lookups = [
     {
+      // Delas med cockpitens bolagsrubrik — se `lib/company-lookup.ts`.
       label: "Merinfo",
-      href: digits
-        ? `https://www.merinfo.se/search?who=${digits}`
-        : `https://www.merinfo.se/search?who=${nameQuery}`,
+      href: merinfoHref(companyName, orgNumber, city),
     },
     {
       // Org-numret går rakt in på bolagssidan; utan det är /what/ en sökning.
@@ -135,11 +135,9 @@ export function AddNumberCard({
       href: "https://www.brabyggare.se/sok-hantverkare/",
     },
     {
-      // Bara bolagsnamnet, utan ort och utan ordet "telefon". Numret ligger
-      // ofta i Googles egen bolagsruta eller i en katalogträff, och varje
-      // extra ord i frågan är ett ord som kan sålla bort just den träffen.
+      // Bara bolagsnamnet — varför står i `lib/company-lookup.ts`.
       label: "Google",
-      href: `https://www.google.com/search?q=${encodeURIComponent(companyName)}`,
+      href: googleHref(companyName),
     },
   ];
 

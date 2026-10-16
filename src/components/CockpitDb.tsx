@@ -17,6 +17,7 @@ import type { LeadSearchHit } from "@/app/actions/leads";
 import { goOffline } from "@/app/actions/presence";
 import { saveCockpitNote } from "@/app/actions/activities";
 import { sniAside } from "@/lib/sni";
+import { merinfoHref, googleHref } from "@/lib/company-lookup";
 import { RegisterDealModal } from "@/components/deals/RegisterDealModal";
 import { DispositionBar } from "@/components/cockpit/DispositionBar";
 import { GatekeeperPanel, EMPTY_GATEKEEPER, type GatekeeperDraft } from "@/components/cockpit/GatekeeperPanel";
@@ -1712,6 +1713,30 @@ export function CockpitDb({
                         </div>
                       )}
                     </div>
+                  </div>
+                  {/* Merinfo och Google på varje bolag, med eller utan nummer:
+                      ägaren, bolagsrutan och omdömena är värda en titt innan
+                      samtalet, inte bara när numret saknas. Ny flik, aldrig en
+                      navigering — den hade delat ringsessionen i två. */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <a
+                      href={merinfoHref(lead.companyName, lead.orgNumber, lead.city)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-secondary btn-sm"
+                      title={lead.orgNumber ? `Merinfo på org.nr ${lead.orgNumber}` : "Merinfo på bolagsnamn och ort"}
+                    >
+                      <Search size={11} /> Merinfo
+                    </a>
+                    <a
+                      href={googleHref(lead.companyName)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-secondary btn-sm"
+                      title="Googla bolagsnamnet"
+                    >
+                      <Search size={11} /> Google
+                    </a>
                   </div>
                 </div>
 

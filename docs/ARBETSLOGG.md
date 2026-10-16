@@ -13,6 +13,18 @@ Nyast först.
 
 ---
 
+## 2026-10-16 — Merinfo och Google på varje bolag i cockpiten
+
+Önskemål från golvet: knapparna fanns bara i `AddNumberCard`, alltså bara på
+bolag utan nummer. De står nu också till höger i bolagsrubriken på **varje**
+lead, med eller utan nummer — ägaren och bolagsrutan är värda en titt innan
+samtalet. Länkarna byggs på ett ställe, `src/lib/company-lookup.ts`, så att
+båda knapparna ger samma träff. På ett nummerlöst bolag syns de alltså två
+gånger (rubriken + kortet); det är medvetet, knapparna ska sitta på samma plats
+oavsett lead.
+
+---
+
 ## 2026-10-01 — "Mappen är slut" med hundratals bolag kvar: kapplöpning i Postgres
 
 Rapport från golvet: fyra säljare i samma mapp, ~300 ringbara bolag kvar, och
