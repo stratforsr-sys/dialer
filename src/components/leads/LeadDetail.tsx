@@ -5,10 +5,11 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, Globe, Phone, PhoneOutgoing, Mail, Linkedin,
-  Plus, Send, Edit2, Trash2, Building2, Users, Ban,
+  Plus, Send, Edit2, Trash2, Building2, Users, Ban, Lock,
 } from "lucide-react";
 import type { LeadDetail as LeadDetailType } from "@/app/actions/leads";
 import { updateLead, reassignLead, liftDoNotCall } from "@/app/actions/leads";
+import { moveLeadToList } from "@/app/actions/lists";
 import { RETIRED_LABELS } from "@/lib/deck-state";
 import { sniAside } from "@/lib/sni";
 import { createNote } from "@/app/actions/activities";
@@ -42,12 +43,29 @@ function formatDate(d: Date | string) {
 export function LeadDetail({
   lead,
   isAdmin = false,
+  shareTargets = null,
 }: {
   lead: NonNullable<LeadDetailType>;
   /** Styr bara om "Lyft spärren" syns. Behörigheten avgörs i server-åtgärden. */
   isAdmin?: boolean;
+  /** Satt när bolaget ligger i användarens egen mapp: ringlistorna det kan delas till. */
+  shareTargets?: { id: string; name: string }[] | null;
 }) {
   const [isPending, startTransition] = useTransition();
+  const [shareTo, setShareTo] = useState(shareTargets?.[0]?.id ?? "");
+  const [shareError, setShareError] = useState<string | null>(null);
+
+  function share() {
+    if (!shareTo) return;
+    setShareError(null);
+    startTransition(async () => {
+      try {
+        await moveLeadToList(lead.id, shareTo);
+      } catch (err) {
+        setShareError(err instanceof Error ? err.message : "Kunde inte dela bolaget");
+      }
+    });
+  }
 
   // Spärrat på spärrlistan ELLER pensionerat av en av knapparna som spärrar.
   // Båda ska ge samma banderoll: för den som läser sidan är skillnaden mellan
@@ -149,6 +167,43 @@ export function LeadDetail({
             >
               Lyft spärren
             </button>
+          )}
+        </div>
+      )}
+
+      {/* Bolaget ligger i säljarens egen mapp — "Behåll till mig". Raden säger
+          det, och är vägen ut: samma val som "Dela till alla" i formuläret,
+          gjort i efterhand. */}
+      {shareTargets && (
+        <div
+          className="flex items-center gap-3 px-6 py-2.5 border-b shrink-0 flex-wrap"
+          style={{ background: "var(--surface-inset)", borderColor: "var(--border)" }}
+        >
+          <Lock size={13} className="shrink-0" style={{ color: "var(--text-muted)" }} />
+          <p className="text-[13px]" style={{ color: "var(--text-secondary)" }}>
+            Ligger i <strong style={{ color: "var(--text)" }}>Mina leads</strong> — bara du ser bolaget.
+          </p>
+          {shareError && (
+            <span className="text-[12px]" style={{ color: "var(--danger)" }}>{shareError}</span>
+          )}
+          {shareTargets.length > 0 ? (
+            <div className="ml-auto flex items-center gap-2">
+              <select
+                value={shareTo}
+                onChange={(e) => setShareTo(e.target.value)}
+                className="px-2.5 py-[5px] text-[12px] max-w-[220px]"
+                aria-label="Ringlista att dela till"
+              >
+                {shareTargets.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+              <button onClick={share} disabled={isPending || !shareTo} className="btn-secondary btn-sm">
+                <Users size={12} /> Dela till alla
+              </button>
+            </div>
+          ) : (
+            <span className="ml-auto text-[12px]" style={{ color: "var(--text-dim)" }}>
+              Du har ingen ringlista att dela till
+            </span>
           )}
         </div>
       )}
@@ -467,7 +522,8 @@ export function LeadDetail({
                           {a.type === "LEAD_ASSIGNED" && `${meta.from} → ${meta.to}`}
                           {a.type === "CALL" && `Status: ${meta.status}${meta.notes ? ` — ${meta.notes}` : ""}`}
                           {a.type === "CALL_NO_ANSWER" && "Inget svar"}
-                          {a.type === "LEAD_CREATED" && "Lead skapades"}
+                          {a.type === "LEAD_CREATED" &&
+                            (meta.lista ? `Lades till för hand i ${meta.lista}` : "Lead skapades")}
                           {a.type === "LEAD_IMPORTED" && "Importerad via CSV"}
                           {a.type === "CONTACT_ADDED" && `${meta.name}${meta.role ? ` (${meta.role})` : ""} lades till`}
                           {/* Aktören är säljaren som HADE bolaget i kön — raden

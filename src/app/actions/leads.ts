@@ -3,7 +3,9 @@
 import { db } from "@/lib/db";
 import { requireAuth, requireAdmin } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
-import { visibleLeadWhere } from "@/lib/lists";
+import { visibleLeadWhere, canAccessList, ensurePersonalList, PERSONAL_LIST_NAME } from "@/lib/lists";
+import { orgNyckel, namnOrtNyckel } from "@/lib/lead-identitet";
+import { toE164 } from "@/lib/phone";
 import { LEADS_PAGE_SIZE } from "@/lib/constants";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -115,6 +117,9 @@ export async function getLead(id: string) {
       },
       tags: { include: { tag: true } },
       dnc: true,
+      // Mappen bolaget ligger i — en enda sedan 031. Bolagssidan behöver den
+      // för att kunna erbjuda "Dela" när mappen är säljarens egen.
+      lists: { select: { list: { select: { id: true, name: true, personalForId: true } } } },
     },
   });
 
@@ -196,42 +201,210 @@ export async function liftDoNotCall(leadId: string) {
 
 // ── Mutations ──────────────────────────────────────────────────────────────
 
-export async function createLead(data: {
+export type NyttLead = {
   companyName: string;
   orgNumber?: string;
   website?: string;
   address?: string;
-  contacts?: Array<{
-    name: string;
+  city?: string;
+  industry?: string;
+  contact: {
+    name?: string;
     role?: string;
     directPhone?: string;
     switchboard?: string;
     email?: string;
     linkedin?: string;
-  }>;
-}) {
+  };
+  note?: string;
+  /** "Dela till alla" = en ringlista, "Behåll till mig" = säljarens egen mapp. */
+  target: { kind: "list"; listId: string } | { kind: "mine" };
+};
+
+export type NyttLeadSvar =
+  | { ok: true; leadId: string; listId: string; listName: string; personal: boolean }
+  /** Bolaget finns redan. `leadId` bara om användaren får öppna det. */
+  | { ok: false; finns: { leadId: string | null; companyName: string; listName: string | null } }
+  | { ok: false; fel: string };
+
+/**
+ * Ett bolag inlagt för hand — tipset, kunden som ringde in, bolaget säljaren
+ * hittade själv.
+ *
+ * Bolaget hamnar alltid i EN mapp, aldrig mapplöst: cockpiten ringer mappar,
+ * och ett bolag utanför dem serveras aldrig av rotationen. "Behåll till mig"
+ * är därför också en mapp — säljarens egen, se `ensurePersonalList`.
+ *
+ * **Dubbletter skapas inte, och befintliga bolag flyttas inte.** Identiteten är
+ * importens (`orgNyckel`, sedan namn+ort med exakt en träff). Finns bolaget
+ * svarar funktionen med var det ligger i stället för att röra det: ett bolag i
+ * en kollegas ringlista ska inte kunna dras in i någons egen mapp av att hen
+ * skrev in det en gång till.
+ *
+ * Svaret är ett värde, inte ett kast, för att formuläret ska kunna visa *vilket*
+ * bolag det krockade med och länka dit.
+ */
+export async function createLead(data: NyttLead): Promise<NyttLeadSvar> {
   const user = await requireAuth();
 
-  // Dedup: if orgNumber exists → update existing lead
-  if (data.orgNumber) {
-    const existing = await db.lead.findUnique({ where: { orgNumber: data.orgNumber } });
-    if (existing) return updateLead(existing.id, data);
+  const companyName = data.companyName.trim();
+  if (!companyName) return { ok: false, fel: "Bolaget måste ha ett namn" };
+
+  const orgRaw = data.orgNumber?.trim() || null;
+  const orgNumber = orgNyckel(orgRaw);
+  if (orgRaw && !orgNumber) return { ok: false, fel: "Org.nr ska ha tio siffror" };
+
+  const directPhone = data.contact.directPhone?.trim() || null;
+  const switchboard = data.contact.switchboard?.trim() || null;
+  const directPhoneE164 = toE164(directPhone);
+  const switchboardE164 = toE164(switchboard);
+  // Ett nummer som inte går att tolka sparas inte som text heller: kortet hade
+  // visat det, cockpiten hade inte kunnat ringa det — återvändsgränden
+  // `createContact` normaliserar för att undvika.
+  if (directPhone && !directPhoneE164) return { ok: false, fel: `Kan inte läsa numret ${directPhone}` };
+  if (switchboard && !switchboardE164) return { ok: false, fel: `Kan inte läsa numret ${switchboard}` };
+  if (!directPhoneE164 && !switchboardE164) {
+    return { ok: false, fel: "Lägg till minst ett nummer — utan det går bolaget inte att ringa" };
   }
+
+  const city = data.city?.trim() || null;
+
+  // ── Finns bolaget redan? ──
+  let befintligId: string | null = null;
+  if (orgNumber) {
+    const träff = await db.lead.findFirst({
+      // Importen skriver nyckeln (tio siffror). Bindestrecksformen täcker rader
+      // som kom in för hand före normaliseringen.
+      where: { orgNumber: { in: [orgNumber, `${orgNumber.slice(0, 6)}-${orgNumber.slice(6)}`] } },
+      select: { id: true },
+    });
+    befintligId = träff?.id ?? null;
+  } else if (city) {
+    const nyckel = namnOrtNyckel(companyName, city);
+    const kandidater = await db.lead.findMany({
+      where: { city: { equals: city, mode: "insensitive" } },
+      select: { id: true, companyName: true, city: true },
+    });
+    const träffar = kandidater.filter((k) => namnOrtNyckel(k.companyName, k.city) === nyckel);
+    if (träffar.length === 1) befintligId = träffar[0].id;
+  }
+
+  if (befintligId) {
+    const synlig = await db.lead.findFirst({
+      where: { AND: [{ id: befintligId }, visibleLeadWhere(user)] },
+      select: {
+        id: true,
+        companyName: true,
+        lists: { select: { list: { select: { name: true, personalForId: true } } }, take: 1 },
+      },
+    });
+    const lista = synlig?.lists[0]?.list;
+    return {
+      ok: false,
+      finns: {
+        leadId: synlig?.id ?? null,
+        companyName: synlig?.companyName ?? companyName,
+        listName: lista ? (lista.personalForId === user.id ? PERSONAL_LIST_NAME : lista.name) : null,
+      },
+    };
+  }
+
+  // ── Spärrlistan ──
+  // Kundens besked gäller även när bolaget kommer in för hand. Samma två
+  // nycklar som däcket: org-numret och numret.
+  const nummer = [directPhoneE164, switchboardE164].filter((n): n is string => !!n);
+  const spärr = await db.doNotCall.findFirst({
+    where: {
+      AND: [
+        { OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+        {
+          OR: [
+            ...(orgNumber ? [{ orgNumber }] : []),
+            { phoneE164: { in: nummer } },
+          ],
+        },
+      ],
+    },
+    select: { reason: true },
+  });
+  if (spärr) {
+    return { ok: false, fel: `Står på spärrlistan${spärr.reason ? ` — ${spärr.reason}` : ""}. Be en admin om bolaget ska ringas.` };
+  }
+
+  // ── Vart bolaget ska ──
+  let list: { id: string; name: string };
+  if (data.target.kind === "mine") {
+    list = await ensurePersonalList(user.id);
+  } else {
+    const vald = await db.callList.findFirst({
+      where: { id: data.target.listId, archived: false },
+      select: { id: true, name: true, personalForId: true },
+    });
+    // En annan säljares egen mapp går inte att lägga i, inte ens för admin —
+    // det vore att dela ut ett bolag hemligt till någon.
+    if (
+      !vald ||
+      !(await canAccessList(user, vald.id)) ||
+      (vald.personalForId !== null && vald.personalForId !== user.id)
+    ) {
+      return { ok: false, fel: "Du har inte tillgång till den ringlistan" };
+    }
+    list = { id: vald.id, name: vald.name };
+  }
+  const personal = data.target.kind === "mine";
+
+  const contactName = data.contact.name?.trim() || null;
+  const note = data.note?.trim() || null;
+  const industry = data.industry?.trim() || null;
 
   const lead = await db.lead.create({
     data: {
-      companyName: data.companyName,
-      orgNumber: data.orgNumber || null,
-      website: data.website || null,
-      address: data.address || null,
+      companyName,
+      orgNumber,
+      website: data.website?.trim() || null,
+      address: data.address?.trim() || null,
+      city,
+      industry,
+      // En handsatt bransch skrivs aldrig över av klassificeringen.
+      industrySource: industry ? "manual" : null,
       ownerId: user.id,
-      contacts: data.contacts?.length ? { create: data.contacts } : undefined,
-      activities: { create: { type: "LEAD_CREATED", actorId: user.id } },
+      contacts: {
+        create: {
+          // Kontakten bär numren, och `Contact.name` är obligatoriskt. Utan
+          // namn är det växeln man ringer — då heter raden så.
+          name: contactName ?? (directPhoneE164 ? "Kontakt" : "Växel"),
+          role: data.contact.role?.trim() || null,
+          directPhone,
+          switchboard,
+          directPhoneE164,
+          switchboardE164,
+          email: data.contact.email?.trim() || null,
+          linkedin: data.contact.linkedin?.trim() || null,
+        },
+      },
+      // `createdByImport: false` med flit. Raderas mappen — en felimport som
+      // ångras — ska ett handinlagt tips inte följa med; det blir mapplöst men
+      // finns kvar.
+      lists: { create: { listId: list.id, createdByImport: false } },
+      activities: {
+        create: [
+          {
+            type: "LEAD_CREATED",
+            actorId: user.id,
+            metadata: JSON.stringify({ lista: personal ? PERSONAL_LIST_NAME : list.name, personal }),
+          },
+          ...(note
+            ? [{ type: "NOTE" as const, actorId: user.id, metadata: JSON.stringify({ note }) }]
+            : []),
+        ],
+      },
     },
+    select: { id: true },
   });
 
-  revalidatePath("/leads");
-  return lead;
+  revalidatePath("/lists");
+  revalidatePath(`/lists/${list.id}`);
+  return { ok: true, leadId: lead.id, listId: list.id, listName: list.name, personal };
 }
 
 export async function updateLead(

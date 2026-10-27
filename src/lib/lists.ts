@@ -83,3 +83,43 @@ export async function canAccessLead(user: SessionUser, leadId: string): Promise<
   });
   return lead !== null;
 }
+
+// ── Mina leads ─────────────────────────────────────────────────────────────
+
+/** Vad säljarens egen mapp heter för säljaren själv. Admin ser ägarens namn bredvid. */
+export const PERSONAL_LIST_NAME = "Mina leads";
+
+/**
+ * Säljarens egen mapp — skapas första gången den behövs.
+ *
+ * Bor här och inte i en server action: en export ur en `"use server"`-fil blir
+ * en endpoint, och den här tar `userId` som argument. Exporterad därifrån hade
+ * vem som helst kunnat skapa en mapp i någon annans namn.
+ *
+ * `personalForId` är UNIQUE (migration 033). Två samtidiga anrop kan båda
+ * missa i `findUnique`; den som förlorar kapplöpningen får P2002 och läser då
+ * upp vinnarens mapp i stället för att kasta.
+ */
+export async function ensurePersonalList(userId: string): Promise<{ id: string; name: string }> {
+  const select = { id: true, name: true } as const;
+  const found = await db.callList.findUnique({ where: { personalForId: userId }, select });
+  if (found) return found;
+  try {
+    return await db.callList.create({
+      data: {
+        name: PERSONAL_LIST_NAME,
+        description: "Bolag du lagt till själv och valt att behålla",
+        createdById: userId,
+        personalForId: userId,
+        // Ägarens rad är hela sekretessen: utan den ser ingen säljare mappen,
+        // och admin behöver ingen rad.
+        access: { create: { userId } },
+      },
+      select,
+    });
+  } catch (err) {
+    const again = await db.callList.findUnique({ where: { personalForId: userId }, select });
+    if (again) return again;
+    throw err;
+  }
+}

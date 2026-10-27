@@ -13,6 +13,45 @@ Nyast först.
 
 ---
 
+## 2026-10-27 — Lägg till lead för hand: "Dela till alla" eller "Behåll till mig"
+
+Önskemål: en säljare ska kunna lägga in ett bolag med alla kontaktuppgifter
+(tipset, kunden som ringde in) och välja om det delas eller behålls. Frågan var
+*var* ett behållet bolag ska synas.
+
+**Svaret: i en mapp, som allt annat.** Varje säljare får en egen mapp, "Mina
+leads" (`CallList.personalForId`, migration 033), som skapas första gången hen
+behåller ett bolag. Bara ägaren har en `ListAccess`-rad; admin ser den som alla
+mappar, med säljarens namn efter. Därmed gäller allt som redan gäller: cockpiten
+ringer den, regeln "ett bolag i exakt en mapp" (031) håller utan undantag, och
+ingen ny vy behövdes — den ligger först på Ringlistor för sin ägare och sist
+(efter ringlistorna) hos admin. Mapplöst hade varit fel: rotationen serverar
+bara bolag ur mappar.
+
+- **Knappen** "Lägg till lead" på Ringlistor (`AddLeadModal`). Numren tolkas
+  medan man skriver (`toE164` + `formatSwedish` i klienten) — minst ett ringbart
+  nummer krävs. Raden ovanför knappen säger vart bolaget hamnar innan man
+  trycker. Efter sparandet: **Ring nu** (`/cockpit?listId=…&leadId=…`). Valet
+  dela/behåll minns per webbläsare.
+- **`createLead`** var oanvänd och är omskriven. Identiteten är importens
+  (`orgNyckel`, sedan namn+ort med exakt en träff). **Finns bolaget flyttas det
+  inte** — svaret säger var det ligger och länkar dit om användaren får se det.
+  Spärrlistan (org.nr + nummer) stoppar. Länken skrivs `createdByImport: false`,
+  så att ett tips inte raderas med en felimporterad mapp.
+- **Dela i efterhand:** på `/leads/[id]` visas en rad när bolaget ligger i ens
+  egen mapp — välj ringlista, "Dela till alla" → `moveLeadToList`. Säljare får
+  bara flytta ut ur sin egen mapp; admin får flytta fritt; ingen flyttar in i
+  någon annans egen mapp. Loggas som `LEAD_ASSIGNED` med `from`/`to` = mappnamn.
+- **Den egna mappen går inte att döpa om, dela ut eller ta bort**
+  (`vägraEgenMapp` i `actions/lists.ts`). `deleteUser` gör om den till en
+  vanlig mapp, "Mina leads – <namn>", innan kontot försvinner.
+
+Öppet: knappen finns bara på Ringlistor, inte i cockpiten. Mitt i ett samtal
+där kunden tipsar om ett annat bolag vore cockpiten rätt plats — nästa steg om
+det efterfrågas.
+
+---
+
 ## 2026-10-16 — Merinfo och Google på varje bolag i cockpiten
 
 Önskemål från golvet: knapparna fanns bara i `AddNumberCard`, alltså bara på

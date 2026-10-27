@@ -168,6 +168,13 @@ export async function deleteUser(id: string) {
     db.callSession.updateMany({ where: { userId: id }, data: { userId: ghost.id } }),
     db.deal.updateMany({ where: { createdById: id }, data: { createdById: ghost.id } }),
     db.callList.updateMany({ where: { createdById: id }, data: { createdById: ghost.id } }),
+    // Säljarens egen mapp blir en vanlig mapp med namnet kvar. Bolagen i den
+    // är tips någon tog in — de ska gå att dela ut, inte ligga i en mapp som
+    // ingen har tillgång till och ingen kan ändra (`vägraEgenMapp`).
+    db.callList.updateMany({
+      where: { personalForId: id },
+      data: { personalForId: null, name: `Mina leads – ${impact.name}` },
+    }),
     db.scriptTemplate.updateMany({ where: { createdById: id }, data: { createdById: ghost.id } }),
     db.doNotCall.updateMany({ where: { addedById: id }, data: { addedById: ghost.id } }),
     db.telephonyCall.updateMany({ where: { userId: id }, data: { userId: ghost.id } }),

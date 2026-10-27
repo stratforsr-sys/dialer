@@ -25,6 +25,9 @@ model User {
   callSessions CallSession[]
   dealsCreated Deal[]         @relation("DealCreatedBy")
   listsCreated CallList[]     @relation("ListCreatedBy")
+  /// Säljarens egen mapp, "Mina leads". Skapas första gången hen behåller ett
+  /// handinlagt bolag. Se `CallList.personalForId`.
+  personalList CallList?      @relation("PersonalList")
   listAccess   ListAccess[]
 
   callAttempts CallAttempt[]    @relation("CallAttemptSeller")
@@ -333,6 +336,13 @@ model CallList {
 
   createdById String
   createdBy   User   @relation("ListCreatedBy", fields: [createdById], references: [id])
+
+  /// Satt = mappen är säljarens egen ("Mina leads"), dit handinlagda bolag går
+  /// när säljaren väljer "Behåll till mig". Bara ägaren har en `ListAccess`-rad;
+  /// admin ser den som alla mappar. Kan inte döpas om, delas ut eller tas bort —
+  /// vägen ut för ett bolag är att flytta det till en delad mapp. Migration 033.
+  personalForId String? @unique
+  personalFor   User?   @relation("PersonalList", fields: [personalForId], references: [id], onDelete: SetNull)
 
   leads        LeadOnList[]
   access       ListAccess[]

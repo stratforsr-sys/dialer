@@ -208,7 +208,19 @@ export function ListDetailView({
           <div className="min-w-0">
             <h1 className="text-[22px] font-semibold tracking-tight truncate" style={{ color: "var(--text)" }}>
               {list.name}
+              {/* Admin ser alla säljares egna mappar, och de heter likadant. */}
+              {list.personalFor && !list.isMine && (
+                <span className="font-normal" style={{ color: "var(--text-muted)" }}> · {list.personalFor.name}</span>
+              )}
             </h1>
+            {list.personalFor && (
+              <p className="flex items-center gap-1.5 text-[12px] mt-1" style={{ color: "var(--text-muted)" }}>
+                <Lock size={11} />
+                {list.isMine
+                  ? "Bara du ser de här bolagen. Dela ett bolag från bolagssidan när det ska ut i en ringlista."
+                  : `${list.personalFor.name}s egna bolag — syns bara för hen och admin.`}
+              </p>
+            )}
             {/* "Ringbara" först, inte "lediga". Ledig svarar på om någon annan
                 håller bolaget; ringbar svarar på om däcket skulle dela ut det
                 alls — och det är den siffran som säger hur mycket arbete som
@@ -360,7 +372,7 @@ export function ListDetailView({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {isAdmin && (
+            {isAdmin && !list.personalFor && (
               <button
                 onClick={() => setShowShare(true)}
                 className="flex items-center gap-2 px-3.5 py-2 text-[13px] font-medium rounded-md"

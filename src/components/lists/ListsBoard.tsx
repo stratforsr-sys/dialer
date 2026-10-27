@@ -5,12 +5,13 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   Search, Upload, Play, MoreHorizontal, Pencil, Trash2, FolderOpen,
-  X, FileText, Users, Lock, ChevronRight,
+  X, FileText, Users, Lock, ChevronRight, Plus,
 } from "lucide-react";
 import type { ListSummary } from "@/app/actions/lists";
 import { deleteList, renameList } from "@/app/actions/lists";
 import { ShareListModal } from "./ShareListModal";
 import { LeadSearchResults } from "./LeadSearchResults";
+import { AddLeadModal } from "./AddLeadModal";
 
 type UserOption = { id: string; name: string; email: string; role: string };
 
@@ -110,6 +111,12 @@ export function ListsBoard({
     { name: string; deletedLeads: number; keptDuplicates: number; keptInOtherLists: number } | null
   >(null);
   const [shareList, setShareList] = useState<ListSummary | null>(null);
+  const [addLead, setAddLead] = useState(false);
+  // Dit "Dela till alla" kan lägga ett bolag: ringlistorna, aldrig en egen mapp.
+  const shareTargets = useMemo(
+    () => lists.filter((l) => !l.personalFor).map((l) => ({ id: l.id, name: l.name })),
+    [lists]
+  );
   const [isPending, startTransition] = useTransition();
 
   const menuRef = useRef<HTMLDivElement>(null);
@@ -198,16 +205,22 @@ export function ListsBoard({
               </span>
             </p>
           </div>
-          {isAdmin && (
-            <button
-              onClick={() => router.push("/import")}
-              className="flex items-center gap-2 px-4 py-2 text-[13px] font-semibold rounded-md"
-              style={{ background: "var(--accent)", color: "var(--on-accent)" }}
-            >
-              <Upload size={14} />
-              Ladda upp lista
+          <div className="flex items-center gap-2">
+            <button onClick={() => setAddLead(true)} className="btn-secondary">
+              <Plus size={14} />
+              Lägg till lead
             </button>
-          )}
+            {isAdmin && (
+              <button
+                onClick={() => router.push("/import")}
+                className="flex items-center gap-2 px-4 py-2 text-[13px] font-semibold rounded-md"
+                style={{ background: "var(--accent)", color: "var(--on-accent)" }}
+              >
+                <Upload size={14} />
+                Ladda upp lista
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
@@ -332,7 +345,7 @@ export function ListsBoard({
                           color: status === "active" ? "var(--accent)" : "var(--text-muted)",
                         }}
                       >
-                        <FileText size={15} />
+                        {list.personalFor ? <Lock size={14} /> : <FileText size={15} />}
                       </div>
 
                       <div className="min-w-0 flex-1">
@@ -360,17 +373,25 @@ export function ListsBoard({
                             style={{ color: "var(--text)" }}
                           >
                             {list.name}
+                            {/* Admin ser allas egna mappar, och alla heter likadant. */}
+                            {list.personalFor && !list.isMine && (
+                              <span className="font-normal" style={{ color: "var(--text-muted)" }}>
+                                {" "}· {list.personalFor.name}
+                              </span>
+                            )}
                           </button>
                         )}
                         <p className="text-[11px] mt-0.5 truncate" style={{ color: "var(--text-dim)" }}>
                           {new Date(list.createdAt).toLocaleDateString("sv-SE", {
                             day: "numeric", month: "short", year: "numeric",
                           })}
-                          {list.sourceFile ? ` · ${list.sourceFile}` : ""}
+                          {list.personalFor
+                            ? list.isMine ? " · bara du ser den" : " · bara säljaren och admin"
+                            : list.sourceFile ? ` · ${list.sourceFile}` : ""}
                         </p>
                       </div>
 
-                      {isAdmin && !list.isSystem && (
+                      {isAdmin && !list.isSystem && !list.personalFor && (
                         <div className="relative">
                           <button
                             onClick={(e) => {
@@ -645,6 +666,8 @@ export function ListsBoard({
           onClose={() => setShareList(null)}
         />
       )}
+
+      {addLead && <AddLeadModal lists={shareTargets} onClose={() => setAddLead(false)} />}
     </div>
   );
 }

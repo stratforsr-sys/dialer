@@ -5,6 +5,7 @@ import { bind } from "@/lib/sql";
 import { requireAuth, requireAdmin } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import {
+  canAccessList,
   claimCutoff,
   claimedByWhere,
   freeLeadWhere,
@@ -87,6 +88,7 @@ export async function getLists() {
     orderBy: { createdAt: "desc" },
     include: {
       createdBy: { select: { id: true, name: true } },
+      personalFor: { select: { id: true, name: true } },
       access: { include: { user: { select: { id: true, name: true, email: true } } } },
       // `_count: { leads: true }` låg här fram till 2026-09-28. Den kostade en
       // full gruppering av `LeadOnList` (24 572 lästa rader per anrop) för en
@@ -176,6 +178,13 @@ export async function getLists() {
     if (Number(r.claimed) === 1) a.claimed += n;
   }
 
+  // Den egna mappen först för sin ägare, andras egna mappar sist — admin ser
+  // alla säljares, och de ska inte tränga undan ringlistorna. Sorteringen är
+  // stabil, så `createdAt desc` gäller inom varje grupp.
+  const plats = (l: (typeof lists)[number]) =>
+    l.personalForId === user.id ? 0 : l.personalForId ? 2 : 1;
+  lists.sort((x, y) => plats(x) - plats(y));
+
   return lists.map((l) => {
     const a = byList.get(l.id);
     // En tom mapp får ingen grupp i `stats` alls och har alltså noll bolag —
@@ -188,6 +197,10 @@ export async function getLists() {
       description: l.description,
       sourceFile: l.sourceFile,
       isSystem: l.isSystem,
+      /** Säljarens egen mapp ("Mina leads"). Null för alla ringlistor. */
+      personalFor: l.personalFor,
+      /** Användarens EGEN mapp — visas som "Mina leads", överst. */
+      isMine: l.personalForId === user.id,
       createdAt: l.createdAt,
       createdBy: l.createdBy,
       totalLeads: total,
@@ -234,6 +247,7 @@ export async function getList(listId: string) {
       },
       include: {
         createdBy: { select: { id: true, name: true } },
+        personalFor: { select: { id: true, name: true } },
         access: { include: { user: { select: { id: true, name: true, email: true } } } },
         // Mappens egna manus. Bara de aktiva och publicerade räknas — ett
         // utkast syns aldrig för säljaren, och en rad som påstår att mappen
@@ -372,6 +386,8 @@ export async function getList(listId: string) {
     description: list.description,
     sourceFile: list.sourceFile,
     isSystem: list.isSystem,
+    personalFor: list.personalFor,
+    isMine: list.personalForId === user.id,
     createdAt: list.createdAt,
     createdBy: list.createdBy,
     members: list.access.map((a) => a.user),
@@ -436,8 +452,20 @@ export async function createList(input: {
   return list;
 }
 
+/**
+ * En säljares egen mapp döps inte om, delas inte ut och tas inte bort.
+ * Namnet är vad säljaren letar efter, åtkomsten är hela sekretessen, och en
+ * borttagning hade lämnat bolagen mapplösa. Vägen ut för ett bolag är
+ * `moveLeadToList`.
+ */
+async function vägraEgenMapp(listId: string) {
+  const list = await db.callList.findUnique({ where: { id: listId }, select: { personalForId: true } });
+  if (list?.personalForId) throw new Error("En säljares egen mapp går inte att ändra");
+}
+
 export async function renameList(listId: string, name: string) {
   await requireAdmin();
+  await vägraEgenMapp(listId);
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Mappen måste ha ett namn");
   await db.callList.update({ where: { id: listId }, data: { name: trimmed } });
@@ -500,10 +528,11 @@ export async function deleteList(listId: string): Promise<DeleteListResult> {
   await requireAdmin();
   const list = await db.callList.findUnique({
     where: { id: listId },
-    select: { isSystem: true },
+    select: { isSystem: true, personalForId: true },
   });
   if (!list) throw new Error("Mappen finns inte");
   if (list.isSystem) throw new Error("Systemmappar kan inte tas bort");
+  if (list.personalForId) throw new Error("En säljares egen mapp går inte att ta bort");
 
   // Måste läsas FÖRE borttagningen: CallList kaskaderar bort LeadOnList-raderna,
   // och då är kopplingen som säger vad mappen skapade redan borta.
@@ -559,6 +588,7 @@ export async function deleteList(listId: string): Promise<DeleteListResult> {
 /** Sätter exakt vilka användare som har tillgång till mappen. */
 export async function setListAccess(listId: string, userIds: string[]) {
   await requireAdmin();
+  await vägraEgenMapp(listId);
   const unique = Array.from(new Set(userIds));
 
   await db.$transaction([
@@ -578,6 +608,7 @@ export async function setListAccess(listId: string, userIds: string[]) {
 
 export async function grantAccess(listId: string, userId: string) {
   await requireAdmin();
+  await vägraEgenMapp(listId);
   await db.listAccess.upsert({
     where: { listId_userId: { listId, userId } },
     create: { listId, userId },
@@ -588,8 +619,88 @@ export async function grantAccess(listId: string, userId: string) {
 
 export async function revokeAccess(listId: string, userId: string) {
   await requireAdmin();
+  await vägraEgenMapp(listId);
   await db.listAccess.deleteMany({ where: { listId, userId } });
   revalidatePath(`/lists/${listId}`);
+}
+
+// ── Dela ett eget bolag ────────────────────────────────────────────────────
+
+/**
+ * Ringlistorna användaren kan dela ett bolag till: de hen har tillgång till,
+ * utom egna mappar. Samma urval som "Dela till alla" i formuläret.
+ */
+export async function getShareTargets() {
+  const user = await requireAuth();
+  return db.callList.findMany({
+    where: {
+      archived: false,
+      personalForId: null,
+      ...(isAdminUser(user) ? {} : { access: { some: { userId: user.id } } }),
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, name: true },
+  });
+}
+
+/**
+ * Flyttar ett bolag från säljarens egen mapp till en ringlista — "Behåll till
+ * mig" ångrat i efterhand.
+ *
+ * Säljaren får bara flytta ut ur SIN egen mapp; att flytta bolag mellan
+ * ringlistor är admins sak och får admin göra fritt. Ingen får flytta in i en
+ * annans egen mapp. Länken byts i en transaktion: ett bolag ligger i exakt en
+ * mapp (031), så det får aldrig finnas ett ögonblick med två.
+ */
+export async function moveLeadToList(leadId: string, listId: string) {
+  const user = await requireAuth();
+
+  const lead = await db.lead.findFirst({
+    where: { AND: [{ id: leadId }, visibleLeadWhere(user)] },
+    select: {
+      id: true,
+      lists: { select: { list: { select: { id: true, name: true, personalForId: true } } } },
+    },
+  });
+  if (!lead) throw new Error("Bolaget finns inte");
+
+  const från = lead.lists[0]?.list ?? null;
+  if (från?.id === listId) return;
+  if (!isAdminUser(user) && från?.personalForId !== user.id) {
+    throw new Error("Bara bolag i Mina leads går att dela");
+  }
+
+  const till = await db.callList.findFirst({
+    where: { id: listId, archived: false },
+    select: { id: true, name: true, personalForId: true },
+  });
+  if (!till || till.personalForId || !(await canAccessList(user, till.id))) {
+    throw new Error("Du har inte tillgång till den ringlistan");
+  }
+
+  await db.$transaction([
+    db.leadOnList.deleteMany({ where: { leadId } }),
+    db.leadOnList.create({ data: { leadId, listId: till.id, createdByImport: false } }),
+    db.activity.create({
+      data: {
+        type: "LEAD_ASSIGNED",
+        actorId: user.id,
+        leadId,
+        // Samma form som ägarbytet (`from` → `to`), så att historiken läser
+        // raden utan en egen gren.
+        metadata: JSON.stringify({
+          from: från ? (från.personalForId ? "Mina leads" : från.name) : "Ingen mapp",
+          to: till.name,
+          kind: "lista",
+        }),
+      },
+    }),
+  ]);
+
+  revalidatePath("/lists");
+  if (från) revalidatePath(`/lists/${från.id}`);
+  revalidatePath(`/lists/${till.id}`);
+  revalidatePath(`/leads/${leadId}`);
 }
 
 // ── Mutations: claim-lås ───────────────────────────────────────────────────
