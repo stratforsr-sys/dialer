@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { MeetingForm } from "./MeetingForm";
-import { emptyMeetingDraft, validateMeetingDraft, type MeetingDraft } from "@/lib/moten";
+import { emptyMeetingDraft, validateMeetingDraft, SAVE_FAILED, type MeetingDraft } from "@/lib/moten";
 import { toDatetimeLocalValue } from "@/lib/time";
 import { updateMeeting, type MeetingRow } from "@/app/actions/meetings";
 
@@ -49,7 +49,7 @@ export function EditMeetingDialog({
     setError("");
     try {
       const at = new Date(draft.at);
-      await updateMeeting(meeting.id, {
+      const r = await updateMeeting(meeting.id, {
         at: at.toISOString(),
         durationMin: draft.durationMin,
         kind: draft.kind,
@@ -60,9 +60,15 @@ export function EditMeetingDialog({
         contactPhone: draft.contactPhone,
         holderId: draft.holderId,
       });
+      if (!r.ok) {
+        setError(r.error);
+        setSaving(false);
+        return;
+      }
       onSaved(at.getTime() !== meeting.scheduledAt.getTime() ? "Mötet är flyttat" : "Mötet är ändrat");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Kunde inte spara");
+    } catch {
+      // Ett kastat fel bär i produktionen bara Nexts engelska standardtext.
+      setError(SAVE_FAILED);
       setSaving(false);
     }
   }

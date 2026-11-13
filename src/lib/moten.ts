@@ -138,6 +138,10 @@ export function emptyMeetingDraft(init: Partial<MeetingDraft> = {}): MeetingDraf
 export type DraftField = "at" | "durationMin" | "contactName" | "contactEmail" | "holderId";
 
 /** Längsta framförhållning. Längre fram än så är nästan alltid ett skrivfel i året. */
+/** När sparandet kastar. Felets egen text är i produktionen Nexts engelska
+ *  standardtext, så den visas aldrig — beskeden som ska fram returneras. */
+export const SAVE_FAILED = "Kunde inte spara — försök igen";
+
 export const MAX_DAYS_AHEAD = 366;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

@@ -13,6 +13,7 @@ import {
   validateMeetingDraft,
   followUpOwnerId,
   KIND_LABELS,
+  SAVE_FAILED,
   type MeetingDraft,
   type NoReasonLike,
 } from "@/lib/moten";
@@ -105,12 +106,18 @@ export function ResolveMeetingDialog({
       setSaving(true);
       setError("");
       try {
-        await resolveMeeting({ ...input, meetingId: meeting.id, note: note.trim() || null });
-        onResolved(message);
-      } catch (e) {
+        const r = await resolveMeeting({ ...input, meetingId: meeting.id, note: note.trim() || null });
         // Rutan stängs aldrig på ett fel — då är beskedet borta och mötet
         // ser avgjort ut fast det inte är det.
-        setError(e instanceof Error ? e.message : "Kunde inte spara");
+        if (!r.ok) {
+          setError(r.error);
+          setSaving(false);
+          return;
+        }
+        onResolved(message);
+      } catch {
+        // Ett kastat fel bär i produktionen bara Nexts engelska standardtext.
+        setError(SAVE_FAILED);
         setSaving(false);
       }
     },
@@ -190,7 +197,7 @@ export function ResolveMeetingDialog({
         defaultContactPhone={meeting.contactPhone}
         onClose={() => { setStep("outcome"); setChoice(null); }}
         submit={async (d: DealDraftData) => {
-          await resolveMeeting({
+          const r = await resolveMeeting({
             meetingId: meeting.id,
             status: "HELD",
             outcome: "SALD",
@@ -204,6 +211,8 @@ export function ResolveMeetingDialog({
               notes: d.notes || null,
             },
           });
+          // Kastat på klienten behåller felet sin text; affärsrutan visar den.
+          if (!r.ok) throw new Error(r.error);
         }}
         onCreated={() => onResolved("Affären är registrerad och mötet avgjort")}
       />

@@ -834,11 +834,13 @@ export function CockpitDb({
     try {
       const more = await leaseNextLeads(listId);
       if (more.length === 0) {
+        // Förklaringen till tomläget hämtas inte här, utan när tomläget visas
+        // (effekten nedanför). Påfyllningen körs när fem bolag återstår, så
+        // en förklaring härifrån beskrev mappen som den såg ut fem samtal
+        // tidigare. I en liten mapp misslyckas den redan vid första bolaget,
+        // och då stod alla bolag som "redan hämtade" även när ett av dem
+        // just fått ett möte bokat (produktionsprovet 2026-11-13).
         setExhausted(true);
-        // Frågan "varför kom det inget?" ställs bara när svaret behövs. Den
-        // kostar en scan över mappen och skulle vara ren belastning att köra
-        // vid varje påfyllning som ändå lyckas.
-        void deckStatus(listId).then(setDeck).catch(() => setDeck(null));
       } else {
         // Rotationen kan servera ett bolag som redan ligger i kön — ett jag
         // passerat och lämnat tillbaka är ringbart igen och kan komma direkt
@@ -860,6 +862,24 @@ export function CockpitDb({
   useEffect(() => {
     if (remaining <= 5 && !exhausted) void refill();
   }, [remaining, exhausted, refill]);
+
+  // "Varför kom det inget?" frågas först när tomläget faktiskt visas. Frågan
+  // kostar en genomsökning av mappen, så den ska inte köras vid varje
+  // påfyllning som ändå lyckas. När kön tar slut ska den beskriva mappen som
+  // den ser ut då: det sista samtalet är sparat, ett bokat möte är bokat.
+  // `lead` blir null precis när det sista bolaget lämnas, men det sista
+  // trycket ligger då ofta kvar i skrivkön. Därför väntar frågan tills kön är
+  // tömd: annars hade ett möte bokat på sista bolaget räknats som "hämtat".
+  const queueEmpty = lead === null;
+  const queueDrained = queue.pending === 0;
+  useEffect(() => {
+    if (!queueEmpty || !exhausted || !queueDrained) return;
+    let live = true;
+    void deckStatus(listId)
+      .then((d) => { if (live) setDeck(d); })
+      .catch(() => { if (live) setDeck(null); });
+    return () => { live = false; };
+  }, [queueEmpty, exhausted, queueDrained, listId]);
 
   // ── Förnyelse av parkeringen ───────────────────────────────────────────
   //

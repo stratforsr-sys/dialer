@@ -204,6 +204,29 @@ function isNotFound(err: unknown): boolean {
 
 const ALREADY_RESOLVED = "Mötet har redan fått ett utfall — ladda om sidan";
 
+/**
+ * Ett besked till den som sitter vid skärmen ("redan avgjort", "välj en tid").
+ *
+ * Det kastas inne i åtgärden men RETURNERAS vid gränsen. Next byter i
+ * produktionen ut varje fel som kastas ur en server action mot en engelsk
+ * standardtext ("An error occurred in the Server Components render …"), så
+ * ett kastat besked når aldrig fram. Lokalt och i proven syns det, och därför
+ * upptäcktes det först i produktionsprovet 2026-11-13. Andra fel (behörighet,
+ * databasen) kastas som vanligt.
+ */
+class MeetingNotice extends Error {}
+
+type Notice = { ok: false; error: string };
+
+async function asNotice<T>(run: () => Promise<T>): Promise<T | Notice> {
+  try {
+    return await run();
+  } catch (err) {
+    if (err instanceof MeetingNotice) return { ok: false, error: err.message };
+    throw err;
+  }
+}
+
 // ── Ändra ett bokat möte ───────────────────────────────────────────────────
 
 export interface UpdateMeetingInput {
@@ -225,8 +248,12 @@ export interface UpdateMeetingInput {
  * går att se.
  */
 export async function updateMeeting(id: string, patch: UpdateMeetingInput) {
+  return asNotice(() => updateMeetingInner(id, patch));
+}
+
+async function updateMeetingInner(id: string, patch: UpdateMeetingInput) {
   const { user, m } = await requireMeetingAccess(id);
-  if (m.status !== "BOOKED") throw new Error(ALREADY_RESOLVED);
+  if (m.status !== "BOOKED") throw new MeetingNotice(ALREADY_RESOLVED);
 
   // Unchecked-formen med skalärer, med flit: ett nästlat `holder: { connect }`
   // får Prisma att läsa raden FÖRE uppdateringen, och då kastas inget P2025 om
@@ -241,7 +268,7 @@ export async function updateMeeting(id: string, patch: UpdateMeetingInput) {
   if (patch.at !== undefined) {
     const at = new Date(patch.at);
     if (!acceptableMeetingTime(at, now) || at.getTime() <= now.getTime()) {
-      throw new Error("Välj en tid framåt");
+      throw new MeetingNotice("Välj en tid framåt");
     }
     if (at.getTime() !== m.scheduledAt.getTime()) {
       newAt = at;
@@ -268,7 +295,7 @@ export async function updateMeeting(id: string, patch: UpdateMeetingInput) {
   if (patch.contactPhone !== undefined) data.contactPhone = cleanText(patch.contactPhone, 50);
   if (patch.holderId !== undefined && patch.holderId !== m.holderId) {
     const h = await realUserId(patch.holderId);
-    if (!h) throw new Error("Den personen finns inte längre");
+    if (!h) throw new MeetingNotice("Den personen finns inte längre");
     const name = await db.user.findUnique({ where: { id: h }, select: { name: true } });
     data.holderId = h;
     changes.push(`${name?.name ?? "en kollega"} håller mötet`);
@@ -305,7 +332,7 @@ export async function updateMeeting(id: string, patch: UpdateMeetingInput) {
   try {
     await db.$transaction(writes);
   } catch (err) {
-    if (isNotFound(err)) throw new Error(ALREADY_RESOLVED);
+    if (isNotFound(err)) throw new MeetingNotice(ALREADY_RESOLVED);
     throw err;
   }
 
@@ -361,8 +388,12 @@ export interface ResolveMeetingInput {
  * anslutningen öppen över nätet.
  */
 export async function resolveMeeting(input: ResolveMeetingInput) {
+  return asNotice(() => resolveMeetingInner(input));
+}
+
+async function resolveMeetingInner(input: ResolveMeetingInput) {
   const { user, m } = await requireMeetingAccess(input.meetingId);
-  if (m.status !== "BOOKED") throw new Error(ALREADY_RESOLVED);
+  if (m.status !== "BOOKED") throw new MeetingNotice(ALREADY_RESOLVED);
 
   const now = new Date();
   const note = cleanText(input.note, 2000);
@@ -380,7 +411,7 @@ export async function resolveMeeting(input: ResolveMeetingInput) {
           ? { type: "release" as const }
           : (undefined as never);
   if (input.status === "HELD" && input.outcome === "SALD") {
-    if (!input.deal) throw new Error("Affären måste registreras först");
+    if (!input.deal) throw new MeetingNotice("Affären måste registreras först");
     res = { status: "HELD", outcome: "SALD", dealId: dealId! };
   } else if (input.status === "HELD" && input.outcome === "NEJ") {
     res = { status: "HELD", outcome: "NEJ", noReason: input.noReason as NoReasonLike };
@@ -389,15 +420,15 @@ export async function resolveMeeting(input: ResolveMeetingInput) {
   } else if (input.status === "NO_SHOW" || input.status === "CANCELLED") {
     res = { status: input.status, followUp };
   } else {
-    throw new Error("Välj hur mötet gick");
+    throw new MeetingNotice("Välj hur mötet gick");
   }
   const invalid = validateResolution(res, now);
-  if (invalid) throw new Error(invalid);
+  if (invalid) throw new MeetingNotice(invalid);
 
   if (res.status === "HELD" && res.outcome === "SALD") {
     const d = input.deal!;
-    if (!d.contactName?.trim()) throw new Error("Vem sa ja?");
-    if (!Number.isFinite(d.value) || d.value <= 0) throw new Error("Ange ett belopp");
+    if (!d.contactName?.trim()) throw new MeetingNotice("Vem sa ja?");
+    if (!Number.isFinite(d.value) || d.value <= 0) throw new MeetingNotice("Ange ett belopp");
   }
 
   const effect = leadEffect(res, m);
@@ -422,7 +453,7 @@ export async function resolveMeeting(input: ResolveMeetingInput) {
     }),
     db.meeting.count({ where: { leadId: m.leadId, status: "BOOKED", id: { not: m.id } } }),
   ]);
-  if (!lead) throw new Error("Bolaget finns inte längre");
+  if (!lead) throw new MeetingNotice("Bolaget finns inte längre");
 
   const writes: Prisma.PrismaPromise<unknown>[] = [
     db.meeting.update({
@@ -651,7 +682,7 @@ export async function resolveMeeting(input: ResolveMeetingInput) {
   try {
     await db.$transaction(writes);
   } catch (err) {
-    if (isNotFound(err)) throw new Error(ALREADY_RESOLVED);
+    if (isNotFound(err)) throw new MeetingNotice(ALREADY_RESOLVED);
     throw err;
   }
 

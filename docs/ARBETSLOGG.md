@@ -68,6 +68,27 @@ bokning, men show rate ska stå bredvid så att ett uppblåst bokningstal syns.
 i `npm test`); migrationen provkörd mot produktionsdatabasen i en transaktion
 som rullades tillbaka (18 kontroller av CHECK-villkor och FK).
 
+**Produktionsprovet (deploy `c6b29e8` 16:18, mitt i passet med användarens ja).**
+Playwright mot dialer-five.vercel.app med tillfälliga konton, en provmapp och
+märkta provbolag som raderades efteråt, med noll rader kvar. 68 av 71 steg var
+gröna. De tre röda gav två rättelser i en andra commit:
+- **Besked från server actions når inte fram i produktionen.** Next byter ut
+  varje fel som kastas ur en server action mot "An error occurred in the Server
+  Components render …". Den som avgjorde ett möte som redan var avgjort fick
+  därför den engelska texten och inte "Mötet har redan fått ett utfall".
+  `updateMeeting` och `resolveMeeting` RETURNERAR nu `{ ok: false, error }`
+  (`MeetingNotice` + `asNotice`). Lokalt och i proven syns felets text, så det
+  här upptäcks bara i produktionen. Gäller alla nya server actions: ett besked
+  ska returneras, aldrig kastas.
+- **Tomlägets förklaring var gammal.** `deckStatus` kördes när påfyllningen
+  misslyckades, och den körs när fem bolag återstår. I en liten mapp hände det
+  redan vid första bolaget. Förklaringen beskrev då mappen som den såg ut före
+  passet: "4 har du redan hämtat", fast ett av dem just fått ett möte. Nu
+  hämtas den när tomläget visas och skrivkön är tömd. Felet fanns före
+  mötesbygget.
+- Det tredje röda steget var provets eget fel: B öppnade bolaget medan A hade
+  det uppe, och fick rätt besked ("reserverat").
+
 ---
 
 ## 2026-10-27 — Lägg till lead för hand: "Dela till alla" eller "Behåll till mig"
