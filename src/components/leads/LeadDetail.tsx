@@ -11,6 +11,8 @@ import type { LeadDetail as LeadDetailType } from "@/app/actions/leads";
 import { updateLead, reassignLead, liftDoNotCall } from "@/app/actions/leads";
 import { moveLeadToList } from "@/app/actions/lists";
 import { RETIRED_LABELS } from "@/lib/deck-state";
+import { KIND_LABELS, statusLabel } from "@/lib/moten";
+import { formatWhen } from "@/lib/time";
 import { sniAside } from "@/lib/sni";
 import { createNote } from "@/app/actions/activities";
 import { createContact } from "@/app/actions/contacts";
@@ -402,6 +404,48 @@ export function LeadDetail({
               )}
             </div>
           </div>
+
+          {/* Möten. Avgörs på /meetings — här syns bara att de finns och hur
+              det gick, så att den som öppnar bolaget inte ringer in mitt i
+              ett bokat möte. */}
+          {lead.meetings.length > 0 && (
+            <div className="p-5 border-b" style={{ borderColor: "var(--border)" }}>
+              <h3 className="text-[12px] font-semibold uppercase tracking-wide mb-3 flex items-center justify-between" style={{ color: "var(--text-muted)" }}>
+                <span>Möten ({lead.meetings.length})</span>
+                <Link href="/meetings" className="text-[11px] normal-case tracking-normal font-medium" style={{ color: "var(--accent)" }}>
+                  Till Möten
+                </Link>
+              </h3>
+              <div className="flex flex-col gap-2">
+                {lead.meetings.map((m) => {
+                  const label = statusLabel(m);
+                  const open = m.status === "BOOKED";
+                  return (
+                    <div key={m.id} className="p-3 rounded-md flex items-start justify-between gap-3"
+                      style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}>
+                      <div className="min-w-0">
+                        <p className="text-[13px] font-medium mono-nums" style={{ color: "var(--text)" }}>
+                          {formatWhen(m.scheduledAt)} · {m.durationMin} min
+                        </p>
+                        <p className="text-[12px] truncate" style={{ color: "var(--text-muted)" }}>
+                          {KIND_LABELS[m.kind]}
+                          {m.contactName ? ` · ${m.contactName}` : ""}
+                          {` · ${m.holder.name}`}
+                        </p>
+                      </div>
+                      <span className="text-[11px] px-2 py-[3px] rounded-full font-medium shrink-0"
+                        style={{
+                          background: label === "Utfall saknas" ? "var(--danger-bg)" : open ? "#6366F11A" : m.outcome === "SALD" ? "var(--success-bg)" : "var(--surface)",
+                          color: label === "Utfall saknas" ? "var(--danger)" : open ? "#6366F1" : m.outcome === "SALD" ? "var(--success)" : "var(--text-muted)",
+                        }}>
+                        {label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Affärer. Raderna länkar till /deals/[id] — det är där kunden
               bor, och den som klickar vill se avtalet, inte bara att det

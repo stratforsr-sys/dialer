@@ -11,6 +11,20 @@ import {
 import { canAccessList } from "@/lib/lists";
 import { redirect } from "next/navigation";
 import { Lock, ArrowLeft } from "lucide-react";
+import { SYSTEM_USER_EMAIL } from "@/lib/system-user";
+
+/**
+ * Vem som kan hålla ett möte — mötesrutans rullista. Hämtas en gång per pass
+ * här och inte från rutan: en server action från klienten hade ställt sig i
+ * samma kö som cockpitens egna åtgärder.
+ */
+function meetingHolders() {
+  return db.user.findMany({
+    where: { email: { not: SYSTEM_USER_EMAIL } },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+}
 
 export const dynamic = "force-dynamic";
 
@@ -45,13 +59,14 @@ export default async function CockpitPage({
     const wanted = listId && (await canAccessList(user, listId)) ? listId : null;
     const effectiveListId = wanted ?? opened.listId;
 
-    const [list, rest, config, slots] = await Promise.all([
+    const [list, rest, config, slots, holders] = await Promise.all([
       effectiveListId
         ? db.callList.findUnique({ where: { id: effectiveListId }, select: { name: true } })
         : Promise.resolve(null),
       leaseNextLeads(effectiveListId),
       getDialerConfig(),
       getCallSlots(),
+      meetingHolders(),
     ]);
 
     // Bolaget ligger först, resten av däcket efter: samtalet man sökte upp tas
@@ -68,6 +83,7 @@ export default async function CockpitPage({
         slots={slots}
         openedLeadId={opened.lead.id}
         openedWarnings={opened.warnings}
+        holders={holders}
       />
     );
   }
@@ -87,10 +103,11 @@ export default async function CockpitPage({
   // Leasen ersätter den gamla findMany som skickade samma 200 leads i samma
   // ordning till varje säljare. Nu får varje säljare ett eget, reserverat
   // block — två personer kan aldrig få samma bolag.
-  const [leads, config, slots] = await Promise.all([
+  const [leads, config, slots, holders] = await Promise.all([
     leaseNextLeads(listId),
     getDialerConfig(),
     getCallSlots(),
+    meetingHolders(),
   ]);
 
   return (
@@ -101,6 +118,7 @@ export default async function CockpitPage({
       listName={list.name}
       leaseMinutes={config.leaseMinutes}
       slots={slots}
+      holders={holders}
     />
   );
 }

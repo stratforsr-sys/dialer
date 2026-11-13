@@ -107,6 +107,23 @@ export async function getLead(id: string) {
           products: { include: { product: true } },
         },
       },
+      // Bolagets möten — öppna först, sedan de senaste avgjorda. Tio räcker:
+      // ett bolag med fler möten än så är ett bolag man redan vet allt om.
+      meetings: {
+        orderBy: { scheduledAt: "desc" },
+        take: 10,
+        select: {
+          id: true,
+          scheduledAt: true,
+          durationMin: true,
+          kind: true,
+          status: true,
+          outcome: true,
+          contactName: true,
+          holder: { select: { name: true } },
+          bookedBy: { select: { name: true } },
+        },
+      },
       activities: {
         orderBy: { timestamp: "desc" },
         take: 50,

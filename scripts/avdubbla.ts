@@ -79,6 +79,9 @@ const n = (v: unknown): number => (v === null || v === undefined ? 0 : Number(v)
 const FLYTTAS = [
   "Contact",
   "Callback",
+  // Möten (migration 034). Kaskaden på `Meeting.leadId` hade annars raderat
+  // dubblettens möten i samma sekund som dubbletten togs bort.
+  "Meeting",
   "Deal",
   "Activity",
   "CallAttempt",

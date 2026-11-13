@@ -13,6 +13,8 @@ import { getActiveScripts } from "@/app/actions/scripts";
 import { RESULT_LABELS, OUTCOME_OPTIONS, REASON_OPTIONS, isConnected } from "@/lib/cockpit-flow";
 import { findPendingCall, linkAttemptToCall } from "@/lib/telephony/link";
 import { hourOfDay, weekdayOf, formatTime, formatDate, formatWhen } from "@/lib/time";
+import { acceptableMeetingTime, clampDuration, cleanText, KIND_LABELS, type MeetingKindLike } from "@/lib/moten";
+import { SYSTEM_USER_EMAIL } from "@/lib/system-user";
 import type {
   CallResult,
   ConversationOutcome,
@@ -137,6 +139,14 @@ export async function leaseNextLeads(listId: string | null, limit?: number) {
     // ett bolag släpps av en människa, inte av en klocka.
     `NOT EXISTS (SELECT 1 FROM "Callback" cb WHERE cb."leadId" = l."id"
         AND cb."status" = 'PENDING')`,
+    // Ett bolag med ett öppet möte ligger utanför däcket på samma sätt och av
+    // samma skäl. Kunden har sagt ja till ett möte med en namngiven person;
+    // en kollega som ringer in emellan ser ut som att företaget inte vet vad
+    // det självt bokat. Bolaget kommer tillbaka först när mötet fått ett
+    // utfall (`resolveMeeting`) — ett beslut, aldrig en klocka. Speglas i
+    // `deckStatus` nedan och i `deckState` (lib/deck-state.ts).
+    `NOT EXISTS (SELECT 1 FROM "Meeting" mt WHERE mt."leadId" = l."id"
+        AND mt."status" = 'BOOKED')`,
     // Bearbetat, och fortfarande utan ett nummer att ringa.
     //
     // Villkoret på kontaktrad togs bort 2026-08-25 med rätta: ett bolag utan
@@ -376,6 +386,8 @@ export type DeckBlocker = {
   /** Nyckel för texten i klienten — inte en mening, så språket bor på ett ställe. */
   reason:
     | "dnc"
+    /** Öppet möte — utanför däcket tills mötet fått ett utfall. */
+    | "meeting"
     | "callback"
     | "claimed"
     | "leased_by_other"
@@ -479,6 +491,9 @@ export async function deckStatus(listId: string | null): Promise<DeckStatus> {
                    OR (d."orgNumber" IS NOT NULL AND d."orgNumber" = l."orgNumber"))
               AND (d."expiresAt" IS NULL OR d."expiresAt" > ?)
           ) THEN 'dnc'
+          WHEN EXISTS (
+            SELECT 1 FROM "Meeting" mt WHERE mt."leadId" = l."id" AND mt."status" = 'BOOKED'
+          ) THEN 'meeting'
           WHEN EXISTS (
             SELECT 1 FROM "Callback" cb WHERE cb."leadId" = l."id" AND cb."status" = 'PENDING'
           ) THEN 'callback'
@@ -968,6 +983,18 @@ export async function leaseSpecificLead(leadId: string) {
         take: 1,
         select: { scheduledAt: true, sellerId: true, seller: { select: { name: true } } },
       },
+      meetings: {
+        where: { status: "BOOKED" },
+        orderBy: { scheduledAt: "asc" },
+        take: 1,
+        select: {
+          scheduledAt: true,
+          holderId: true,
+          bookedById: true,
+          holder: { select: { name: true } },
+          bookedBy: { select: { name: true } },
+        },
+      },
       dnc: { select: { expiresAt: true, reason: true } },
       _count: { select: { contacts: true } },
     },
@@ -1061,6 +1088,24 @@ export async function leaseSpecificLead(leadId: string) {
           : `${promise.seller.name} lovade återkomma ${formatWhen(promise.scheduledAt, now)}`,
     });
   }
+  // Ett öppet möte. Vägen hit är oftast att någon söker upp bolaget för att
+  // förbereda mötet — då är det en påminnelse, inte ett fel. Men ringer en
+  // kollega in mellan bokningen och mötet ska hen veta det innan hen slår
+  // numret: kunden har redan sagt ja till något.
+  const openMeeting = info.meetings[0];
+  if (openMeeting) {
+    const mine = openMeeting.holderId === user.id || openMeeting.bookedById === user.id;
+    const passed = openMeeting.scheduledAt <= now;
+    warnings.push({
+      tone: "warn",
+      text: passed
+        ? `Mötet ${formatWhen(openMeeting.scheduledAt, now)} saknar utfall — sätt det under Möten`
+        : mine
+          ? `Du har ett möte med bolaget ${formatWhen(openMeeting.scheduledAt, now)}`
+          : `${openMeeting.bookedBy.name} har bokat ett möte ${formatWhen(openMeeting.scheduledAt, now)}` +
+            (openMeeting.holderId !== openMeeting.bookedById ? ` — ${openMeeting.holder.name} håller det` : ""),
+    });
+  }
   if (info.hasActiveDeal) {
     warnings.push({ tone: "warn", text: "Bolaget är redan kund — det finns en aktiv affär" });
   }
@@ -1130,6 +1175,21 @@ export async function leaseSpecificLead(leadId: string) {
 
 // ── Registrera ett samtal ──────────────────────────────────────────────────
 
+export interface RecordMeetingInput {
+  at: Date;
+  durationMin?: number;
+  kind?: MeetingKindLike;
+  location?: string | null;
+  note?: string | null;
+  contactName?: string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+  /** Den som håller mötet. Säljaren själv om den saknas eller inte finns. */
+  holderId?: string | null;
+}
+
+const MEETING_KINDS = new Set<string>(Object.keys(KIND_LABELS));
+
 export interface RecordAttemptInput {
   leadId: string;
   contactId?: string | null;
@@ -1149,6 +1209,12 @@ export interface RecordAttemptInput {
   callbackNote?: string | null;
   /** Säljarens kryss för mejlpåminnelse. Enda vägen in i morgonmejlet. */
   callbackEmailReminder?: boolean;
+  /**
+   * Mötet som bokades i samtalet. Krävs när `outcome = MEETING_BOOKED` och
+   * ignoreras annars. Skrivs i samma transaktion som samtalet — se
+   * `Meeting` i schema.prisma för varför de aldrig får finnas utan varandra.
+   */
+  meeting?: RecordMeetingInput | null;
   /**
    * Återkomsten samtalet BESVARADE, när dispositionen sker i notisklockan.
    *
@@ -1262,6 +1328,65 @@ export async function recordAttempt(input: RecordAttemptInput) {
     // Trasig JSON → börja om rotationen. Inte värt att fela ett samtal på.
   }
 
+  // ── Mötet ──────────────────────────────────────────────────────────────
+  //
+  // Valideringen är medvetet snäll. Rutan i klienten är sträng (tid i
+  // framtiden, kontakt ifylld) och stoppar skrivfelen medan kunden är kvar i
+  // luren. Här har säljaren redan sett mötet sparas och gått vidare — ett fel
+  // som kastas nu är ett möte som försvinner. Därför avvisas bara det som inte
+  // kan vara ett möte alls (ingen tid, en tid som inte är ett datum), och allt
+  // annat rättas: längden kläms in i databasens villkor, en okänd sort blir
+  // förvalet, en hållare som inte finns blir säljaren själv.
+  //
+  // Felmeddelandet står i `PERMANENTA` i /api/dispositions: en post utan tid
+  // blir inte bättre av att skickas om, och kön ska visa remsan direkt i
+  // stället för att försöka sex gånger.
+  const isMeeting = input.outcome === "MEETING_BOOKED";
+  let meeting: {
+    at: Date;
+    durationMin: number;
+    kind: MeetingKindLike;
+    location: string | null;
+    note: string | null;
+    contactName: string | null;
+    contactEmail: string | null;
+    contactPhone: string | null;
+    holderId: string;
+  } | null = null;
+  if (isMeeting) {
+    // Utfallssteget finns bara under "Nådde beslutsfattaren", så gränssnittet
+    // kan inte skicka något annat. En egen eller trasig klient kan: ett möte
+    // ihop med BORTFALL hade pensionerat och spärrat bolaget och SAMTIDIGT
+    // skapat ett bokat möte med det — avbokningen nedan körs före skapandet.
+    if (input.result !== "CONNECTED_DM") {
+      throw new Error("Ett möte kräver att beslutsfattaren nåddes");
+    }
+    const at = input.meeting?.at instanceof Date ? input.meeting.at : new Date(Number.NaN);
+    if (!input.meeting || !acceptableMeetingTime(at, new Date())) {
+      throw new Error("Mötet saknar en giltig tid");
+    }
+    const m = input.meeting;
+    // Hållaren måste vara ett riktigt konto. Gravstenskontot finns i
+    // användartabellen men är ingen person, och ett möte som "hålls" av det
+    // hade ingen sett.
+    let holderId = user.id;
+    if (m.holderId && m.holderId !== user.id) {
+      const h = await db.user.findUnique({ where: { id: m.holderId }, select: { id: true, email: true } });
+      if (h && h.email !== SYSTEM_USER_EMAIL) holderId = h.id;
+    }
+    meeting = {
+      at,
+      durationMin: clampDuration(m.durationMin),
+      kind: m.kind && MEETING_KINDS.has(m.kind) ? m.kind : "DIGITALT",
+      location: cleanText(m.location),
+      note: cleanText(m.note, 2000),
+      contactName: cleanText(m.contactName, 200),
+      contactEmail: cleanText(m.contactEmail, 200),
+      contactPhone: cleanText(m.contactPhone, 50),
+      holderId,
+    };
+  }
+
   const decision = computeNext({
     lead: {
       attemptCount: lead.attemptCount,
@@ -1272,7 +1397,12 @@ export async function recordAttempt(input: RecordAttemptInput) {
     result: input.result,
     outcome: input.outcome ?? null,
     noReason: input.noReason ?? null,
-    callbackAt: input.callbackAt ?? null,
+    // En återkomst och ett möte i samma disposition går inte att trycka fram i
+    // gränssnittet. Skulle en klient ändå skicka båda vinner mötet: utfallet
+    // är MEETING_BOOKED, och en återkomst bredvid hade lagt bolaget i klockan
+    // som ett löfte ingen gett.
+    callbackAt: isMeeting ? null : input.callbackAt ?? null,
+    meetingAt: meeting?.at ?? null,
     dmAvailableAt: input.gatekeeper?.dmAvailableAt ?? null,
     slots: slots as Slot[],
     config: toSchedulerConfig(cfg),
@@ -1494,9 +1624,12 @@ export async function recordAttempt(input: RecordAttemptInput) {
           ...(answeredId ? [{ id: answeredId }] : []),
           // Mina egna som förfallit. Ringer jag bolaget efter att tiden gått
           // ut är det mitt löfte jag svarar på, även om jag kom in via däcket.
+          // Bokas en ny återkomst — eller ett möte — stängs mina övriga på
+          // bolaget oavsett tid (regel 2). Ett möte ersätter löftet att ringa:
+          // kunden har redan sagt ja till något bättre.
           {
             sellerId: user.id,
-            ...(decision.callbackAt ? {} : { scheduledAt: { lte: now } }),
+            ...(decision.callbackAt || meeting ? {} : { scheduledAt: { lte: now } }),
           },
         ],
       };
@@ -1560,6 +1693,75 @@ export async function recordAttempt(input: RecordAttemptInput) {
           scheduledAt: decision.callbackAt,
           note: input.callbackNote?.trim() || null,
           emailReminder: input.callbackEmailReminder === true,
+        },
+      })
+    );
+  }
+
+  // Ett terminalt besked från bolaget avbokar dess öppna möten — samma regel
+  // som stänger allas återkomster (regel 3 ovan). Bad kunden att slippa bli
+  // kontaktad står mötet annars kvar och skickar någon till ett möte med ett
+  // bolag som sagt nej till all kontakt; köpte kunden i ett samtal före mötet
+  // finns inget kvar att mötas om. Fel nummer avbokar INTE: numret är fel,
+  // mötet kan fortfarande vara rätt (en Teams-länk ringer inget nummer).
+  //
+  // Sålt i ett samtal EFTER att mötets tid börjat är nästan alltid mötet
+  // självt, hållet på telefon och registrerat i cockpiten i stället för på
+  // /meetings. Det mötet blev av och slutade i ett avslut — att kalla det
+  // avbokat hade sänkt show rate för ett möte som faktiskt hölls.
+  if (input.result === "BORTFALL") {
+    writes.push(
+      db.meeting.updateMany({
+        where: { leadId: input.leadId, status: "BOOKED" },
+        data: {
+          status: "CANCELLED",
+          resolvedAt: now,
+          resolvedById: user.id,
+          outcomeNote: "Avbokat — bolaget vill inte bli kontaktat",
+        },
+      })
+    );
+  } else if (input.outcome === "SOLD") {
+    writes.push(
+      db.meeting.updateMany({
+        where: { leadId: input.leadId, status: "BOOKED", scheduledAt: { lte: now } },
+        data: {
+          status: "HELD",
+          outcome: "SALD",
+          resolvedAt: now,
+          resolvedById: user.id,
+          outcomeNote: "Såld — registrerad som samtal i dialern",
+        },
+      }),
+      db.meeting.updateMany({
+        where: { leadId: input.leadId, status: "BOOKED", scheduledAt: { gt: now } },
+        data: {
+          status: "CANCELLED",
+          resolvedAt: now,
+          resolvedById: user.id,
+          outcomeNote: "Avbokat — bolaget blev kund i ett samtal före mötet",
+        },
+      })
+    );
+  }
+
+  if (meeting) {
+    writes.push(
+      db.meeting.create({
+        data: {
+          leadId: input.leadId,
+          contactId: input.contactId ?? null,
+          bookedById: user.id,
+          holderId: meeting.holderId,
+          bookedOnAttemptId: attemptId,
+          scheduledAt: meeting.at,
+          durationMin: meeting.durationMin,
+          kind: meeting.kind,
+          location: meeting.location,
+          note: meeting.note,
+          contactName: meeting.contactName,
+          contactEmail: meeting.contactEmail,
+          contactPhone: meeting.contactPhone,
         },
       })
     );
@@ -1653,7 +1855,17 @@ export async function recordAttempt(input: RecordAttemptInput) {
       orderBy: { scheduledAt: "asc" },
       select: { scheduledAt: true, sellerId: true },
     });
-    if (remaining) {
+    if (remaining && meeting) {
+      // Mötet bokades, och en KOLLEGAS löfte står kvar på bolaget (mina egna
+      // stängdes ovan). Ekot skrivs så att mappvyn och klockan säger sant om
+      // löftet — men ägarskapet och låset stannar hos den som bokade mötet,
+      // och `nextActionAt` står kvar på mötestiden. Bolaget ligger utanför
+      // däcket av båda skälen ändå.
+      await db.lead.update({
+        where: { id: input.leadId },
+        data: { callbackAt: remaining.scheduledAt },
+      });
+    } else if (remaining) {
       await db.lead.update({
         where: { id: input.leadId },
         data: {
@@ -1663,6 +1875,34 @@ export async function recordAttempt(input: RecordAttemptInput) {
           // bolaget via sökningen ska det fortfarande vara löftesgivarens.
           ownerId: remaining.sellerId,
           claimedAt: now,
+        },
+      });
+    }
+  }
+
+  // Ett öppet möte håller bolaget låst till den som bokade det — också när
+  // någon annan ringer in i det (via sökningen, med varningen på skärmen) och
+  // sätter ett utfall som annars släpper låset. Däckets mötesvillkor håller
+  // bolaget utanför rotationen ändå; det här håller ägarskapet och
+  // skyddsnätet i `nextActionAt` sanna, samma regel som `remaining`-blocket
+  // ovan har för återkomster. Står en återkomst kvar har den redan skrivit
+  // ekot och ägaren — då rörs ingenting.
+  if (!meeting && !decision.retired && !decision.callbackAt) {
+    const [openMeeting, openPromise] = await Promise.all([
+      db.meeting.findFirst({
+        where: { leadId: input.leadId, status: "BOOKED" },
+        orderBy: { scheduledAt: "asc" },
+        select: { scheduledAt: true, bookedById: true },
+      }),
+      db.callback.count({ where: { leadId: input.leadId, status: "PENDING" } }),
+    ]);
+    if (openMeeting && openPromise === 0) {
+      await db.lead.update({
+        where: { id: input.leadId },
+        data: {
+          ownerId: openMeeting.bookedById,
+          claimedAt: now,
+          nextActionAt: openMeeting.scheduledAt,
         },
       });
     }

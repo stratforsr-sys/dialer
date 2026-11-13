@@ -24,6 +24,10 @@ import { GatekeeperPanel, EMPTY_GATEKEEPER, type GatekeeperDraft } from "@/compo
 import { FrameworkRail, FrameworkTap } from "@/components/cockpit/FrameworkPanel";
 import { ScriptPanel } from "@/components/cockpit/ScriptPanel";
 import { CallbackForm, EMPTY_CALLBACK, type CallbackDraft } from "@/components/cockpit/CallbackForm";
+import { MeetingForm } from "@/components/meetings/MeetingForm";
+import { MeetingBookedToast } from "@/components/meetings/MeetingBookedToast";
+import { emptyMeetingDraft, validateMeetingDraft, KIND_LABELS, type MeetingDraft, type MeetingKindLike } from "@/lib/moten";
+import type { CalendarMeeting } from "@/lib/kalender";
 import { LeadHistory, type HistoryActivity } from "@/components/cockpit/LeadHistory";
 import { LeadSwitcher } from "@/components/cockpit/LeadSwitcher";
 import { CallbackBell } from "@/components/cockpit/CallbackBell";
@@ -58,6 +62,7 @@ type PendingDelete = { leadId: string; companyName: string; atIndex: number };
  */
 const DECK_REASON_LABELS: Record<DeckStatus["blockers"][number]["reason"], string> = {
   dnc: "står på spärrlistan",
+  meeting: "har ett bokat möte — ligger under Möten tills mötet fått ett utfall",
   callback: "har en öppen återkomst — ligger i klockan, inte i däcket",
   claimed: "är låsta av en kollega",
   leased_by_other: "ringer någon annan just nu",
@@ -544,6 +549,7 @@ export function CockpitDb({
   slots,
   openedLeadId = null,
   openedWarnings = [],
+  holders = [],
 }: {
   initialLeads: LeasedLead[];
   userId: string;
@@ -556,6 +562,8 @@ export function CockpitDb({
   /** Bolaget som slogs upp via sökningen, om vägen in var "Öppna i dialer". */
   openedLeadId?: string | null;
   openedWarnings?: OpenWarning[];
+  /** Vem som kan hålla ett möte. Hämtas av sidan, en gång per pass. */
+  holders?: Array<{ id: string; name: string }>;
 }) {
   const router = useRouter();
   const queue = useDispositionQueue();
@@ -614,6 +622,14 @@ export function CockpitDb({
   const [gk, setGk] = useState<GatekeeperDraft>(EMPTY_GATEKEEPER);
   const [callback, setCallback] = useState<CallbackDraft>(EMPTY_CALLBACK);
   const [askCallback, setAskCallback] = useState(false);
+  // Mötesrutan. Samma mönster som återkomstens: `5 Möte bokat` öppnar rutan
+  // men skriver ingenting — först `Spara mötet` gör det, och samtalet skrivs i
+  // samma transaktion som mötet (`recordAttempt`).
+  const [meeting, setMeeting] = useState<MeetingDraft>(() => emptyMeetingDraft());
+  const [askMeeting, setAskMeeting] = useState(false);
+  /** Kvittot efter en bokning. `key` gör att två bokningar i rad blir två kvitton. */
+  const [bookedMeeting, setBookedMeeting] = useState<(CalendarMeeting & { key: number }) | null>(null);
+  const closeBookedMeeting = useCallback(() => setBookedMeeting(null), []);
 
   // ── Den osparade bokningen ───────────────────────────────────────────────
   //
@@ -629,13 +645,17 @@ export function CockpitDb({
   // den är inte längre tyst.
   const askCallbackRef = useRef(false);
   askCallbackRef.current = askCallback;
+  // Samma vakt för mötesrutan. Ett halvifyllt möte är ett ja från kunden som
+  // ingen skrivit ner — exakt lika tyst att tappa som en återkomst.
+  const askMeetingRef = useRef(false);
+  askMeetingRef.current = askMeeting;
 
   /** Åtgärden som väntar på ett svar om den osparade bokningen. */
   const [leaveGuard, setLeaveGuard] = useState<{ run: () => void } | null>(null);
 
   /** Kör åtgärden — eller frågar först, när en obokad återkomst står öppen. */
   const guardLeave = useCallback((run: () => void) => {
-    if (askCallbackRef.current) {
+    if (askCallbackRef.current || askMeetingRef.current) {
       setLeaveGuard({ run });
       return;
     }
@@ -648,14 +668,14 @@ export function CockpitDb({
   // ligger kvar hela passet gör varje sidbyte till en fråga och lär säljaren
   // att klicka bort den.
   useEffect(() => {
-    if (!askCallback) return;
+    if (!askCallback && !askMeeting) return;
     function onBeforeUnload(e: BeforeUnloadEvent) {
       e.preventDefault();
       e.returnValue = "";
     }
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [askCallback]);
+  }, [askCallback, askMeeting]);
   const [endedAtStep, setEndedAtStep] = useState<FrameworkStep | null>(null);
   const [closeAttempts, setCloseAttempts] = useState(0);
   const [objections, setObjections] = useState<string[]>([]);
@@ -936,6 +956,8 @@ export function CockpitDb({
     setGk(EMPTY_GATEKEEPER);
     setCallback(EMPTY_CALLBACK);
     setAskCallback(false);
+    setMeeting(emptyMeetingDraft());
+    setAskMeeting(false);
     setEndedAtStep(null);
     setCloseAttempts(0);
     setObjections([]);
@@ -1134,6 +1156,9 @@ export function CockpitDb({
       if (askCallbackRef.current) {
         return "Du har en osparad återkomst — spara eller kasta den först.";
       }
+      if (askMeetingRef.current) {
+        return "Du har ett osparat möte — spara eller kasta det först.";
+      }
       return openCallback(leadId, callbackId);
     },
     [openCallback]
@@ -1221,7 +1246,25 @@ export function CockpitDb({
         // datetime-local ger lokal tid utan zon; new Date() tolkar den i
         // webbläsarens zon, vilket är säljarens. Det är rätt tolkning — hen
         // skrev klockslaget hen sa i luren.
-        callbackAt: callback.at ? new Date(callback.at).toISOString() : null,
+        // Ett möte och en återkomst kan inte bokas i samma disposition — men
+        // ett utkast från en återkomst som kastades kan ligga kvar i state
+        // fram till `resetFlow`. Skickas det med ett möte hade servern fått
+        // båda; den väljer mötet, men det ska aldrig behöva väljas.
+        callbackAt: callback.at && opts.outcome !== "MEETING_BOOKED" ? new Date(callback.at).toISOString() : null,
+        meeting:
+          opts.outcome === "MEETING_BOOKED" && meeting.at
+            ? {
+                at: new Date(meeting.at).toISOString(),
+                durationMin: meeting.durationMin,
+                kind: meeting.kind,
+                location: meeting.location.trim() || null,
+                note: meeting.note.trim() || null,
+                contactName: meeting.contactName.trim() || null,
+                contactEmail: meeting.contactEmail.trim() || null,
+                contactPhone: meeting.contactPhone.trim() || null,
+                holderId: meeting.holderId || userId,
+              }
+            : null,
         callbackNote: callback.note.trim() || null,
         callbackEmailReminder: callback.emailReminder,
         // Kom säljaren hit via klockan svarar samtalet på just den raden, även
@@ -1249,10 +1292,42 @@ export function CockpitDb({
       delete answeredCallbackRef.current[target.id];
       setCalledLead({ leadId: target.id, at: Date.now() });
 
+      if (opts.outcome === "MEETING_BOOKED" && meeting.at) {
+        // Kvittot byggs ur utkastet, inte ur ett serversvar: kön skriver i
+        // bakgrunden och säljaren är redan på nästa bolag. Misslyckas
+        // skrivningen visar kön sin egen remsa med bolagets namn.
+        const holderName =
+          meeting.holderId && meeting.holderId !== userId
+            ? holders.find((h) => h.id === meeting.holderId)?.name ?? null
+            : null;
+        setBookedMeeting({
+          key: Date.now(),
+          id: `${target.id}-${new Date(meeting.at).getTime()}`,
+          start: new Date(meeting.at),
+          durationMin: meeting.durationMin,
+          companyName: target.companyName,
+          contactName: meeting.contactName.trim() || null,
+          contactEmail: meeting.contactEmail.trim() || null,
+          contactPhone: meeting.contactPhone.trim() || null,
+          kindLabel: KIND_LABELS[meeting.kind],
+          location: meeting.location.trim() || null,
+          note: meeting.note.trim() || null,
+          holderName,
+        });
+        // Sorten och längden minns per webbläsare: en säljare som bokar
+        // Teams-möten på 30 minuter ska inte välja det varje gång.
+        try {
+          localStorage.setItem("cockpit.meeting.kind", meeting.kind);
+          localStorage.setItem("cockpit.meeting.duration", String(meeting.durationMin));
+        } catch {
+          // Privat läge eller blockerad lagring — förvalet blir standard.
+        }
+      }
+
       // Navigeringen sker synkront — hela poängen med skriv-bakom-kön.
       advance();
     },
-    [advance, callback, closeAttempts, contactIndex, endedAtStep, gk, idleSeconds, listId, notes, objections, queue]
+    [advance, callback, closeAttempts, contactIndex, endedAtStep, gk, holders, idleSeconds, listId, meeting, notes, objections, queue, userId]
   );
 
   // ── Flödessteg ─────────────────────────────────────────────────────────
@@ -1290,6 +1365,40 @@ export function CockpitDb({
       return;
     }
 
+    // Möte: rutan öppnas förifylld med det som redan står på skärmen —
+    // kontakten säljaren ringde, bolagets adress om mötet blir fysiskt, och
+    // säljaren själv som den som håller det. Samtalet skrivs först när mötet
+    // sparas, av samma skäl som en återkomst.
+    if (outcome === "MEETING_BOOKED") {
+      const target = leadsRef.current[indexRef.current];
+      const c = target?.contacts[contactIndex];
+      let kind: MeetingKindLike = "DIGITALT";
+      let durationMin = 30;
+      try {
+        const k = localStorage.getItem("cockpit.meeting.kind");
+        if (k === "DIGITALT" || k === "FYSISKT" || k === "TELEFON") kind = k;
+        const d = Number(localStorage.getItem("cockpit.meeting.duration"));
+        if ([15, 30, 45, 60, 90].includes(d)) durationMin = d;
+      } catch {
+        // Utan lagring gäller standardvalen.
+      }
+      const address = target ? [target.address, target.city].filter(Boolean).join(", ") || null : null;
+      setMeeting(
+        emptyMeetingDraft({
+          kind,
+          durationMin,
+          location: kind === "FYSISKT" && address ? address : "",
+          contactName: c?.name ?? "",
+          contactEmail: c?.email ?? "",
+          contactPhone: c?.directPhoneE164 ?? c?.directPhone ?? c?.switchboardE164 ?? c?.switchboard ?? "",
+          holderId: userId,
+        })
+      );
+      setFlow((f) => ({ ...f, outcome }));
+      setAskMeeting(true);
+      return;
+    }
+
     // Såld: rutan öppnas direkt, och samtalet skrivs FÖRST när affären är
     // registrerad. Att skriva dispositionen här och registrera affären sedan
     // hade gjort "Avbryt" till en tyst datafalsk — ett sålt samtal i
@@ -1306,7 +1415,7 @@ export function CockpitDb({
       return;
     }
     commit({ result, outcome, withGatekeeper: flow.stage === "gatekeeper" });
-  }, [commit, flow.result, flow.stage]);
+  }, [commit, contactIndex, flow.result, flow.stage, userId]);
 
   const pickReason = useCallback((noReason: NoReason) => {
     const { result, outcome } = flow;
@@ -1322,6 +1431,7 @@ export function CockpitDb({
   /** Ett steg tillbaka i trappan. Kastar bokningsrutan om den står öppen. */
   const stepBack = useCallback(() => {
     setAskCallback(false);
+    setAskMeeting(false);
     setFlow((f) => {
       if (f.stage === "reason") return { ...f, stage: "outcome", noReason: null };
       if (f.stage === "outcome" || f.stage === "gatekeeper") return INITIAL_FLOW;
@@ -1361,6 +1471,14 @@ export function CockpitDb({
 
       if (e.key === "Backspace") { e.preventDefault(); h.goBack(); return; }
       if (e.key === "Escape") { setDrawerTab(null); return; }
+
+      // En bokningsruta står öppen. Fokus kan ligga på en knapp i den (ett
+      // snabbval, en dag, en mötessort), och knappar släpps inte av raden
+      // ovanför — en siffra hade då valt ett utfall BAKOM rutan: "3" öppnade
+      // affärsrutan ovanpå en halvbokad återkomst. Rutorna sköter sina egna
+      // tangenter (Enter sparar, Escape backar); backsteg ovan går fortfarande
+      // genom vakten.
+      if (askCallbackRef.current || askMeetingRef.current) return;
 
       if (f.stage === "result") {
         const opt = RESULT_OPTIONS.find((o) => o.key === e.key);
@@ -1490,6 +1608,10 @@ export function CockpitDb({
         {/* Raderade säljaren sitt sista bolag hamnar hen här direkt — och då
             måste ångerknappen finnas i den här vyn också. */}
         <UndoDeleteToast pending={pendingDelete} onUndo={undoDelete} />
+        {/* Samma sak för mötet: bokades det på sista bolaget i kön byter
+            skärmen hit i samma ögonblick, och kalenderlänkarna får inte
+            försvinna med den vy de visades i. */}
+        <MeetingBookedToast meeting={bookedMeeting} onClose={closeBookedMeeting} />
       </div>
     );
   }
@@ -1958,6 +2080,25 @@ export function CockpitDb({
                 />
               )}
 
+              {/* Mötet */}
+              {askMeeting && lead && (
+                <MeetingForm
+                  draft={meeting}
+                  onChange={setMeeting}
+                  onSave={() => {
+                    // Rutan validerar själv innan den anropar — men en
+                    // dubbelkoll här kostar ingenting och hindrar att ett
+                    // halvt möte någonsin når kön.
+                    if (!flow.result || Object.keys(validateMeetingDraft(meeting)).length > 0) return;
+                    commit({ result: flow.result, outcome: "MEETING_BOOKED", withGatekeeper: false });
+                  }}
+                  onCancel={goBack}
+                  holders={holders.length > 0 ? holders : [{ id: userId, name: "Jag" }]}
+                  selfId={userId}
+                  leadAddress={[lead.address, lead.city].filter(Boolean).join(", ") || null}
+                />
+              )}
+
               {/* Ramverksfrågan */}
               {flow.stage === "framework" && (
                 <FrameworkTap
@@ -1975,7 +2116,7 @@ export function CockpitDb({
               )}
 
               {/* Dispositionstrappan */}
-              {!askCallback && flow.stage !== "framework" && (
+              {!askCallback && !askMeeting && flow.stage !== "framework" && (
                 <>
                   {flow.stage === "result" && (
                     <DispositionBar stage="result" options={RESULT_OPTIONS} onPick={pickResult} onBack={goBack} canGoBack={false} />
@@ -2120,13 +2261,17 @@ export function CockpitDb({
 
       <UnsavedCallbackGuard
         pending={leaveGuard !== null}
-        at={callback.at}
+        what={askMeeting ? "meeting" : "callback"}
+        at={askMeeting ? meeting.at : callback.at}
         onStay={() => setLeaveGuard(null)}
         onDiscard={() => {
           const go = leaveGuard?.run;
           setLeaveGuard(null);
           setAskCallback(false);
           setCallback(EMPTY_CALLBACK);
+          setAskMeeting(false);
+          setMeeting(emptyMeetingDraft());
+          askMeetingRef.current = false;
           setFlow(INITIAL_FLOW);
           // Ref:en, inte bara state: React batchar, så `askCallback` är
           // fortfarande sant när åtgärden nedan körs — och en åtgärd som råkar
@@ -2138,6 +2283,7 @@ export function CockpitDb({
       />
 
       <UndoDeleteToast pending={pendingDelete} onUndo={undoDelete} />
+      <MeetingBookedToast meeting={bookedMeeting} onClose={closeBookedMeeting} />
     </div>
   );
 }
@@ -2166,11 +2312,15 @@ export function CockpitDb({
  */
 function UnsavedCallbackGuard({
   pending,
+  what = "callback",
   at,
   onStay,
   onDiscard,
 }: {
   pending: boolean;
+  /** Vilken bokning som står öppen. Mötet sägs med sitt namn — ett "löfte" är
+   *  fel ord för ett ja till ett möte. */
+  what?: "callback" | "meeting";
   /** Råvärdet från `datetime-local`, tomt om säljaren inte hunnit välja. */
   at: string;
   onStay: () => void;
@@ -2211,11 +2361,21 @@ function UnsavedCallbackGuard({
             <div className="flex items-center gap-2 mb-2">
               <AlertTriangle size={14} style={{ color: "var(--danger)" }} />
               <p className="text-[14px] font-semibold" style={{ color: "var(--text)" }}>
-                Återkomsten är inte sparad
+                {what === "meeting" ? "Mötet är inte sparat" : "Återkomsten är inte sparad"}
               </p>
             </div>
             <p className="text-[13px] leading-[1.5]" style={{ color: "var(--text-muted)" }}>
-              {valid && chosen ? (
+              {what === "meeting" ? (
+                valid && chosen ? (
+                  <>
+                    Mötet <span style={{ color: "var(--text)" }}>{formatWhen(chosen)}</span> sparas
+                    inte — inget möte och inget samtal skrivs, och bolaget går tillbaka i kön för
+                    hela golvet.
+                  </>
+                ) : (
+                  <>Ingen tid är vald, så inget möte skrivs — bolaget går tillbaka i kön för hela golvet.</>
+                )
+              ) : valid && chosen ? (
                 <>
                   <span style={{ color: "var(--text)" }}>{formatWhen(chosen)}</span> sparas
                   inte, och bolaget går tillbaka i kön för hela golvet.

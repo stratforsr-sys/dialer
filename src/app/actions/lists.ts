@@ -283,6 +283,16 @@ export async function getList(listId: string) {
             // hasActiveDeal, attemptCount, callbackAt, nextActionAt,
             // lastOutcome — är skalärer och följer redan med `include`.
             dnc: { select: { expiresAt: true } },
+            // Det tidigaste öppna mötet, för `deckState`. Däcket utesluter ett
+            // bolag med ett öppet möte (`leaseNextLeads`), och mappen måste
+            // säga samma sak — annars ser bolaget ringbart ut här och går att
+            // öppna rakt in i dialern medan kunden väntar på sitt möte.
+            meetings: {
+              where: { status: "BOOKED" },
+              orderBy: { scheduledAt: "asc" },
+              take: 1,
+              select: { scheduledAt: true },
+            },
             // Aktivitetsloggen hämtas INTE längre hit.
             //
             // Kolumnen "Senaste samtal" läste fram till 2026-09-15 en `Activity`
@@ -404,7 +414,11 @@ export async function getList(listId: string) {
     // `ListDetailView` läser `lead._count.contacts` och ska inte behöva veta
     // att siffran kommer från en annan fråga.
     leads: rows.map((r) => {
-      const lead = { ...r.lead, _count: { contacts: kontaktantal.get(r.leadId) ?? 0 } };
+      const lead = {
+        ...r.lead,
+        _count: { contacts: kontaktantal.get(r.leadId) ?? 0 },
+        meetingAt: r.lead.meetings[0]?.scheduledAt ?? null,
+      };
       return !lead.dnc && lead.orgNumber && blockedOrgNumbers.has(lead.orgNumber)
         ? { ...lead, dnc: { expiresAt: null } }
         : lead;

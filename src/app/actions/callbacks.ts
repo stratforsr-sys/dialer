@@ -239,6 +239,28 @@ async function syncLeadFromCallbacks(leadId: string) {
     return;
   }
 
+  // Inget löfte kvar — men ett öppet möte. Då är det mötet som håller bolaget:
+  // låst till den som bokade, skyddsnätet på mötestiden. Utan det här hade
+  // en avbokad återkomst släppt låset på ett bolag som har ett möte i
+  // kalendern (däckets mötesvillkor håller det utanför rotationen ändå).
+  const openMeeting = await db.meeting.findFirst({
+    where: { leadId, status: "BOOKED" },
+    orderBy: { scheduledAt: "asc" },
+    select: { scheduledAt: true, bookedById: true },
+  });
+  if (openMeeting) {
+    await db.lead.update({
+      where: { id: leadId },
+      data: {
+        callbackAt: null,
+        nextActionAt: openMeeting.scheduledAt,
+        claimedAt: new Date(),
+        ownerId: openMeeting.bookedById,
+      },
+    });
+    return;
+  }
+
   const [lead, cfg, slots] = await Promise.all([
     db.lead.findUnique({
       where: { id: leadId },
@@ -392,15 +414,35 @@ export async function cancelCallback(id: string, input: CancelCallbackInput) {
   // skickat en kollega till en stängd dörr.
   const terminal = reason === "BORTFALL" || reason === "FEL_NUMMER";
   if (terminal) {
-    await db.callback.updateMany({
-      where: { leadId: cb.leadId, status: "PENDING" },
-      data: {
-        status: "CANCELLED",
-        cancelledAt: now,
-        cancelReason: reason,
-        cancelledById: user.id,
-      },
-    });
+    // Bortfall avbokar också bolagets öppna möten — samma regel som i
+    // `recordAttempt`. Ett möte med någon som bett att slippa bli kontaktad
+    // är inget möte. Fel nummer rör dem inte: mötet kan vara på Teams.
+    // I samma transaktion som löftena: annars kunde mötena stå avbokade
+    // medan löftena låg kvar, om den andra skrivningen föll.
+    await db.$transaction([
+      db.callback.updateMany({
+        where: { leadId: cb.leadId, status: "PENDING" },
+        data: {
+          status: "CANCELLED",
+          cancelledAt: now,
+          cancelReason: reason,
+          cancelledById: user.id,
+        },
+      }),
+      ...(reason === "BORTFALL"
+        ? [
+            db.meeting.updateMany({
+              where: { leadId: cb.leadId, status: "BOOKED" },
+              data: {
+                status: "CANCELLED",
+                resolvedAt: now,
+                resolvedById: user.id,
+                outcomeNote: "Avbokat — bolaget vill inte bli kontaktat",
+              },
+            }),
+          ]
+        : []),
+    ]);
 
     // Spärren FÖRE pensioneringen, samma ordning som "Inget telefonnummer":
     // `blockLead` läser org-numret ur leadet, och den nyckeln är den enda som

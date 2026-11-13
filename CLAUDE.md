@@ -175,6 +175,7 @@ finns en relation att skydda.**
 |--------|--------|--------|
 | `CALLBACK_BOOKED` | **ja** | Löftet är personligt — en kollega som ringer bränner det |
 | `SOLD` | **ja** | Kunden är någons kund |
+| `MEETING_BOOKED` | **ja** | Kunden har sagt ja till ett möte med en namngiven person |
 | `DM_NO` | nej | Ett nej är ingen relation — men bolaget vilar 60 dagar |
 | `WRONG_DM` | nej | Erbjudandet nådde aldrig fram |
 | växelutfallen | nej | Ingen kontakt med beslutsfattaren |
@@ -325,10 +326,64 @@ kolumner hade innehåll i en av dem.
   07:00 vintertid). Cron körs alltid i UTC; tiden är vald så att mejlet aldrig
   landar före klockan sju lokalt.
 
+### Möten (migration 034, 2026-11-13)
+
+Möten togs bort i migration 007 när verksamheten var one call close. I november
+2026 började golvet boka möten igen och skrev dem som fritext i återkomstens
+anteckning ("FYSISKT MÖTE", "TEAMS IMORGON"). Nu är ett möte två saker, som hos
+alla etablerade säljdialers (Close, HubSpot, VanillaSoft, Orum): **utfallet
+`MEETING_BOOKED` på samtalet** (tangent `4` → `5`) och **en `Meeting`-rad med en
+livscykel**. Utfallet är vad samtalsstatistiken räknar; raden är vad som följs upp.
+
+- **Bokningen sker i `recordAttempt`**, i samma transaktion som samtalet —
+  precis som en återkomst. `5 Möte bokat` öppnar `MeetingForm` och skriver
+  ingenting; först `Spara mötet` gör det. Rutan går genom samma `guardLeave` som
+  återkomstrutan (backsteg, Escape, ⌘K, omladdning). Serverns validering är
+  medvetet snäll (`acceptableMeetingTime`): rutan stoppar skrivfelen, servern
+  kastar aldrig ett möte säljaren redan sett sparas.
+- **Ett bolag med ett öppet möte (`status = BOOKED`) ligger UTANFÖR däcket** —
+  `NOT EXISTS … "Meeting"` i `leaseNextLeads`, speglat i `deckStatus` och
+  `deckState` (`meetingAt`, hämtas i `getList`). Samma regel som en öppen
+  återkomst. Ändras villkoret ska alla tre ändras i samma commit.
+- **Ett möte lämnar listan av ett beslut, aldrig av en klocka.** "Utfall saknas"
+  är inget lagrat status — det är `BOOKED` med en sluttid som passerat
+  (`needsOutcome`). Det ligger överst och rött på `/meetings`, och siffran i
+  sidomenyn räknar bara sådana (`/api/meetings/summary`, hållarens).
+- **Avgörandet** (`resolveMeeting`) ger bolaget samma tillstånd som motsvarande
+  utfall i dispositionen — reglerna står i `leadEffect` i `lib/moten.ts`:
+
+  | Hur gick det? | Bolaget |
+  |---|---|
+  | Genomfört — såld | Affären skapas i SAMMA transaktion, krediteras hållaren; pensionerat `sald` |
+  | Genomfört — sa nej (+ anledning) | Vilar `retryDaysNo` från nu, `lastOutcome = DM_NO` |
+  | Genomfört — uppföljning | Nytt möte eller återkomst (hos hållaren) |
+  | Kom inte / Avbokat | Nytt möte, återkomst (hos den som BOKADE) eller släpp till ringlistan |
+
+  Första satsen är ett `update` villkorat på `status = BOOKED`: två som avgör
+  samma möte samtidigt ger P2025 hos den sista och hela transaktionen rullas
+  tillbaka. Ingen interaktiv transaktion — samma array-form som `recordAttempt`.
+- **Terminala besked avbokar möten.** `BORTFALL` (i cockpiten och som skäl i
+  `cancelCallback`) avbokar bolagets öppna möten. `SOLD` i ett samtal markerar
+  ett möte vars tid börjat som genomfört/sålt och avbokar framtida. Fel nummer
+  rör dem inte — mötet kan vara på Teams.
+- **Bokaren och hållaren kan vara olika personer** (`bookedById`/`holderId`,
+  förval = den som bokar). Bokningen krediteras bokaren; affären hållaren.
+  `deleteUser` flyttar öppna möten till admin och resten till gravstenen —
+  `Meeting` har RESTRICT mot `User` med flit.
+- **Dialern skickar ingen inbjudan.** `lib/kalender.ts` bygger länkar till
+  Outlook, Google och en `.ics` utan deltagare; säljaren skickar inbjudan från
+  sin egen kalender (Teams-knappen finns där). Kvittot i cockpiten
+  (`MeetingBookedToast`) är enda stället länkarna syns innan nästa samtal.
+- **Statistik:** `/meetings` visar bokade, show rate (genomförda/(genomförda +
+  kom inte) — avbokade utanför nämnaren) och sålda; golvvyn har en tabell per
+  säljare med samtal per möte. `/stats` har kolumnen **Möten** (den hette så
+  förut men visade sålda — rättat) och "Möte bokat" i tratten, räknat mot
+  "Nådde DM".
+
 ### Återkomster och e-post
-Det finns ingen mötesbokning — möten togs bort i migration 007, verksamheten är
-one call close. Gamla `MEETING_*`-rader ligger kvar i aktivitetsloggen med flit;
-loggen är oföränderlig.
+Gamla `MEETING_*`-rader från tiden före migration 007 ligger kvar i
+aktivitetsloggen med flit; loggen är oföränderlig. Dagens möten är en egen
+tabell — se avsnittet ovan.
 
 Återkomster är däremot en egen tabell sedan migration 014: **`Callback`**.
 `Lead.callbackAt` finns kvar och skrivs fortfarande — lease-frågan sorterar på

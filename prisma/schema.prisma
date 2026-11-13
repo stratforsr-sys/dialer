@@ -36,6 +36,10 @@ model User {
   dncAdded     DoNotCall[]      @relation("DncAddedBy")
   presence     SellerPresence?
   callbacks    Callback[]       @relation("CallbackSeller")
+  /// Möten säljaren bokade — det är bokningen som räknas i statistiken.
+  meetingsBooked Meeting[]      @relation("MeetingBookedBy")
+  /// Möten säljaren håller. Oftast samma person som bokade, men inte alltid.
+  meetingsHeld   Meeting[]      @relation("MeetingHolder")
 
   telephonyAgents TelephonyAgent[]
   telephonyCalls  TelephonyCall[]
@@ -143,6 +147,7 @@ model Lead {
   gatekeepers  GatekeeperContact[]
   dnc          DoNotCall?
   callbacks    Callback[]
+  meetings     Meeting[]
   telephonyCalls TelephonyCall[]
 
   @@index([claimedAt])
@@ -185,6 +190,7 @@ model Contact {
   activities   Activity[]
   callAttempts CallAttempt[]
   callbacks    Callback[]
+  meetings     Meeting[]
   telephonyCalls TelephonyCall[]
 
   @@index([leadId])
@@ -317,6 +323,131 @@ enum CallbackStatus {
   PENDING
   COMPLETED
   CANCELLED
+}
+
+// ==================== MÖTEN (migration 034) ====================
+
+/// Ett bokat möte med en beslutsfattare.
+///
+/// Möten togs bort i migration 007, när verksamheten var one call close. I
+/// november 2026 började golvet boka möten igen — och skrev dem som fritext i
+/// återkomstens anteckning ("FYSISKT MÖTE", "TEAMS IMORGON", "Möte 10:15,
+/// inbjudan skickad"). Ett sådant möte fanns ingenstans: inte i statistiken,
+/// inte som ett utfall, och bolaget låg kvar i rotationen som en vanlig
+/// återkomst.
+///
+/// Formen följer det etablerade mönstret hos säljdialers (Close, HubSpot,
+/// VanillaSoft, Orum): ett utfall på samtalet (`MEETING_BOOKED`) OCH ett eget
+/// objekt med en livscykel. Utfallet är vad samtalsstatistiken räknar; raden
+/// är vad som går att följa upp. Bokat → genomfört / uteblev / avbokat.
+///
+/// Livscykeln är samma regel som återkomsterna har: **ett möte lämnar listan
+/// av ett beslut, inte av en klocka.** Ett passerat möte utan utfall är inget
+/// lagrat status — det är `BOOKED` med en sluttid som passerat, och det ligger
+/// kvar överst på /meetings tills någon säger hur det gick.
+model Meeting {
+  id String @id @default(cuid())
+
+  /// Starttiden, exakt som den sades i luren. Aldrig justerad mot ringpass.
+  scheduledAt DateTime
+  /// Längd i minuter. 5–480 (villkor i databasen).
+  durationMin Int         @default(30)
+  kind        MeetingKind @default(DIGITALT)
+  /// Adress för ett fysiskt möte, länk för ett digitalt, nummer för telefon.
+  /// Fritext: en Teams-länk skapas ofta EFTER samtalet, och ett fält som
+  /// krävde den hade stoppat bokningen medan kunden väntade i luren.
+  location    String?
+  /// Vad mötet ska handla om. Syns på /meetings och i kalenderinbjudan.
+  note        String?
+
+  /// Personen mötet är med. Kopieras hit av samma skäl som på `Deal`: kontakten
+  /// kan bytas eller tas bort på leadet, men vem mötet bokades med ska stå kvar.
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+
+  status  MeetingStatus   @default(BOOKED)
+  /// Bara när mötet blev av (`HELD`) — villkor i databasen.
+  outcome MeetingOutcome?
+  /// Obligatorisk när `outcome = NEJ`. Samma åtta anledningar som
+  /// dispositionen frågar efter, så att ett nej räknas likadant oavsett väg.
+  noReason NoReason?
+  /// Fritext från den som satte utfallet.
+  outcomeNote String?
+
+  /// Hur många gånger mötet flyttats. En flytt behåller raden — mötet är
+  /// fortfarande samma möte — men ett möte som flyttats fyra gånger är en
+  /// signal som ska gå att se.
+  rescheduleCount Int @default(0)
+
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  /// Den som bokade. Det är bokningen som krediteras i statistiken.
+  bookedById String
+  bookedBy   User   @relation("MeetingBookedBy", fields: [bookedById], references: [id])
+
+  /// Den som håller mötet. Samma person som bokade som förval.
+  holderId String
+  holder   User   @relation("MeetingHolder", fields: [holderId], references: [id])
+
+  /// Affären som stängdes på mötet.
+  dealId String?
+  deal   Deal?   @relation(fields: [dealId], references: [id], onDelete: SetNull)
+
+  /// Samtalet mötet bokades i. Bara ett id, ingen relation — samma skäl som
+  /// på `Callback`: CallAttempt är append-only och ska inte kunna kaskadradera
+  /// ett möte.
+  bookedOnAttemptId String?
+
+  /// När och av vem utfallet sattes. Id utan relation, som `cancelledById`.
+  resolvedAt   DateTime?
+  resolvedById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// "Mina möten i tidsordning" — /meetings och sidomenyns räknare.
+  @@index([holderId, status, scheduledAt])
+  @@index([bookedById, createdAt])
+  /// Golvets möten och statistiken.
+  @@index([status, scheduledAt])
+  /// Däckets reservation: "har bolaget ett öppet möte?" — ett villkor per
+  /// kandidat i appens hetaste fråga, samma som `Callback(leadId, status)`.
+  @@index([leadId, status])
+}
+
+/// Var mötet äger rum. Tre värden, för att det var de tre golvet skrev i
+/// anteckningarna: "FYSISKT MÖTE", "TEAMS", "telefon/zoom".
+enum MeetingKind {
+  DIGITALT
+  FYSISKT
+  TELEFON
+}
+
+enum MeetingStatus {
+  /// Bokat och ännu inte avgjort. Med en sluttid som passerat betyder det
+  /// "utfall saknas" — inget eget status, se `Meeting`.
+  BOOKED
+  /// Mötet blev av. `outcome` säger hur det gick.
+  HELD
+  /// Kunden kom inte.
+  NO_SHOW
+  /// Avbokat innan det blev av.
+  CANCELLED
+}
+
+/// Hur ett genomfört möte gick.
+enum MeetingOutcome {
+  /// Kunden köpte. Affären registreras i samma steg (`dealId`).
+  SALD
+  /// Kunden tackade nej. Kräver `noReason`; bolaget vilar som efter ett nej.
+  NEJ
+  /// Inget beslut än — ett nytt möte eller en återkomst bokas i samma steg.
+  UPPFOLJNING
 }
 
 // ==================== RINGLISTOR (mappar) ====================
@@ -455,6 +586,8 @@ model Deal {
   createdBy   User          @relation("DealCreatedBy", fields: [createdById], references: [id])
 
   products    DealProduct[]
+  /// Mötet affären stängdes på, om den stängdes på ett möte.
+  meetings    Meeting[]
 
   @@index([leadId])
   @@index([status, closedAt])
@@ -640,6 +773,16 @@ enum ConversationOutcome {
   DM_NO
   CALLBACK_BOOKED
   SOLD
+  /// Beslutsfattaren tackade ja till ett möte. Sist i enumet med flit: värdet
+  /// lades till 2026-11-13 med `ALTER TYPE … ADD VALUE`, som alltid lägger nya
+  /// värden sist, och ordningen här ska spegla databasens.
+  ///
+  /// Samtalet skrivs i samma transaktion som `Meeting`-raden (se
+  /// `recordAttempt`) — ett bokat möte utan sitt samtal, eller ett samtal som
+  /// säger "möte bokat" utan ett möte bakom sig, är båda rader som ljuger.
+  /// Låser bolaget till den som bokade (`claimsLead`), och ett bolag med ett
+  /// öppet möte ligger utanför däcket precis som ett med en öppen återkomst.
+  MEETING_BOOKED
 }
 
 /// Andra nivån, bara på DM_NO. Ett tryck, ingen rullgardin — mer än sex

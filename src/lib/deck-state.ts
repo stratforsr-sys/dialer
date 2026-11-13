@@ -33,6 +33,12 @@ export type DeckState =
   | { state: "retired"; reason: string | null }
   | { state: "customer" }
   | { state: "dnc" }
+  /**
+   * Ett öppet möte (`Meeting.status = BOOKED`). Utanför däcket tills mötet
+   * fått ett utfall — samma regel som en öppen återkomst, och av samma skäl.
+   * `at` är mötets start; har den passerat väntar mötet på sitt utfall.
+   */
+  | { state: "meeting"; at: Date }
   | { state: "callback"; at: Date }
   | { state: "capped"; attempts: number }
   /**
@@ -60,6 +66,13 @@ export interface DeckStateLead {
   attemptCount: number;
   /** Ekot av den öppna återkomsten. Null när ingen är öppen. */
   callbackAt: Date | string | null;
+  /**
+   * Starten på bolagets tidigaste öppna möte. `null`/`undefined` = inget.
+   * Speglar mötesvillkoret i `leaseNextLeads` (`NOT EXISTS … "Meeting" …
+   * status = 'BOOKED'`) — anroparen hämtar den ur `Meeting`, inte ur ett eko
+   * på leadet, för det finns inget sådant eko.
+   */
+  meetingAt?: Date | string | null;
   nextActionAt: Date | string | null;
   /** Utfallet på senaste samtalet. Skiljer ett nej från en rotationspaus. */
   lastOutcome?: string | null;
@@ -119,6 +132,13 @@ export function deckState(
     return { state: "dnc" };
   }
 
+  // Mötet före återkomsten: ett ja till ett möte är ett starkare åtagande än
+  // ett "ring mig på torsdag", och står båda på raden är det mötet säljaren
+  // ska se. Däcket utesluter bolaget för båda, så ordningen ändrar bara
+  // etiketten, aldrig om bolaget delas ut.
+  const meetingAt = asDate(lead.meetingAt);
+  if (meetingAt) return { state: "meeting", at: meetingAt };
+
   const callbackAt = asDate(lead.callbackAt);
   if (callbackAt) return { state: "callback", at: callbackAt };
 
@@ -164,6 +184,8 @@ export function deckStateLabel(s: DeckState): string | null {
       return "Kund";
     case "dnc":
       return "Spärrlista";
+    case "meeting":
+      return "Möte bokat";
     case "callback":
       return "Lovad återkomst";
     case "capped":

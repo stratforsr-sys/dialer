@@ -161,6 +161,21 @@ export async function deleteUser(id: string) {
       data: { sellerId: admin.id },
     }),
 
+    // Öppna möten som säljaren skulle hålla går till den admin som raderar,
+    // av samma skäl som återkomsterna: kunden väntar på ett möte, och på
+    // gravstenskontot hade ingen hållit det. Måste ligga före svepet nedan.
+    db.meeting.updateMany({
+      where: { holderId: id, status: "BOOKED" },
+      data: { holderId: admin.id },
+    }),
+    // Resten är historik. Bokningen står kvar som gjord — av "Borttagen
+    // användare" — så att statistiken över golvets möten inte krymper när
+    // någon slutar. Utan de här två hade raderingen fallerat: `Meeting` har
+    // RESTRICT mot `User` med flit, för att en glömd rad här inte ska kunna ta
+    // möten med sig tyst.
+    db.meeting.updateMany({ where: { holderId: id }, data: { holderId: ghost.id } }),
+    db.meeting.updateMany({ where: { bookedById: id }, data: { bookedById: ghost.id } }),
+
     // Resten är historik och flyttas oförändrad till gravstenen.
     db.callback.updateMany({ where: { sellerId: id }, data: { sellerId: ghost.id } }),
     db.callAttempt.updateMany({ where: { sellerId: id }, data: { sellerId: ghost.id } }),

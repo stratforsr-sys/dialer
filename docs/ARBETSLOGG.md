@@ -13,6 +13,63 @@ Nyast först.
 
 ---
 
+## 2026-11-13 — Möten: "Möte bokat" och /meetings (migration 034)
+
+Önskemål: golvet har börjat boka möten och behöver kunna registrera det.
+
+**Mätt före bygget.** Möten skrevs som fritext i återkomstens anteckning —
+"FYSISKT MÖTE", "TEAMS IMORGON", "Möte 10:15, inbjudan skickad. Haschar +
+Shaima." Inget mötesobjekt, inget utfall, ingen statistik, och bolaget låg kvar
+som en vanlig återkomst. För få och för fritt formulerade för en säker
+efterhandsimport (5 av 977 återkomster på 30 dagar nämner ett möte, flera av
+dem "satt i möte").
+
+**Research** (Close, HubSpot, Orum, VanillaSoft, Outreach, Salesloft): mönstret
+är både ett utfall på samtalet OCH ett eget mötesobjekt med livscykel
+(bokat → genomfört/kom inte/avbokat), bolaget lämnar ringkön, och måtten är
+bokade per säljare, show rate och möte → affär. Bokningen krediteras vid
+bokning, men show rate ska stå bredvid så att ett uppblåst bokningstal syns.
+
+**Byggt:**
+- `ConversationOutcome.MEETING_BOOKED`, tangent `4` → `5` (1–4 orörda).
+  `MeetingForm` öppnas; samtalet + `Meeting`-raden skrivs i samma transaktion
+  i `recordAttempt`. Vakten för osparad bokning gäller mötet också.
+- Bolaget **låses** till bokaren och ligger **utanför däcket** så länge mötet
+  är öppet (`leaseNextLeads`, `deckStatus`, `deckState` — alla tre).
+- `/meetings`: utfall saknas (rött, först) → pågår → kommande dag för dag →
+  avgjorda. Talen: bokade, show rate, sålda, väntar på utfall. Golvvyn (admin)
+  har en tabell per säljare med samtal per möte. Sidomenyn: "Möten" med en
+  siffra som bara lyser för möten som saknar utfall.
+- Avgörandet ("Hur gick det?"): såld (affären i samma transaktion, hållaren
+  krediteras) / sa nej (60 dagars vila) / uppföljning (nytt möte eller
+  återkomst hos hållaren) / kom inte / avbokat (nytt möte, återkomst hos
+  BOKAREN, eller släpp). Två som avgör samtidigt: den sista får "redan fått
+  ett utfall" och ingenting skrivs.
+- Kalender: Outlook-, Google- och `.ics`-länkar i kvittot efter bokningen och
+  på varje rad. Dialern mejlar aldrig kunden — säljaren skickar inbjudan från
+  sin egen kalender (Teams-knappen finns där).
+- Klockans dispositionsruta kan också boka ett möte (samma trappa).
+- Bortfall avbokar bolagets öppna möten; sålt i ett samtal efter mötets start
+  räknas som mötet genomfört/sålt.
+- `/stats`: kolumnen "Möten" visade SÅLDA (rest från före 007) — heter nu
+  "Sålda", och "Möten" är bokade möten. Tratten räknar utfallen mot "Nådde DM".
+
+**Fallgropar som stängdes i förväg:**
+- Tangentläckan: en siffra med fokus på en knapp i en bokningsruta valde ett
+  utfall BAKOM rutan ("3" öppnade affärsrutan ovanpå en halvbokad återkomst).
+  Gällde återkomstrutan också — lagat för båda.
+- `deleteUser` hade fallerat för varje säljare med ett möte (RESTRICT) — nu
+  flyttas öppna möten till admin, resten till gravstenen.
+- Kön kan skicka ett möte timmar senare efter ett avbrott — servern sparar det
+  ändå (tolerans 30 dagar bakåt) i stället för att kasta det som "passerat".
+- `avdubbla.ts` flyttar `Meeting` (annars kaskadraderas dubblettens möten).
+
+**Prov:** `scripts/test-moten.ts` (155 kontroller, i svensk tid och UTC, ingår
+i `npm test`); migrationen provkörd mot produktionsdatabasen i en transaktion
+som rullades tillbaka (18 kontroller av CHECK-villkor och FK).
+
+---
+
 ## 2026-10-27 — Lägg till lead för hand: "Dela till alla" eller "Behåll till mig"
 
 Önskemål: en säljare ska kunna lägga in ett bolag med alla kontaktuppgifter

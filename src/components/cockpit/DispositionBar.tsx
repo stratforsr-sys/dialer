@@ -15,12 +15,15 @@ export function DispositionBar<T extends string>({
   onPick,
   onBack,
   canGoBack,
+  prompt,
 }: {
   stage: FlowStage;
   options: FlowOption<T>[];
   onPick: (value: T) => void;
   onBack: () => void;
   canGoBack: boolean;
+  /** Egen rubrik — mötets avgörande frågar något annat än samtalets steg. */
+  prompt?: string;
 }) {
   return (
     <div>
@@ -43,7 +46,7 @@ export function DispositionBar<T extends string>({
           className="text-[11px] font-semibold uppercase tracking-widest"
           style={{ color: "var(--text-dim)" }}
         >
-          {stagePrompt(stage)}
+          {prompt ?? stagePrompt(stage)}
         </p>
       </div>
 

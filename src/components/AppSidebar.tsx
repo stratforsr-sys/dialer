@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import {
   Handshake, Upload, BarChart2, ShieldCheck, LogOut, Zap, Search,
   FolderOpen, Radio, MessageSquare, SlidersHorizontal, PanelLeftClose, PanelLeftOpen,
-  Settings, Gauge,
+  Settings, Gauge, CalendarCheck,
 } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 
@@ -15,6 +15,10 @@ import { NotificationBell } from "@/components/notifications/NotificationBell";
 // ringlista, via "Starta dialer". /cockpit utan listId skickar till /lists.
 const NAV = [
   { href: "/lists",         label: "Ringlistor", icon: FolderOpen },
+  // Direkt under ringlistorna: ett bokat möte är dagens arbete, inte arkiv.
+  // Siffran bredvid lyser bara för möten som saknar utfall — se
+  // `/api/meetings/summary`.
+  { href: "/meetings",      label: "Möten",      icon: CalendarCheck },
   // Lead-listan är borttagen ur menyn. Den var en andra, parallell ingång till
   // samma bolag som redan ligger i en ringlista, och den enda som behövde den
   // var den som letade efter ETT lead — vilket sökfältet på Ringlistor nu gör
@@ -59,6 +63,21 @@ export function AppSidebar({
   const [pinned, setPinned] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [mounted, setMounted] = useState(false);
+  /** Mina möten vars tid gått ut utan utfall. Hämtas när sidan byts, aldrig på en timer. */
+  const [meetingsAwaiting, setMeetingsAwaiting] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/meetings/summary", { redirect: "manual" })
+      .then((r) => (r.ok && (r.headers.get("content-type") ?? "").includes("json") ? r.json() : null))
+      .then((b: { awaiting?: number } | null) => {
+        if (!cancelled && b && typeof b.awaiting === "number") setMeetingsAwaiting(b.awaiting);
+      })
+      .catch(() => {
+        // Siffran är en påminnelse. Går den inte att hämta står menyn kvar utan.
+      });
+    return () => { cancelled = true; };
+  }, [pathname]);
 
   useEffect(() => {
     setPinned(localStorage.getItem(STORAGE_KEY) === "1");
@@ -183,6 +202,25 @@ export function AppSidebar({
                 >
                   {label}
                 </span>
+                {href === "/meetings" && meetingsAwaiting > 0 && (
+                  <span
+                    className="ml-auto text-[10px] font-bold mono-nums rounded-full flex items-center justify-center shrink-0"
+                    title={`${meetingsAwaiting} ${meetingsAwaiting === 1 ? "möte saknar" : "möten saknar"} utfall`}
+                    data-testid="meetings-badge"
+                    style={{
+                      minWidth: 16,
+                      height: 16,
+                      padding: "0 4px",
+                      background: "var(--danger)",
+                      color: "var(--on-danger)",
+                      // Hopfälld skena: siffran sitter på ikonens hörn i stället
+                      // för längst ut på en rad som inte syns.
+                      ...(expanded ? {} : { position: "absolute", left: 30, marginTop: -14 }),
+                    }}
+                  >
+                    {meetingsAwaiting}
+                  </span>
+                )}
               </Link>
             );
           })}

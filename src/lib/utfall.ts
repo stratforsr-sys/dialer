@@ -64,6 +64,7 @@ import { RESULT_LABELS, OUTCOME_OPTIONS, GATEKEEPER_OPTIONS, REASON_OPTIONS } fr
  */
 export type UtfallKey =
   | "sald"
+  | "mote"
   | "aterkomst"
   | "nej"
   | "fel_beslutsfattare"
@@ -88,6 +89,7 @@ export interface UtfallDef {
 
 export const UTFALL: Record<UtfallKey, UtfallDef> = {
   sald: { key: "sald", label: "Såld", color: "#22C55E", called: true },
+  mote: { key: "mote", label: "Möte bokat", color: "#6366F1", called: true },
   aterkomst: { key: "aterkomst", label: "Återkomst bokad", color: "#3B82F6", called: true },
   nej: { key: "nej", label: "Sa nej", color: "#EF4444", called: true },
   fel_beslutsfattare: { key: "fel_beslutsfattare", label: "Fel beslutsfattare", color: "#F59E0B", called: true },
@@ -102,6 +104,7 @@ export const UTFALL: Record<UtfallKey, UtfallDef> = {
 /** Renderingsordning. Se kommentaren på `UtfallKey`. */
 export const UTFALL_ORDNING: UtfallKey[] = [
   "sald",
+  "mote",
   "aterkomst",
   "natt_dm",
   "nej",
@@ -141,6 +144,8 @@ export function utfallAv(lead: UtfallLead): UtfallDef {
   switch (lead.lastOutcome) {
     case "SOLD":
       return UTFALL.sald;
+    case "MEETING_BOOKED":
+      return UTFALL.mote;
     case "CALLBACK_BOOKED":
       return UTFALL.aterkomst;
     case "DM_NO":

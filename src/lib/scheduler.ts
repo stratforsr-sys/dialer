@@ -47,6 +47,7 @@ export type OutcomeLike =
   | "DM_NO"
   | "CALLBACK_BOOKED"
   | "SOLD"
+  | "MEETING_BOOKED"
   | null;
 
 export interface SchedulerConfig {
@@ -122,6 +123,9 @@ export interface SchedulerDecision {
  *   - `CALLBACK_BOOKED` — kunden sa "ring mig på torsdag". Löftet är personligt;
  *     en kollega som ringer istället bränner det.
  *   - `SOLD` — kunden är någons kund.
+ *   - `MEETING_BOOKED` — kunden har ett möte inbokat med en namngiven person.
+ *     En kollega som ringer in mellan bokningen och mötet ser ut som att
+ *     företaget inte vet vad det självt lovat.
  *
  * Allt annat låser inte. Ett nej är ingen relation, och ett obesvarat samtal är
  * inte ens en kontakt. Väljer säljaren "ej intresserad" eller "svarar ej"
@@ -134,7 +138,7 @@ export interface SchedulerDecision {
  * även löftesgivaren själv.
  */
 export function claimsLead(outcome: OutcomeLike): boolean {
-  return outcome === "CALLBACK_BOOKED" || outcome === "SOLD";
+  return outcome === "CALLBACK_BOOKED" || outcome === "SOLD" || outcome === "MEETING_BOOKED";
 }
 
 /** Vilket pass en tidpunkt faller inom, om något. */
@@ -432,6 +436,11 @@ export function computeNext(params: {
   noReason?: NoReasonLike;
   /** Bokad återuppringning — vinner alltid över rotationen. */
   callbackAt?: Date | null;
+  /**
+   * Starttiden för ett möte som bokades i samtalet. Bara meningsfull ihop med
+   * `outcome = MEETING_BOOKED`; utan utfallet ignoreras den.
+   */
+  meetingAt?: Date | null;
   /** Tid växeln uppgav att beslutsfattaren är tillbaka. */
   dmAvailableAt?: Date | null;
   slots: Slot[];
@@ -444,6 +453,7 @@ export function computeNext(params: {
     outcome,
     noReason = null,
     callbackAt = null,
+    meetingAt = null,
     dmAvailableAt = null,
     slots,
     config,
@@ -491,6 +501,34 @@ export function computeNext(params: {
       retired: false,
       retiredReason: null,
       callbackAt,
+      claimsLead: claims,
+    };
+  }
+
+  // 2b. Ett möte bokades. Bolaget ligger utanför däcket så länge mötet är
+  //     öppet — det sköts av mötesvillkoret i `leaseNextLeads`, inte härifrån,
+  //     av samma skäl som återkomsterna: låset styr VEM, filtret styr OM.
+  //
+  //     `nextActionAt` sätts ändå till mötestiden. Det är ett skyddsnät, inte
+  //     mekanismen: försvinner mötesraden av någon anledning (en admin raderar
+  //     den för hand, ett städskript går fel) ska bolaget inte landa i däcket
+  //     före mötet. Efter mötet avgör utfallet vad som händer — se
+  //     `resolveMeeting` i actions/meetings.ts.
+  //
+  //     Grenen ligger FÖRE taket (steg 5), precis som återkomstens: ett möte
+  //     som bokas på åttonde försöket får inte pensionera bolaget som "uttömt"
+  //     i samma sekund som kunden sa ja.
+  if (outcome === "MEETING_BOOKED" && meetingAt && !Number.isNaN(meetingAt.getTime())) {
+    return {
+      nextActionAt: meetingAt,
+      nextSlotId: slotAt(slots, meetingAt)?.id ?? null,
+      attemptCount,
+      roundCount: lead.roundCount,
+      noAnswerStreak,
+      triedSlotIds,
+      retired: false,
+      retiredReason: null,
+      callbackAt: null,
       claimsLead: claims,
     };
   }

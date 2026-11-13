@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { BarChart3, Handshake, AlertTriangle, Phone, Calendar, Target, Clock, Trophy, ArrowUp, ArrowDown, Minus, Repeat, Undo2 } from "lucide-react";
 
 type DailyRow = { date: string; calls: number; connected: number; sold: number };
-type Conversion = { totalCalls: number; connected: number; reachedDm: number; totalSold: number; callbacks: number; connectRate: string; dmRate: string; closeRate: string; dmToClose: string };
+type Conversion = { totalCalls: number; connected: number; reachedDm: number; totalSold: number; callbacks: number; meetings: number; connectRate: string; dmRate: string; closeRate: string; dmToClose: string };
 type Fluff = { sessions: number; totalCalls: number; totalIdleSeconds: number; avgIdlePerCall: number };
 type DealRecent = {
   id: string; leadId: string; companyName: string; contactName: string | null;
@@ -16,7 +16,7 @@ type DealsOverview = {
   days: number; count: number; cancelled: number;
   oneTimeTotal: number; monthlyTotal: number; recent: DealRecent[];
 };
-type Seller = { id: string; name: string; calls: number; sold: number; convRate: string; avgIdlePerCall: number; totalIdleMins: number; callsPerDay: number };
+type Seller = { id: string; name: string; calls: number; sold: number; meetings: number; convRate: string; avgIdlePerCall: number; totalIdleMins: number; callsPerDay: number };
 type Tab = "activity" | "deals" | "inefficiency";
 
 function BarChart({ data, valueKey, color }: { data: DailyRow[]; valueKey: "calls" | "sold"; color: string }) {
@@ -284,19 +284,24 @@ export function StatsView({
               <div className="p-5 rounded-lg" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
                 <p className="text-[13px] font-semibold mb-5" style={{ color: "var(--text)" }}>Konverteringsfunnel</p>
                 <div className="flex items-center gap-4">
+                  {/* Utfallen räknas mot "Nådde DM", inte mot steget före: de är
+                      tre parallella utgångar ur samma samtal, inte en kedja.
+                      "Återkomst av sålda" var talet här tidigare, och det
+                      betydde ingenting. */}
                   {[
-                    { label: "Samtal",    value: conversion.totalCalls,    color: "var(--text-muted)" },
-                    { label: "Nådde DM",  value: conversion.reachedDm, color: "var(--info)" },
-                    { label: "Sålt",      value: conversion.totalSold,     color: "var(--success)" },
-                    { label: "Återkomst", value: conversion.callbacks,     color: "var(--warning)" },
-                  ].map(({ label, value, color }, i, arr) => (
+                    { label: "Samtal",      value: conversion.totalCalls,    color: "var(--text-muted)", of: null },
+                    { label: "Nådde DM",    value: conversion.reachedDm,     color: "var(--info)",        of: 0 },
+                    { label: "Sålt",        value: conversion.totalSold,     color: "var(--success)",     of: 1 },
+                    { label: "Möte bokat",  value: conversion.meetings,      color: "#6366F1",            of: 1 },
+                    { label: "Återkomst",   value: conversion.callbacks,     color: "var(--warning)",     of: 1 },
+                  ].map(({ label, value, color, of }, i, arr) => (
                     <div key={label} className="flex items-center gap-4 flex-1">
                       <div className="text-center flex-1">
                         <p className="text-[22px] font-bold tabular-nums" style={{ color, fontFamily: "var(--font-mono)" }}>{value}</p>
                         <p className="text-[11px]" style={{ color: "var(--text-dim)" }}>{label}</p>
-                        {i > 0 && arr[i - 1].value > 0 && (
+                        {of !== null && arr[of].value > 0 && (
                           <p className="text-[10px] mt-1" style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-                            {((value / arr[i - 1].value) * 100).toFixed(1)}%
+                            {((value / arr[of].value) * 100).toFixed(1)}%
                           </p>
                         )}
                       </div>
@@ -384,7 +389,7 @@ export function StatsView({
                     <table className="w-full">
                       <thead>
                         <tr style={{ background: "var(--surface-inset)", borderBottom: "1px solid var(--border)" }}>
-                          {["#", "Säljare", "Samtal (30d)", "Möten", "Konv", "Idle/samtal", "Total idle", "Samtal/dag"].map((h) => (
+                          {["#", "Säljare", "Samtal (30d)", "Sålda", "Möten", "Konv", "Idle/samtal", "Total idle", "Samtal/dag"].map((h) => (
                             <th key={h} className="px-4 py-3">{h}</th>
                           ))}
                         </tr>
@@ -409,6 +414,7 @@ export function StatsView({
                               </td>
                               <td className="px-4 py-3"><span className="text-[13px] font-semibold" style={{ color: "var(--text)", fontFamily: "var(--font-mono)" }}>{seller.calls}</span></td>
                               <td className="px-4 py-3"><span className="text-[13px]" style={{ color: "var(--text)", fontFamily: "var(--font-mono)" }}>{seller.sold}</span></td>
+                              <td className="px-4 py-3"><span className="text-[13px]" style={{ color: seller.meetings > 0 ? "#6366F1" : "var(--text-dim)", fontFamily: "var(--font-mono)" }}>{seller.meetings}</span></td>
                               <td className="px-4 py-3">
                                 <div className="flex items-center gap-1">
                                   {trend === "up"   && <ArrowUp   size={11} style={{ color: "var(--success)" }} />}

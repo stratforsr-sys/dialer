@@ -122,7 +122,7 @@ export async function getConversionRates(sellerId?: string, listId?: string) {
   const who = statsScope(user, sellerId);
   const sellerFilter = { ...(who ? { sellerId: who } : {}), ...listFilter(listId) };
 
-  const [totalCalls, connected, reachedDm, totalSold, callbacks] = await Promise.all([
+  const [totalCalls, connected, reachedDm, totalSold, callbacks, meetings] = await Promise.all([
     db.callAttempt.count({ where: sellerFilter }),
     db.callAttempt.count({
       where: { ...sellerFilter, result: { in: ["CONNECTED_DM", "CONNECTED_GATEKEEPER"] } },
@@ -130,6 +130,7 @@ export async function getConversionRates(sellerId?: string, listId?: string) {
     db.callAttempt.count({ where: { ...sellerFilter, result: "CONNECTED_DM" } }),
     db.callAttempt.count({ where: { ...sellerFilter, outcome: "SOLD" } }),
     db.callAttempt.count({ where: { ...sellerFilter, outcome: "CALLBACK_BOOKED" } }),
+    db.callAttempt.count({ where: { ...sellerFilter, outcome: "MEETING_BOOKED" } }),
   ]);
 
   const pct = (a: number, b: number) => (b > 0 ? ((a / b) * 100).toFixed(1) : "0");
@@ -140,6 +141,8 @@ export async function getConversionRates(sellerId?: string, listId?: string) {
     reachedDm,
     totalSold,
     callbacks,
+    /** Samtal som slutade i ett bokat möte. Mötets eget öde står på /meetings. */
+    meetings,
     connectRate: pct(connected, totalCalls),
     dmRate: pct(reachedDm, totalCalls),
     closeRate: pct(totalSold, totalCalls),
@@ -238,10 +241,15 @@ export async function getSellerStats(days = 30, listId?: string) {
 
   const results = await Promise.all(
     sellers.map(async (seller) => {
-      const [callCount, soldCount, sessions] = await Promise.all([
+      const [callCount, soldCount, meetingCount, sessions] = await Promise.all([
         db.callAttempt.count({ where: { sellerId: seller.id, startedAt: { gte: since }, ...iList } }),
         db.callAttempt.count({
           where: { sellerId: seller.id, outcome: "SOLD", startedAt: { gte: since }, ...iList },
+        }),
+        // Bokade möten räknas på samtalet, som sålda: det är säljarens
+        // registrering. Om mötet sedan blev av står på /meetings.
+        db.callAttempt.count({
+          where: { sellerId: seller.id, outcome: "MEETING_BOOKED", startedAt: { gte: since }, ...iList },
         }),
         // Ringpassen filtreras INTE på mapp. En session är en tidsperiod vid
         // skärmen och kan spänna över flera mappar — fluffminuterna hör till
@@ -263,6 +271,7 @@ export async function getSellerStats(days = 30, listId?: string) {
         name: seller.name,
         calls: callCount,
         sold: soldCount,
+        meetings: meetingCount,
         convRate,
         avgIdlePerCall,
         totalIdleMins: Math.round(totalIdleSecs / 60),

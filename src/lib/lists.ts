@@ -70,6 +70,17 @@ export function visibleLeadWhere(user: SessionUser): Prisma.LeadWhereInput {
     OR: [
       { ownerId: user.id },
       { lists: { some: { list: { access: { some: { userId: user.id } } } } } },
+      // Den som håller eller bokade ett ÖPPET möte med bolaget ser det, även
+      // utan tillgång till mappen. Hållaren är ofta en annan än bokaren och
+      // blir aldrig `ownerId` — utan den här raden kunde hen hålla mötet men
+      // varken öppna bolagssidan eller ringa kunden för att bekräfta. Bara
+      // öppna möten: efter avgörandet gäller de vanliga reglerna igen (och
+      // "såld" gör hållaren till ägare).
+      {
+        meetings: {
+          some: { status: "BOOKED", OR: [{ holderId: user.id }, { bookedById: user.id }] },
+        },
+      },
     ],
   };
 }

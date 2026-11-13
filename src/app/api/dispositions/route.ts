@@ -56,6 +56,18 @@ interface QueuedItem {
   callbackEmailReminder?: boolean;
   /** Återkomsten dispositionen svarar på, när den sker i notisklockan. */
   answeredCallbackId?: string | null;
+  /** Mötet, när utfallet är `MEETING_BOOKED`. `at` som ISO-sträng. */
+  meeting?: {
+    at: string;
+    durationMin?: number;
+    kind?: "DIGITALT" | "FYSISKT" | "TELEFON";
+    location?: string | null;
+    note?: string | null;
+    contactName?: string | null;
+    contactEmail?: string | null;
+    contactPhone?: string | null;
+    holderId?: string | null;
+  } | null;
   gatekeeper?: {
     name?: string | null;
     role?: string | null;
@@ -108,6 +120,11 @@ function isRetryable(err: unknown): boolean {
     "DialerConfig saknas",
     "Ogiltig tidpunkt",
     "Välj varför kunden sa nej",
+    // Ett möte utan en tid som går att läsa. Blir inte bättre av sex försök —
+    // remsan ska komma direkt, med bolagets namn, så att säljaren kan boka om
+    // det för hand medan hen fortfarande minns samtalet.
+    "Mötet saknar en giltig tid",
+    "Ett möte kräver att beslutsfattaren nåddes",
   ];
   if (PERMANENTA.some((m) => message.includes(m))) return false;
 
@@ -199,6 +216,9 @@ export async function POST(req: Request) {
         callbackNote: item.callbackNote ?? null,
         callbackEmailReminder: item.callbackEmailReminder === true,
         answeredCallbackId: item.answeredCallbackId ?? null,
+        meeting: item.meeting
+          ? { ...item.meeting, at: new Date(item.meeting.at) }
+          : null,
         gatekeeper: item.gatekeeper
           ? {
               ...item.gatekeeper,

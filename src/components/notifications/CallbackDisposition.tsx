@@ -2,11 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { X, Phone, Clock } from "lucide-react";
+import { X, Phone, Clock, CalendarCheck } from "lucide-react";
 import { DispositionBar } from "@/components/cockpit/DispositionBar";
 import { FrameworkTap } from "@/components/cockpit/FrameworkPanel";
 import { CallbackForm, EMPTY_CALLBACK, type CallbackDraft } from "@/components/cockpit/CallbackForm";
 import { RegisterDealModal } from "@/components/deals/RegisterDealModal";
+import { MeetingForm } from "@/components/meetings/MeetingForm";
+import { MeetingCalendarLinks } from "@/components/meetings/MeetingCalendarLinks";
+import { emptyMeetingDraft, validateMeetingDraft, KIND_LABELS, type MeetingDraft } from "@/lib/moten";
+import type { CalendarMeeting } from "@/lib/kalender";
 import {
   RESULT_OPTIONS,
   NO_PHONE_FOUND,
@@ -20,7 +24,7 @@ import {
   optionForKey,
   type FlowState,
 } from "@/lib/cockpit-flow";
-import { formatWhen } from "@/lib/time";
+import { formatWhen, formatTime } from "@/lib/time";
 import type { CallbackRow } from "@/app/actions/callbacks";
 import type {
   CallResult,
@@ -51,6 +55,9 @@ import type {
  * Avbryter man skrivs INGENTING. Samma regel som affärsrutan i cockpiten:
  * en halv disposition är värre än ingen.
  */
+
+/** Platshållare för "den som ringer" när listan över hållare inte gick att hämta. */
+const SJALV = "__self";
 
 /** Hur många gånger skrivningen skickas om innan säljaren får ett besked. */
 const MAX_FORSOK = 4;
@@ -163,6 +170,14 @@ export function CallbackDisposition({
   const [objections, setObjections] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // Mötet — samma ruta som i cockpiten. Listan över vem som kan hålla mötet
+  // hämtas först när den behövs: de flesta återkomster blir inget möte.
+  const [askMeeting, setAskMeeting] = useState(false);
+  const [meeting, setMeeting] = useState<MeetingDraft>(() => emptyMeetingDraft());
+  const [holders, setHolders] = useState<Array<{ id: string; name: string }>>([]);
+  const [selfId, setSelfId] = useState("");
+  /** Satt när mötet är sparat: rutan stannar och visar kalenderlänkarna. */
+  const [bookedMeeting, setBookedMeeting] = useState<CalendarMeeting | null>(null);
 
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -208,8 +223,25 @@ export function CallbackDisposition({
             // Raden det här samtalet svarade på. Utan den stängs inte en
             // återkomst som ringdes före utsatt tid.
             answeredCallbackId: row.id,
-            callbackAt: callback.at ? new Date(callback.at).toISOString() : null,
+            callbackAt:
+              callback.at && opts.outcome !== "MEETING_BOOKED"
+                ? new Date(callback.at).toISOString()
+                : null,
             callbackNote: callback.note.trim() || null,
+            meeting:
+              opts.outcome === "MEETING_BOOKED" && meeting.at
+                ? {
+                    at: new Date(meeting.at).toISOString(),
+                    durationMin: meeting.durationMin,
+                    kind: meeting.kind,
+                    location: meeting.location.trim() || null,
+                    note: meeting.note.trim() || null,
+                    contactName: meeting.contactName.trim() || null,
+                    contactEmail: meeting.contactEmail.trim() || null,
+                    contactPhone: meeting.contactPhone.trim() || null,
+                    holderId: meeting.holderId || null,
+                  }
+                : null,
             callbackEmailReminder: callback.emailReminder,
             framework:
               opts.withFramework && endedAtStep
@@ -229,6 +261,28 @@ export function CallbackDisposition({
         );
 
         if (res.ok) {
+          if (opts.outcome === "MEETING_BOOKED" && meeting.at) {
+            // Rutan stängs inte än: kalenderlänkarna är det enda säljaren
+            // kan behöva göra med mötet direkt, och de finns bara här.
+            setBookedMeeting({
+              id: `${row.leadId}-${new Date(meeting.at).getTime()}`,
+              start: new Date(meeting.at),
+              durationMin: meeting.durationMin,
+              companyName: row.companyName,
+              contactName: meeting.contactName.trim() || null,
+              contactEmail: meeting.contactEmail.trim() || null,
+              contactPhone: meeting.contactPhone.trim() || null,
+              kindLabel: KIND_LABELS[meeting.kind],
+              location: meeting.location.trim() || null,
+              note: meeting.note.trim() || null,
+              holderName:
+                meeting.holderId && meeting.holderId !== selfId
+                  ? holders.find((h) => h.id === meeting.holderId)?.name ?? null
+                  : null,
+            });
+            setSaving(false);
+            return;
+          }
           onDone();
           return;
         }
@@ -245,7 +299,7 @@ export function CallbackDisposition({
         setSaving(false);
       }
     },
-    [callback, closeAttempts, endedAtStep, notes, objections, onDone, row]
+    [callback, closeAttempts, endedAtStep, holders, meeting, notes, objections, onDone, row, selfId]
   );
 
   // ── Trappan ─────────────────────────────────────────────────────────────
@@ -271,6 +325,39 @@ export function CallbackDisposition({
         setAskCallback(true);
         return;
       }
+      if (outcome === "MEETING_BOOKED") {
+        setFlow((f) => ({ ...f, outcome }));
+        setMeeting(
+          emptyMeetingDraft({
+            contactName: row.contactName ?? "",
+            contactEmail: row.contactEmail ?? "",
+            contactPhone: row.phone ?? "",
+            holderId: selfId,
+          })
+        );
+        setAskMeeting(true);
+        if (holders.length === 0) {
+          void fetch("/api/meetings/holders")
+            .then((r) => (r.ok ? r.json() : null))
+            .then((b: { selfId: string; holders: Array<{ id: string; name: string }> } | null) => {
+              if (!b) throw new Error("ingen lista");
+              setHolders(b.holders);
+              setSelfId(b.selfId);
+              // Förvalet är den som dispositionerar — sätts när vi vet vem det är.
+              setMeeting((m) => (m.holderId ? m : { ...m, holderId: b.selfId }));
+            })
+            .catch(() => {
+              // Utan listan ska mötet ändå gå att boka — på säljaren själv.
+              // Id:t finns inte i användartabellen, och då faller
+              // `recordAttempt` tillbaka på den som ringde. Rutan får aldrig
+              // fastna på ett tomt fält medan kunden väntar.
+              setHolders([{ id: SJALV, name: "Jag" }]);
+              setSelfId(SJALV);
+              setMeeting((m) => (m.holderId ? m : { ...m, holderId: SJALV }));
+            });
+        }
+        return;
+      }
       // Såld: affären registreras FÖRST, samtalet skrivs efteråt. Avbryter
       // säljaren rutan finns varken affär eller sålt samtal — samma ordning
       // som i cockpiten, och av samma skäl.
@@ -285,7 +372,7 @@ export function CallbackDisposition({
       }
       void commit({ result, outcome });
     },
-    [commit, flow.result]
+    [commit, flow.result, holders.length, row, selfId]
   );
 
   const pickReason = useCallback(
@@ -304,6 +391,7 @@ export function CallbackDisposition({
 
   const goBack = useCallback(() => {
     setAskCallback(false);
+    setAskMeeting(false);
     setFlow((f) => {
       if (f.stage === "reason") return { ...f, stage: "outcome", noReason: null };
       if (f.stage === "outcome" || f.stage === "gatekeeper") return INITIAL_FLOW;
@@ -327,7 +415,7 @@ export function CallbackDisposition({
         onClose();
         return;
       }
-      if (typing || saving || showDealModal || askCallback) return;
+      if (typing || saving || showDealModal || askCallback || askMeeting || bookedMeeting) return;
       if (e.key === "Backspace") {
         e.preventDefault();
         goBack();
@@ -352,7 +440,7 @@ export function CallbackDisposition({
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [askCallback, flow.stage, goBack, onClose, pickOutcome, pickReason, pickResult, saving, showDealModal]);
+  }, [askCallback, askMeeting, bookedMeeting, flow.stage, goBack, onClose, pickOutcome, pickReason, pickResult, saving, showDealModal]);
 
   const overdue = row.scheduledAt.getTime() < Date.now();
 
@@ -460,10 +548,49 @@ export function CallbackDisposition({
               </p>
             )}
 
-            {saving ? (
+            {bookedMeeting ? (
+              <div
+                className="rounded-lg p-4"
+                style={{ background: "var(--surface-inset)", border: "1px solid var(--border)" }}
+                data-testid="meeting-booked-panel"
+              >
+                <p className="flex items-center gap-2 text-[13px] font-semibold" style={{ color: "var(--text)" }}>
+                  <CalendarCheck size={14} style={{ color: "#6366F1" }} /> Mötet är bokat
+                </p>
+                <p className="text-[12px] mt-1 mono-nums" style={{ color: "var(--text-muted)" }}>
+                  {formatWhen(bookedMeeting.start)}–
+                  {formatTime(new Date(bookedMeeting.start.getTime() + bookedMeeting.durationMin * 60_000))}
+                  {" · "}
+                  {bookedMeeting.kindLabel}
+                  {bookedMeeting.holderName ? ` · ${bookedMeeting.holderName} håller` : ""}
+                </p>
+                <div className="flex items-center gap-2 mt-3 flex-wrap">
+                  <span className="text-[11px]" style={{ color: "var(--text-dim)" }}>Lägg i kalendern</span>
+                  <MeetingCalendarLinks meeting={bookedMeeting} />
+                  <button onClick={onDone} className="btn-primary btn-sm ml-auto" autoFocus>
+                    Klar
+                  </button>
+                </div>
+              </div>
+            ) : saving ? (
               <p className="text-[12px] py-2 text-center" style={{ color: "var(--text-dim)" }}>
                 Sparar samtalet…
               </p>
+            ) : askMeeting ? (
+              <MeetingForm
+                draft={meeting}
+                onChange={setMeeting}
+                onSave={() => {
+                  if (!flow.result || Object.keys(validateMeetingDraft(meeting)).length > 0) return;
+                  void commit({ result: flow.result, outcome: "MEETING_BOOKED" });
+                }}
+                onCancel={() => {
+                  setAskMeeting(false);
+                  setFlow((f) => ({ ...f, outcome: null }));
+                }}
+                holders={holders.length > 0 ? holders : selfId ? [{ id: selfId, name: "Jag" }] : []}
+                selfId={selfId}
+              />
             ) : askCallback ? (
               <CallbackForm
                 draft={callback}

@@ -20,6 +20,16 @@ import { createDeal } from "@/app/actions/deals";
  * på en för att kunna bokföra sitt sälj.
  */
 
+/** Det rutan samlar in — det `submit` får när den ersätter `createDeal`. */
+export interface DealDraftData {
+  contactName: string;
+  contactEmail: string;
+  contactPhone: string;
+  valueType: "ONE_TIME" | "MONTHLY";
+  value: number;
+  notes: string;
+}
+
 interface Props {
   leadId: string;
   companyName: string;
@@ -29,6 +39,14 @@ interface Props {
   defaultContactPhone?: string | null;
   onClose: () => void;
   onCreated: () => void;
+  /**
+   * Ersätter `createDeal`. Mötets avgörande använder den: affären skapas där i
+   * samma transaktion som mötet stängs, så att ett "såld" aldrig kan finnas
+   * utan sin affär — eller tvärtom. Kastar den visas felet i rutan som vanligt.
+   */
+  submit?: (data: DealDraftData) => Promise<void>;
+  /** Rubriken, när rutan öppnas från något annat än ett samtal. */
+  heading?: string;
 }
 
 export function RegisterDealModal({
@@ -39,6 +57,8 @@ export function RegisterDealModal({
   defaultContactPhone,
   onClose,
   onCreated,
+  submit,
+  heading,
 }: Props) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState("");
@@ -75,16 +95,27 @@ export function RegisterDealModal({
 
     startTransition(async () => {
       try {
-        await createDeal({
-          leadId,
-          title: companyName,
-          contactName,
-          contactEmail,
-          contactPhone,
-          valueType,
-          value: parsedAmount,
-          notes,
-        });
+        if (submit) {
+          await submit({
+            contactName,
+            contactEmail,
+            contactPhone,
+            valueType,
+            value: parsedAmount!,
+            notes,
+          });
+        } else {
+          await createDeal({
+            leadId,
+            title: companyName,
+            contactName,
+            contactEmail,
+            contactPhone,
+            valueType,
+            value: parsedAmount,
+            notes,
+          });
+        }
         onCreated();
       } catch (err) {
         // Rutan får aldrig stänga sig på ett fel — då är säljet borta och
@@ -150,7 +181,7 @@ export function RegisterDealModal({
                   className="text-[16px] font-semibold"
                   style={{ fontFamily: "var(--font-display)", color: "var(--text)" }}
                 >
-                  Ny affär
+                  {heading ?? "Ny affär"}
                 </h2>
                 <p className="text-[12px] mt-[1px] truncate" style={{ color: "var(--text-muted)" }}>
                   {companyName}

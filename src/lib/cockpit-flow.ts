@@ -125,6 +125,12 @@ export const OUTCOME_OPTIONS: FlowOption<ConversationOutcome>[] = [
   // Inte ett nej — erbjudandet nådde aldrig rätt person. Leadet går tillbaka
   // i rotationen i stället för att räknas som avfärdat.
   { key: "4", label: "Fel beslutsfattare", value: "WRONG_DM", color: "#F59E0B", hint: "Ringer igen" },
+  // Sist och inte bredvid "Såld", trots att det är närmast besläktat: 1–4
+  // sitter i fingrarna på säljarna sedan augusti, och att flytta dem hade gett
+  // felregistrerade utfall i veckor (samma skäl som "Sa nej innan pitch" ligger
+  // sist bland anledningarna). Öppnar mötesrutan — samtalet skrivs först när
+  // mötet är sparat, precis som en återkomst.
+  { key: "5", label: "Möte bokat", value: "MEETING_BOOKED", color: "#6366F1", hint: "När och var?" },
 ];
 
 // ── Steg 3: varför nej ────────────────────────────────────────────────────
@@ -204,6 +210,9 @@ export function stageAfterOutcome(outcome: ConversationOutcome): FlowStage | nul
   // Sålt: ingen coachningsfråga behövs, samtalet gick ju hela vägen.
   if (outcome === "SOLD") return null;
   if (outcome === "CALLBACK_BOOKED") return null;
+  // Mötet: rutan öppnas av vyn, och samtalet skrivs när den sparas. Ingen
+  // ramverksfråga — samtalet gick hela vägen till ett ja.
+  if (outcome === "MEETING_BOOKED") return null;
   // Fel beslutsfattare: ingen följdfråga. "Varför nej?" har inget svar när
   // erbjudandet aldrig nådde fram, och att fråga ändå lär säljaren att klicka
   // bort rutan. Ett tryck, sen nästa samtal.
