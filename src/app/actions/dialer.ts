@@ -2,7 +2,7 @@
 
 import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
-import { bind, arPostgres } from "@/lib/sql";
+import { bind, arPostgres, toIso } from "@/lib/sql";
 import { requireAuth } from "@/lib/auth";
 import { requireLeadAccess } from "@/lib/guard";
 import { canAccessList, claimCutoff, isAdminUser } from "@/lib/lists";
@@ -410,21 +410,6 @@ export type DeckStatus = {
 };
 
 /**
- * SQLite-datum till ISO.
- *
- * Prisma lagrar DateTime i SQLite som texten `2026-08-26 09:15:00` — utan
- * tidszon, men alltid i UTC. `new Date("2026-08-26 09:15:00")` i webbläsaren
- * läser den som *lokal* tid och skulle visa klockan två timmar fel på sommaren.
- * Raka SQL-skrivningar i den här filen lägger i stället in fullständig ISO, så
- * båda formaten förekommer i samma kolumn och funktionen måste tåla det.
- */
-function toIso(raw: string | null): string | null {
-  if (!raw) return null;
-  if (raw.includes("T")) return raw;
-  return `${raw.replace(" ", "T")}Z`;
-}
-
-/**
  * Räknar upp varför inga fler leads delas ut.
  *
  * Skriven för att en enda mening i cockpitens tomläge ljög: den sa att resten
@@ -519,7 +504,7 @@ export async function deckStatus(listId: string | null): Promise<DeckStatus> {
     GROUP BY reason
   `;
 
-  const rows = await db.$queryRawUnsafe<{ reason: string; n: bigint | number; next_at: string | null }[]>(
+  const rows = await db.$queryRawUnsafe<{ reason: string; n: bigint | number; next_at: Date | string | null }[]>(
     bind(sql),
     nowIso,
     cutoffIso,

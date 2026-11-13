@@ -45,3 +45,27 @@ export function bind(sql: string): string {
   let n = 0;
   return sql.replace(/\?/g, () => `$${++n}`);
 }
+
+/**
+ * Ett datum ur rå SQL till ISO.
+ *
+ * På Postgres (sedan 2026-09-30) lämnar Prisma ett `Date`. Funktionen tog bara
+ * emot strängar, och `raw.includes` kastade då ett TypeError. Därför föll
+ * `deckStatus` med 500 så fort ett enda bolag i mappen vilade, och tomläget
+ * kunde inte förklara varför kön var slut. Upptäckt i produktionsprovet av
+ * möten 2026-11-13.
+ *
+ * SQLite-formen nedan står kvar:
+ *
+ * Prisma lagrar DateTime i SQLite som texten `2026-08-26 09:15:00` — utan
+ * tidszon, men alltid i UTC. `new Date("2026-08-26 09:15:00")` i webbläsaren
+ * läser den som *lokal* tid och skulle visa klockan två timmar fel på sommaren.
+ * Raka SQL-skrivningar i `actions/dialer.ts` lägger i stället in fullständig ISO, så
+ * båda formaten förekommer i samma kolumn och funktionen måste tåla det.
+ */
+export function toIso(raw: Date | string | null): string | null {
+  if (!raw) return null;
+  if (raw instanceof Date) return Number.isNaN(raw.getTime()) ? null : raw.toISOString();
+  if (raw.includes("T")) return raw;
+  return `${raw.replace(" ", "T")}Z`;
+}

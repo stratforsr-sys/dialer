@@ -34,6 +34,7 @@ import {
 } from "../src/lib/cockpit-flow.ts";
 import { utfallAv, utfallText, UTFALL_ORDNING } from "../src/lib/utfall.ts";
 import { deckState, deckStateLabel, isOutOfRotation } from "../src/lib/deck-state.ts";
+import { toIso } from "../src/lib/sql.ts";
 
 let pass = 0, fail = 0;
 function check(name: string, cond: boolean, detail = "") {
@@ -357,6 +358,21 @@ console.log("\nDäckets spegling — mappen ska säga samma sak som däcket");
   check("spärrlistan går före mötet", deckState({ ...lead, meetingAt: at, dnc: { expiresAt: null } }, 8, NU).state === "dnc");
   check("utan möte: oförändrat beteende", deckState(lead, 8, NU).state === "callable");
   check("meetingAt som ISO-sträng fungerar", deckState({ ...lead, meetingAt: at.toISOString() }, 8, NU).state === "meeting");
+}
+
+// ── toIso: deckStatus föll på ett Date från Postgres ────────────────────────
+{
+  console.log("\ntoIso (tomlägets nästa-tid)");
+  const d = new Date("2026-11-13T15:30:00.000Z");
+  let kastade = false;
+  let ut: string | null = null;
+  try { ut = toIso(d); } catch { kastade = true; }
+  check("ett Date från Postgres kastar inte", !kastade);
+  check("ett Date blir ISO med Z", ut === "2026-11-13T15:30:00.000Z", String(ut));
+  check("ett ogiltigt Date blir null", toIso(new Date("x")) === null);
+  check("SQLite-text utan zon läses som UTC", toIso("2026-08-26 09:15:00") === "2026-08-26T09:15:00Z");
+  check("ISO-text går igenom orörd", toIso("2026-08-26T09:15:00.000Z") === "2026-08-26T09:15:00.000Z");
+  check("null blir null", toIso(null) === null);
 }
 
 console.log(`\n${pass} godkända, ${fail} underkända\n`);

@@ -88,6 +88,13 @@ gröna. De tre röda gav två rättelser i en andra commit:
   mötesbygget.
 - Det tredje röda steget var provets eget fel: B öppnade bolaget medan A hade
   det uppe, och fick rätt besked ("reserverat").
+- **Varvet efter visade varför förklaringen aldrig syntes: `deckStatus` gav
+  500.** `toIso` anropade `raw.includes("T")`. Prisma på Postgres lämnar ett
+  `Date`, så den kastade så fort ett bolag i mappen vilade, och det gör
+  nästan alltid något. Tomläget har därför troligen bara visat "Inga fler leads
+  är ringbara" sedan Neon-flytten 2026-09-30. `toIso` tål nu `Date` och ligger
+  i `src/lib/sql.ts` med egna prov. Inga fler råa frågor tar emot datum som
+  strängar (sökt).
 
 ---
 

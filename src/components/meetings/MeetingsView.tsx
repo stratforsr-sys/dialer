@@ -363,11 +363,11 @@ function Row({
       data-meeting-id={m.id}
     >
       {/* Tiden — det man läser först */}
-      <div className="w-[92px] shrink-0 pt-[1px]">
+      <div className="w-[108px] shrink-0 pt-[1px]">
         <p className="text-[14px] font-semibold mono-nums" style={{ color: attention ? "var(--danger)" : "var(--text)" }}>
           {formatTime(m.scheduledAt)}
         </p>
-        <p className="text-[11px] mono-nums" style={{ color: "var(--text-dim)" }}>
+        <p className="text-[11px] mono-nums whitespace-nowrap" style={{ color: "var(--text-dim)" }}>
           –{formatTime(end)} · {m.durationMin} min
         </p>
         {(attention || resolved) && (
